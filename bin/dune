@@ -1,5 +1,5 @@
 (executable
  (name main)
- (libraries sandbox_hello core)
+ (libraries jsip_parsing core)
  (preprocess
   (pps ppx_jane)))

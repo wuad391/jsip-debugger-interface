@@ -4,13 +4,13 @@
 
 (maintainers "TODO")
 
-(authors "TODO")
+(authors "Clara Yee and Robyn Wu")
 
 (license MIT)
 
 (package
- (name sandbox)
- (synopsis "A blank OCaml project in the Jane Street style")
+ (name jsip-debugger-interface)
+ (synopsis "An interface for examining the behavior of OCaml programs")
  (depends
   (ocaml
    (>= 5.2.0))

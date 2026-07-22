@@ -1,0 +1,6 @@
+(library
+ (name jsip_types)
+ (public_name jsip-debugger-interface.jsip_types)
+ (libraries core)
+ (preprocess
+  (pps ppx_jane)))
