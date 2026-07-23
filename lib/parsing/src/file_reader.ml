@@ -87,8 +87,8 @@ let read_file file_path =
   let channel = In_channel.open_text file_path in
   let rec read_until_empty =
     match In_channel.input_line channel with
-    | Some line -> Printf.printf line
-    | None -> In_channel.close channel
+    | Some line -> parse_line line; read_until_empty
+    | None -> In_channel.close channel; ()
   in
   read_until_empty
 ;;
