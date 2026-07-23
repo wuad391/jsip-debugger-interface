@@ -20,4 +20,4 @@ val char_end : t -> int
 val char_range : t -> int * int
 
 (* the rest. added this comment so format stops smushing above *)
-val create : file:string -> line:int -> char_range:int * int -> t
+val create : file_path:string -> line_number:int -> char_range:int * int -> t
