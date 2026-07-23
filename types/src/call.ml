@@ -2,11 +2,17 @@ open! Core
 
 type t =
   { depth : int
-  ; function_info : Function.t
+  ; function_info : Function_info.t
   ; location : Location.t
   ; arguments : Argument.t list
   ; call_range : int * int
   }
 
-(* the empty, default call to be populated later *)
-val empty : t
+let empty =
+  { depth = 0
+  ; function_info = Function_info.Unnamed "default"
+  ; location = Location.create ~file:"none" ~line:0 ~char_range:(0, 0)
+  ; arguments = []
+  ; call_range = 0, 0
+  }
+;;

@@ -8,13 +8,7 @@
 
 open! Core
 
-module T : sig
-  type t =
-    | Function_name of string
-    | Unnamed of string
-  [@@deriving sexp, bin_io, compare, equal, hash]
-end
-
-include T
-include Comparable.S with type t := t
-include Hashable.S with type t := t
+type t =
+  | Function_name of string
+  | Unnamed of string
+[@@deriving sexp, bin_io, compare, equal, hash]

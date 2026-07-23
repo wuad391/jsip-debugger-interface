@@ -8,4 +8,5 @@ type t =
   ; call_range : int * int
   }
 
-let empty = {depth=0; function_info=Function_info.Unnamed "default"; location=}
+(* the empty, default call to be populated later *)
+val empty : t
