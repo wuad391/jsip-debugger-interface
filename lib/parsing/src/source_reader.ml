@@ -8,7 +8,7 @@ let parse_line source_file line idx =
 ;;
 
 let read_source source_file file_path =
-  let channel = In_channel.open_text file_path in
+  let channel = In_channel.open_text file _path in
   let idx = ref 0 in
   let rec read_until_empty () =
     match In_channel.input_line channel with
