@@ -1,5 +1,5 @@
 (executable
  (name main)
- (libraries jsip_parsing core)
+ (libraries jsip_parsing jsip_types core)
  (preprocess
   (pps ppx_jane)))
