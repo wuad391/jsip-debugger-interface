@@ -1,0 +1,5 @@
+{FUNCTION(function_name:[generate_string2]) ARGUMENTS((LABEL:[NO_LABEL NONE],ARGUMENT:[generate_string "robyn"])) LOCATION(File "./.tmp_files/tmp.ml", line 4, characters 0-44)
+{FUNCTION(function_name:[generate_string]) ARGUMENTS((LABEL:[NO_LABEL NONE],ARGUMENT:["robyn"])) LOCATION(File "./.tmp_files/tmp.ml", line 4, characters 18-43)
+{FUNCTION(function_name:[(^)]) ARGUMENTS((LABEL:[NO_LABEL NONE],ARGUMENT:["hello "]),(LABEL:[NO_LABEL NONE],ARGUMENT:[s])) LOCATION(File "./.tmp_files/tmp.ml", line 1, characters 24-36)
+}}{FUNCTION(function_name:[(^)]) ARGUMENTS((LABEL:[NO_LABEL NONE],ARGUMENT:["hi "]),(LABEL:[NO_LABEL NONE],ARGUMENT:[s])) LOCATION(File "./.tmp_files/tmp.ml", line 2, characters 25-34)
+}}

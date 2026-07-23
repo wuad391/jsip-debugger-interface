@@ -1,13 +1,12 @@
-(*=type t = [
-  { depth : 
-  function : 
-  location : 
-  argument : 
-  call_range : [] }
-  ] *)
+open! Core
 
-(* - make compiler display indentation depth
+type t =
+  { depth : int
+  ; function_info : Function.t
+  ; location : Location.t
+  ; arguments : Argument.t list
+  ; call_range : int * int
+  }
 
-   - parsing
-   - figure out types here .
-   - think abt json or sexp-ing instead of straight txt *)
+(* the empty, default call to be populated later *)
+val empty : t

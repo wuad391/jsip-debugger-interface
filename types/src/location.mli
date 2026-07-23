@@ -6,4 +6,8 @@
 
 open! Core
 
-type t [@@deriving sexp, bin_io]
+module T : sig
+  type t
+end
+
+include T
