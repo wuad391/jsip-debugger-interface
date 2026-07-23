@@ -8,7 +8,7 @@ module T = struct
   | Unnamed of {
     function_content : string
   }
-  [@@deriving sexp, bin_io]
+  [@@deriving sexp, bin_io, , compare, equal, hash, string]
 end
 
 include T

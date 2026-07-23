@@ -3,7 +3,7 @@
     Used for tracking function calls and associating calls with 
     their related code file.
 
-    We use a single [Function] type with a unique string name. *)
+    We use a variant [Function] type with either a unique string name or the function's whole body*)
 
 open! Core
 

@@ -3,3 +3,4 @@
     Foundational data — functions calls, arguments etc. — used by every other layer. *)
 
 module Function = Function
+module Argument = Argument
