@@ -2,11 +2,9 @@ open! Core
 
 module T = struct
   type t =
-  | Function_name of 
-    function_name : string
-  | Unnamed of 
-    function_content : string
-  [@@deriving sexp, bin_io, , compare, equal, hash, string]
+    | Function_name of string
+    | Unnamed of string
+  [@@deriving sexp, bin_io, compare, equal, hash]
 end
 
 include T

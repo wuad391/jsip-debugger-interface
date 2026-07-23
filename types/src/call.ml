@@ -1,14 +1,13 @@
-type t =
-{
-  depth : 
+(*=type t = [
+  { depth : 
   function : 
-  location :
+  location : 
   argument : 
-  call_range : []
-}
+  call_range : [] }
+  ] *)
 
+(* - make compiler display indentation depth
 
-(* - make compiler display indentation depth 
-- parsing
-- figure out types here . 
-- think abt json or sexp-ing instead of straight txt *)
+   - parsing
+   - figure out types here .
+   - think abt json or sexp-ing instead of straight txt *)
