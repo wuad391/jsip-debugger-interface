@@ -2,6 +2,8 @@ open! Core
 open Jsip_types
 open Scanf
 
+
+
 (** takes in section inside functions and parses it*)
 (* looks like: "function_category:[%a]"*)
 let parse_function function_input = 
@@ -41,6 +43,13 @@ let parse_arguments args =
   in
   reverse [] (traverse_args [] args)
 ;;
+
+(* takes in a string representing the location of the function call in the file and parses it*)
+(* looks like: "LOCATION(File "./.tmp_files/tmp.ml", line 2, characters 24-56)"*)
+let parse_location location = 
+  match sscanf_opt line "LOCATION(File %[^,], line %d, characters)" (fun with 
+  | 
+  (fun file_name, line_num, char_range ->)
 
 (** takes in a string representing a function call and parses it*)
 (* looks like: "FUNCTION(...) ARGUMENTS(...) LOCATION(...)"*)
