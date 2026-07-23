@@ -5,7 +5,4 @@
 open! Core
 open Jsip_parsing
 
-let () =
-  let path = "./dummy.txt"
-  File_reader.read_file path
-;;
+File_reader.read_until_empty "./dummy.txt"

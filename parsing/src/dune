@@ -1,6 +1,6 @@
 (library
  (name jsip_parsing)
  (public_name jsip-debugger-interface.jsip_parsing)
- (libraries core)
+ (libraries core jsip_types)
  (preprocess
   (pps ppx_jane)))
