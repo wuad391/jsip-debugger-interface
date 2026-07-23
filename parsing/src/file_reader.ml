@@ -20,19 +20,19 @@ let parse_function function_input =
 (* looks like: "[(LABEL:[%s],ARGUMENT:[%s]), ...]"*)
 let parse_arguments args = 
   let parse_argument arg = 
-    match sscanf arg "(LABEL:[{%[^}]}{%[^}]}],ARGUMENT:[%[^]]])" 
+    match sscanf_opt arg "(LABEL:[{%[^}]}{%[^}]}],ARGUMENT:[%[^]]])" 
     (fun arg_label label_info arg_info -> (arg_label, label_info, arg_info)) with 
-    | Ok (arg_label, label_info, arg_info) -> 
-        match function_category with 
+    | Some (arg_label, label_info, arg_info) -> 
+        (match function_category with 
           | "NO_LABEL" -> Some ({expression = arg_info} : Argument.No_label.t)
           | "LABELLED" -> Some ({label = label_info; expression = arg_info} : Argument.Labelled.t)
           | "OPTIONAL" -> Some ({label = label_info; expression = arg_info} : Argument.Optional.t)
-          | _ -> None
-    | Error _ -> None
+          | _ -> None)
+    | None -> None
   in
   let rec traverse_args acc unparsed_args = match unparsed_args with 
     | [] -> acc
-    | first_arg::unparsed_args -> match (parse_argument first) with 
+    | first_arg::unparsed_args -> match (parse_argument first_arg) with 
       | Some arg -> traverse_args arg::acc unparsed_args
       | None -> traverse_args acc unparsed_args
   in 
@@ -56,13 +56,13 @@ let parse_location location =
 (** takes in a string representing a function call and parses it*)
 (* looks like: "FUNCTION(...) ARGUMENTS(...) LOCATION(...)"*)
 let parse_line line = 
-  match sscanf line "FUNCTION(%[^)]) ARGUMENTS(%[^)]) LOCATION(%[^)])" 
+  match sscanf_opt line "FUNCTION(%[^)]) ARGUMENTS(%[^)]) LOCATION(%[^)])" 
   (fun function_name arguments location -> (function_name, arguments, location)) with 
-  | Ok (function_name, arguments, location) -> 
+  | Some (function_name, arguments, location) -> (
       parse_function function_name;
       parse_arguments String.split_on_char ',' arguments;
-      parse_location location
-  | Error _ -> ()
+      parse_location location)
+  | None -> ()
 
 (* reads a file line by line until it is empty *)
 let read_file file_path = 
