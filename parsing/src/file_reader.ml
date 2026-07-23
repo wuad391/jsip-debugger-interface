@@ -31,6 +31,15 @@ let parse_arguments args =
     | Error _ -> None
     )
   in
+  let rec traverse_args acc unparsed_args = match unparsed_args with 
+    | [] -> acc
+    | first_arg::unparsed_args -> traverse_args (parse_argument first)::acc unparsed_args
+  in 
+  let rec reverse acc list = match list with 
+    | [] -> acc
+    | hd::tl -> reverse (hd::acc) tl
+  in
+  reverse [] (traverse_args [] args)
 ;;
 
 (** takes in a string representing a function call and parses it*)
