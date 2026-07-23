@@ -5,46 +5,29 @@ open Scanf
 
 (* looks like: "function_category:[%a]"*)
 
-(** takes in section inside functions and parses it *)
-let parse_function function_input =
-  match
-    sscanf_opt
-      function_input
-      "%[^:]:[%[^]]]"
-      (fun function_category function_info ->
-         function_category, function_info)
-  with
-  | Some (function_category, function_info) ->
-    (match function_category with
-     | "function_name" -> Some (function_info : Function.Function_name.t)
-     | "unnamed" -> Some (function_info : Function.Unnamed.t)
-     | _ -> None)
+let parse_function function_input = 
+  match sscanf_opt function_input "%[^:]:[%[^]]]" 
+  (fun function_category function_data -> (function_category, function_data)) with 
+  | Some (function_category, function_data) -> ( 
+      match function_category with 
+        | "function_name" -> Some (Function_info.Function_name function_data)
+        | "unnamed" -> Some (Function_info.Unnamed function_data)
+        | _ -> None
+      )
   | None -> None
 ;;
 
 (* looks like: "[(LABEL:[%s],ARGUMENT:[%s]), ...]"*)
-(** takes in a list of strings representing arguments and parses it *)
-let parse_arguments args =
-  let parse_argument arg =
-    match
-      sscanf_opt
-        arg
-        "(LABEL:[{%[^}]}{%[^}]}],ARGUMENT:[%[^]]])"
-        (fun arg_label label_info arg_info ->
-           arg_label, label_info, arg_info)
-    with
-    | Some (arg_label, label_info, arg_info) ->
-      (match function_category with
-       | "NO_LABEL" -> Some ({ expression = arg_info } : Argument.No_label.t)
-       | "LABELLED" ->
-         Some
-           ({ label = label_info; expression = arg_info }
-            : Argument.Labelled.t)
-       | "OPTIONAL" ->
-         Some
-           ({ label = label_info; expression = arg_info }
-            : Argument.Optional.t)
-       | _ -> None)
+let parse_arguments args = 
+  let parse_argument arg = 
+    match sscanf_opt arg "(LABEL:[{%[^}]}{%[^}]}],ARGUMENT:[%[^]]])" 
+    (fun arg_label label_info arg_info -> (arg_label, label_info, arg_info)) with 
+    | Some (arg_label, label_info, arg_info) -> 
+        (match arg_label with 
+          | "NO_LABEL" -> Some (Argument.No_label {expression = arg_info})
+          | "LABELLED" -> Some ({label = label_info; expression = arg_info} : Argument.Labelled.t)
+          | "OPTIONAL" -> Some ({label = label_info; expression = arg_info} : Argument.Optional.t)
+          | _ -> None)
     | None -> None
   in
   let rec traverse_args acc unparsed_args =
