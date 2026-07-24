@@ -1,6 +1,5 @@
 open! Core
 open Jsip_types
-open In_channel
 open Scanf
 
 (* looks like: "function_category:[%a]"*)
@@ -26,7 +25,7 @@ let parse_arguments args =
     match
       sscanf_opt
         arg
-        "LABEL:[{%[^}]}{%[^}]}],ARGUMENT:[%[^]]]"
+        "LABEL:[{%[^}]}{%[^}]}] ARGUMENT:[%[^]]]"
         (fun arg_label label_info arg_info ->
            arg_label, label_info, arg_info)
     with
@@ -59,7 +58,7 @@ let parse_arguments args =
     | first_arg :: unparsed_args ->
       (match parse_argument first_arg with
        | Some arg -> traverse_args (arg :: acc) unparsed_args
-       | None -> failwith "Internal Parsing error")
+       | None -> failwith "DUMP READER: Internal Argument Parsing error")
   in
   let rec reverse acc list =
     match list with [] -> acc | hd :: tl -> reverse (hd :: acc) tl
@@ -124,16 +123,16 @@ let parse_line
      | depth_update, Some function_info, args_list, Some location ->
        current_depth := !current_depth + !depth_update;
        store_data !current_depth function_info args_list location
-     | _ -> failwith "Internal Parsing error")
-  | None -> failwith "ERROR file_reader = inputted parse line is incorrect"
+     | _ -> failwith "DUMP READER: Internal Parsing error")
+  | None ->
+    (match !current_depth + !(depth_change line) with
+     (* ending line will be brackets indicating the depth returning *)
+     | 0 -> current_depth := !current_depth + !(depth_change line)
+     | _ -> failwith "DUMP READER: Incorrect file ending!")
 ;;
 
 (* reads a file line by line until it is empty *)
-let read_until_empty
-  file_path
-  (store_data :
-    int -> Function_info.t -> Argument.t list -> Location.t -> unit)
-  =
+let read_until_empty file_path ~store_data =
   let current_depth = ref 0 in
   In_channel.with_file file_path ~f:(fun channel ->
     In_channel.iter_lines channel ~f:(fun line ->

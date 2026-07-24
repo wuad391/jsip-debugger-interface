@@ -11,7 +11,8 @@ type t =
 let empty =
   { depth = 0
   ; function_info = Function_info.Unnamed "default"
-  ; location = Location.create ~file:"none" ~line:0 ~char_range:(0, 0)
+  ; location =
+      Location.create ~file_path:"none" ~line_number:0 ~char_range:(0, 0)
   ; arguments = []
   ; call_range = 0, 0
   }

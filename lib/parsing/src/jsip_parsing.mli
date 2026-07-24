@@ -1,5 +1,6 @@
 (** The debugger parsing handlers
 
-   Helpers to manage parsing compiler outputs into data usable for the interface *)
+    Helpers to manage parsing compiler outputs into data usable for the
+    interface *)
 
-module File_reader = File_reader
+module Dump_reader = Dump_reader

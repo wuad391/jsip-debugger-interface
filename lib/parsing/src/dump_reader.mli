@@ -7,9 +7,6 @@ open Jsip_types
     the values until empty *)
 val read_until_empty
   :  string
-  -> (store_data:int
-      -> Function_info.t
-      -> Argument.t list
-      -> Location.t
-      -> unit)
+  -> store_data:
+       (int -> Function_info.t -> Argument.t list -> Location.t -> unit)
   -> unit

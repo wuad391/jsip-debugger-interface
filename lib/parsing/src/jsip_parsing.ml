@@ -1,1 +1,1 @@
-module File_reader = File_reader
+module Dump_reader = Dump_reader
