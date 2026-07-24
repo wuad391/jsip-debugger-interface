@@ -8,16 +8,8 @@ let parse_line source_file line idx =
 ;;
 
 let read_source source_file file_path =
-  let channel = In_channel.open_text file _path in
   let idx = ref 0 in
-  let rec read_until_empty () =
-    match In_channel.input_line channel with
-    | Some line ->
-      parse_line source_file line idx;
-      read_until_empty ()
-    | None ->
-      In_channel.close channel;
-      ()
-  in
-  read_until_empty
+  In_channel.with_file file_path ~f:(fun channel ->
+    In_channel.iter_lines channel ~f:(fun line ->
+      parse_line source_file line idx))
 ;;
