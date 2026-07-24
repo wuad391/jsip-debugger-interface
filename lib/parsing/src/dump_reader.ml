@@ -129,7 +129,7 @@ let parse_line
 ;;
 
 (* reads a file line by line until it is empty *)
-let read_file
+let read_until_empty
   file_path
   (store_data :
     int -> Function_info.t -> Argument.t list -> Location.t -> unit)
