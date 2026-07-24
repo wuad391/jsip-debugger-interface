@@ -103,8 +103,7 @@ let depth_change depth_update =
 let parse_line
   line
   (current_depth : int ref)
-  (store_data :
-    int -> Function_info.t -> Argument.t list -> Location.t -> unit)
+  (store_data : Call.Info.t -> unit)
   =
   match
     sscanf_opt
@@ -120,9 +119,11 @@ let parse_line
        , parse_arguments (String.split ~on:';' arguments)
        , parse_location location )
      with
-     | depth_update, Some function_info, args_list, Some location ->
+     | depth_update, Some function_info, arguments, Some location ->
        current_depth := !current_depth + !depth_update;
-       store_data !current_depth function_info args_list location
+       store_data
+         ({ depth = !current_depth; function_info; arguments; location }
+          : Call.Info.t)
      | _ -> failwith "DUMP READER: Internal Parsing error")
   | None ->
     (match !current_depth + !(depth_change line) with

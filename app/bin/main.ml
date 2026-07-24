@@ -1,12 +1,17 @@
 open! Core
+open Jsip_types
 open Jsip_parsing
 
-let main ~dump_file () =
-  let call_stack = Call_stack.create ~size in
-  File_reader.read_until_empty ~dump:dump_file ~call_stack
+let main file_path =
+  (* initially parse all the content *)
+  let temp_queue = Queue.create () in
+  let store_temp_state (temp_data : Call.Info.t) =
+    Queue.enqueue temp_queue temp_data
+  in
+  Dump_reader.read_until_empty file_path ~store_data:store_temp_state
 ;;
 
-let command =
+(*=let command =
   Command.async
     ~summary:"Bonsai_term visual debugger"
     (let%map_open.Command dump_file =
@@ -18,4 +23,4 @@ let command =
      in
      fun () -> main ~dump_file)
   |> Command_unix.run
-;;
+;;*)

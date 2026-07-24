@@ -5,8 +5,4 @@ open Jsip_types
 
 (** Takes in a file path in the form of [./folder/file_name] and reads all
     the values until empty *)
-val read_until_empty
-  :  string
-  -> store_data:
-       (int -> Function_info.t -> Argument.t list -> Location.t -> unit)
-  -> unit
+val read_until_empty : string -> store_data:(Call.Info.t -> unit) -> unit
