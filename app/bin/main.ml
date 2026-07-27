@@ -8,7 +8,10 @@ let main file_path =
   let store_temp_state (temp_data : Call.Info.t) =
     Queue.enqueue temp_queue temp_data
   in
-  Dump_reader.read_until_empty file_path ~store_data:store_temp_state
+  Dump_reader.read_until_empty file_path ~store_data:store_temp_state;
+  (* create call_stack *)
+  let call_stack = Call_stack.create temp_queue in
+  ()
 ;;
 
 (*=let command =
