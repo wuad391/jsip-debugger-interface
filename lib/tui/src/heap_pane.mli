@@ -1,11 +1,12 @@
 (** The heap pane: the current event's walked structure as a tree.
 
-    Value fields sit inline in each node's line; pointer slots
-    ({!Jsip_types.Snapshot.Ds_type.pointer_labels}) draw as labeled edges —
-    [∅] where the runtime kept an immediate, a subtree where a block was
-    walked. Nodes whose address first appeared at this step get the mockup's
-    "freshly allocated" treatment. A [live] strip along the top shows the
-    event's registry — every tracked structure still alive.
+    Value fields sit inline in each node's line; pointer slots (the emitter's
+    masked-layout contract, {!Jsip_types.Snapshot.Ds_type.masked_labels})
+    draw as labeled edges — [∅] where the runtime kept an empty immediate, a
+    subtree where a block was walked. Queue cells' numeric wire labels print
+    as [v]/[next]. Nodes whose address first appeared at this step get the
+    mockup's "freshly allocated" treatment. A [live] strip along the top
+    shows the event's registry — every tracked structure still alive.
 
     {v
     live  1↦0x1a0  2↦0x2b0

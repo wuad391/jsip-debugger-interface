@@ -12,20 +12,21 @@ Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells:
 
 ```
- ● ocaml-debug │ maps.dump │ map · replay                      PHASE DESCEND │ STEP 4/7
-┌ CALL STACK ────────────────────── 3 live ┐┌ HEAP ───────────── map · 1 nodes · 1 new ┐
-│  M.add "gamma" 3 t             maps.ml:6 ││ live  1↦0x3a0                            │
-│ ▎  M.add "gamma" 3 OMITTED     maps.ml:6 ││                                          │
-│      M.add "gamma" 3 OMITTED   maps.ml:6 ││ ● 0x4c0  v="gamma"  d=3  h=1  new        │
-└───────────────────────────────────────────┘│ ├─l→ ∅                                   │
-┌ SOURCE ─────────────── maps.ml · 8 lines ┐│ └─r→ ∅                                   │
-│    5 let t = M.of_list [ "beta", 2; ...  ││                                          │
-│ ▎  6 let t' = M.add "gamma" 3 t          ││                                          │
-│    7 let t'' = M.remove "beta" t'        ││                                          │
-└───────────────────────────────────────────┘└──────────────────────────────────────────┘
-────────────────────────────────────────────────────────────────────────────────────────
- ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━
- ◂ back  step ▸  ⏵ play  │ ▎ M.add "gamma" 3 OMITTED — maps.ml:6    ◂ ▸ step · q quit
+ ● ocaml-debug │ map_fold.dump │ map · replay                       PHASE STEP │ STEP 4/5
+┌ CALL STACK ───────────────────── 2 live ┐┌ HEAP ──────────────── map · 2 nodes · 2 new ┐
+│ ▎M.add "a" 1 (M.add "b" 2 M.empty) ...  ││ live  1↦0x71a0e25f19e8  2↦0x71a0e25ee868 ...│
+│    M.add k (v * 2) acc   map_fold.ml:12 ││                                             │
+│                                         ││ ● 0x71a0e25e6a58  v="a"  d=2  new           │
+└─────────────────────────────────────────┘│ ├─l→ ∅                                      │
+┌ SOURCE ───────── map_fold.ml · 11 lines ┐│ └─r→ ● 0x71a0e25e6a88  v="b"  d=4  new      │
+│    7 let () =                           ││      ├─l→ ∅                                 │
+│ ▎  8   let m = M.add "a" 1 (M.add "b"...││      └─r→ ∅                                 │
+│    9   let doubled = M.fold (fun k v ...││                                             │
+│   10   ignore (M.find "a" doubled)      ││                                             │
+└─────────────────────────────────────────┘└─────────────────────────────────────────────┘
+──────────────────────────────────────────────────────────────────────────────────────────
+ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━
+ ◂ back  step ▸  ⏵ play  │ ▎ M.add k (v * 2) acc — map_fold.ml:12    ◂ ▸ step · q quit
 ```
 
 - **Call stack** — the frames live at this step, nested by depth; `↑`/`↓`
@@ -43,11 +44,14 @@ interface is the design mockup's layout in terminal cells:
 ## Run it
 
 ```sh
-dune exec app/bin/main.exe -- -dump-file demo/maps.dump
+dune exec app/bin/main.exe -- -dump-file testing/expected/map_nested.dump
 ```
 
-`-source-root DIR` says where the dump's relative source paths live
-(default: the dump's directory). Keys: `◂`/`▸` (also `h`/`l`, `p`/`n`)
+`testing/` holds golden dumps of real `-visual-replay` runs, vendored
+verbatim from the compiler repo (see `testing/README.md`) — any of them
+replays. `-source-root DIR` says where the dump's relative source paths
+live (default: the current directory; the golden dumps' paths resolve
+from the repo root). Keys: `◂`/`▸` (also `h`/`l`, `p`/`n`)
 step · `space` play/pause · `↑`/`↓` frame · `g`/`G` ends · `PgUp`/`PgDn`
 scroll heap · `q` quit.
 
@@ -78,7 +82,7 @@ lib/parsing/   dump reader (depth markers + event sexps) and source loader
 lib/replay/    the replay model: per-step frames, fresh addresses, captions
 lib/tui/       the bonsai_term interface: panes, theme, layout, app
 app/bin/       the executable
-demo/          a hand-written dump + matching source to try the interface on
+testing/       golden dumps + their programs, vendored from the compiler repo
 ```
 
 Each `lib/<x>/` has `src/` and `test/`; tests are expect tests

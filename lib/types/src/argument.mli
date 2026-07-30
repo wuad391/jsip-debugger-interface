@@ -20,5 +20,6 @@ type t =
 [@@deriving sexp, bin_io]
 
 (** The argument as it would read at the call site: bare, [~label:expr], or
-    [?label:expr]. *)
+    [?label:expr]; the compiler spells an argument the application was
+    abstracted over [OMITTED], which displays as [_]. *)
 val display : t -> string

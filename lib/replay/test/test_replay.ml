@@ -3,72 +3,17 @@ open Jsip_types
 open Jsip_parsing
 open Jsip_replay
 
-(* a nested dump: [M.of_list] calls [M.add] (depth 2), then [M.remove] runs
-   at depth 1. Event 2's root is event 3's root too, so step 2 allocates
-   nothing new. *)
-let nested_dump =
-  {|{(event (id 1) (loc ((file_path dir/maps.ml) (line_number 4) (char_range (10 23)))) (fn (Function_name M.of_list)) (args ((No_label (expression (Unnamed "[\"a\", 1]"))))) (registry ((1 0x1a0))) (snapshot ((ds_type Map) (root_node ((virtual_address 0x1a0) (block ((v (String a)) (d (Int 1)))) (children ()))))))
-{(event (id 2) (loc ((file_path dir/maps.ml) (line_number 9) (char_range (2 15)))) (fn (Function_name M.add)) (args ((No_label (expression (Unnamed "\"b\""))) (Labelled (label data) (expression (Unnamed 2))))) (registry ((1 0x1a0) (2 0x2b0))) (snapshot ((ds_type Map) (root_node ((virtual_address 0x2b0) (block ((v (String a)) (d (Int 1)))) (children (((virtual_address 0x2b8) (block ((v (String b)) (d (Int 2)))) (children ())))))))))
-}}{(event (id 3) (loc ((file_path dir/maps.ml) (line_number 5) (char_range (10 24)))) (fn (Function_name M.remove)) (args ((No_label (expression (Unnamed "\"a\""))))) (registry ((1 0x1a0) (2 0x2b0) (3 0x2b8))) (snapshot ((ds_type Map) (root_node ((virtual_address 0x2b8) (block ((v (String b)) (d (Int 2)))) (children ()))))))
-}|}
-;;
-
-let replay_of_dump dump =
-  let file = "replay_dump.txt" in
-  Out_channel.write_all file ~data:dump;
+(* every dump here is a golden fixture — verbatim compiler output vendored
+   under testing/expected/ (see testing/README.md) *)
+let replay_of_fixture name =
   let parsed_info = Queue.create () in
-  Dump_reader.read_until_empty file ~store_data:(Queue.enqueue parsed_info);
+  Dump_reader.read_until_empty
+    [%string "../../../testing/expected/%{name}.dump"]
+    ~store_data:(Queue.enqueue parsed_info);
   Replay.create (Call_stack.create ~parsed_info)
 ;;
 
-let%expect_test "per-step frames, descriptions, and fresh addresses" =
-  let replay = replay_of_dump nested_dump in
-  List.iter
-    (List.init (Replay.length replay) ~f:Fn.id)
-    ~f:(fun step ->
-      let { Replay.Step.call = _; frames; new_addresses; description } =
-        Replay.step_exn replay ~step
-      in
-      let frames =
-        List.map frames ~f:(fun frame ->
-          Function_info.display frame.info.function_info)
-        |> String.concat ~sep:" > "
-      in
-      let fresh =
-        Set.to_list new_addresses
-        |> List.map ~f:Snapshot.Address.display
-        |> String.concat ~sep:" "
-      in
-      print_endline [%string "%{step#Int}: %{description}"];
-      print_endline [%string "   stack: %{frames}"];
-      print_endline [%string "   fresh: %{fresh}"]);
-  [%expect
-    {|
-    0: M.of_list ["a", 1] — maps.ml:4
-       stack: M.of_list
-       fresh: 0x1a0
-    1: M.add "b" ~data:2 — maps.ml:9
-       stack: M.of_list > M.add
-       fresh: 0x2b0 0x2b8
-    2: M.remove "a" — maps.ml:5
-       stack: M.remove
-       fresh:
-    |}]
-;;
-
-let%expect_test "files come back in first-appearance order" =
-  let replay = replay_of_dump nested_dump in
-  print_s [%sexp (Replay.files replay : string list)];
-  [%expect {| (dir/maps.ml) |}]
-;;
-
-(* the checked-in demo the README points at — keep it parsing and replaying *)
-let%expect_test "the bundled demo dump replays" =
-  let parsed_info = Queue.create () in
-  Dump_reader.read_until_empty
-    "../../../demo/maps.dump"
-    ~store_data:(Queue.enqueue parsed_info);
-  let replay = Replay.create (Call_stack.create ~parsed_info) in
+let show_steps replay =
   List.iter
     (List.init (Replay.length replay) ~f:Fn.id)
     ~f:(fun step ->
@@ -79,15 +24,69 @@ let%expect_test "the bundled demo dump replays" =
       let fresh = Set.length new_addresses in
       print_endline
         [%string
-          "%{step#Int}: [%{stack#Int} live, %{fresh#Int} new] %{description}"]);
+          "%{step#Int}: [%{stack#Int} live, %{fresh#Int} new] %{description}"])
+;;
+
+let%expect_test "a nested dump stacks its frames" =
+  (* map_nested: the inner [M.add] fires at depth 2 inside the outer
+     [M.add]'s frame, so the outer call's own event only lands afterwards,
+     back at depth 1 *)
+  let replay = replay_of_fixture "map_nested" in
+  show_steps replay;
   [%expect
     {|
-    0: [1 live, 3 new] M.of_list [ "beta", 2; "delta", 1; "kappa", 4 ] — maps.ml:5
-    1: [1 live, 0 new] M.add "gamma" 3 t — maps.ml:6
-    2: [2 live, 0 new] M.add "gamma" 3 OMITTED — maps.ml:6
-    3: [3 live, 1 new] M.add "gamma" 3 OMITTED — maps.ml:6
-    4: [2 live, 1 new] M.bal OMITTED — maps.ml:6
-    5: [1 live, 1 new] M.bal OMITTED — maps.ml:6
-    6: [1 live, 1 new] M.remove "beta" t' — maps.ml:7
+    0: [1 live, 1 new] M.add "inner" 2 M.empty — map_nested.ml:5
+    1: [1 live, 2 new] M.add "outer" 1 (M.add "inner" 2 M.empty) — map_nested.ml:5
     |}]
+;;
+
+let%expect_test "map_fold interleaves depths and reuses structure" =
+  let replay = replay_of_fixture "map_fold" in
+  show_steps replay;
+  [%expect
+    {|
+    0: [1 live, 1 new] M.add "b" 2 M.empty — map_fold.ml:8
+    1: [1 live, 2 new] M.add "a" 1 (M.add "b" 2 M.empty) — map_fold.ml:8
+    2: [2 live, 1 new] M.add k (v * 2) acc — map_fold.ml:12
+    3: [2 live, 2 new] M.add k (v * 2) acc — map_fold.ml:12
+    4: [1 live, 0 new] M.fold (fun k v acc -> M.add k (v * 2) acc) m M.empty — map_fold.ml:10
+    |}]
+;;
+
+let%expect_test "a mutable queue keeps its identity while growing" =
+  let replay = replay_of_fixture "queue_basic" in
+  show_steps replay;
+  [%expect
+    {|
+    0: [1 live, 1 new] Queue.create () — queue_basic.ml:7
+    1: [1 live, 1 new] Queue.add "x" q — queue_basic.ml:8
+    2: [1 live, 1 new] Queue.add "y" q — queue_basic.ml:9
+    3: [1 live, 1 new] Queue.push "z" q — queue_basic.ml:10
+    4: [1 live, 0 new] Queue.pop q — queue_basic.ml:11
+    |}]
+;;
+
+let%expect_test "the registry drops structures the GC collected" =
+  let replay = replay_of_fixture "map_registry_gc" in
+  List.iter
+    (List.init (Replay.length replay) ~f:Fn.id)
+    ~f:(fun step ->
+      let { Replay.Step.call; _ } = Replay.step_exn replay ~step in
+      let registry =
+        List.map call.info.registry ~f:(fun (id, address) ->
+          [%string "%{id#Int}↦%{Snapshot.Address.display address}"])
+        |> String.concat ~sep:" "
+      in
+      print_endline [%string "%{step#Int}: registry %{registry}"]);
+  [%expect
+    {|
+    0: registry 1↦0x7647edff0770
+    1: registry 2↦0x7647edffffd8
+    |}]
+;;
+
+let%expect_test "files come back in first-appearance order" =
+  let replay = replay_of_fixture "map_basic" in
+  print_s [%sexp (Replay.files replay : string list)];
+  [%expect {| (testing/cases/map_basic.ml) |}]
 ;;

@@ -10,7 +10,21 @@ module Row = struct
     }
 end
 
-let node_line (node : Snapshot.Node.t) ~pointer_labels ~new_addresses ~prefix
+(* queue cells label their fields numerically on the wire (0 = content, 1 =
+   next); everything else keeps its own label *)
+let display_label ~ds_type label =
+  match (ds_type : Snapshot.Ds_type.t), label with
+  | Queue, "0" -> "v"
+  | Queue, "1" -> "next"
+  | (Map | Set | Queue), label -> label
+;;
+
+let node_line
+  (node : Snapshot.Node.t)
+  ~ds_type
+  ~edge_labels
+  ~new_addresses
+  ~prefix
   =
   let is_new = Set.mem new_addresses node.virtual_address in
   let address_attrs =
@@ -23,10 +37,12 @@ let node_line (node : Snapshot.Node.t) ~pointer_labels ~new_addresses ~prefix
   in
   let fields =
     List.filter node.block ~f:(fun (label, _) ->
-      not (List.mem pointer_labels label ~equal:String.equal))
+      not (List.mem edge_labels label ~equal:String.equal))
     |> List.concat_map ~f:(fun (label, block) ->
       [ View.text "  "
-      ; View.text ~attrs:(Theme.fg' Theme.muted) [%string "%{label}="]
+      ; View.text
+          ~attrs:(Theme.fg' Theme.muted)
+          [%string "%{display_label ~ds_type label}="]
       ; View.text
           ~attrs:(Theme.fg' Theme.text)
           (Snapshot.Block.display block)
@@ -51,9 +67,11 @@ let node_line (node : Snapshot.Node.t) ~pointer_labels ~new_addresses ~prefix
      @ chip)
 ;;
 
-(* the walked tree, mockup-style: value fields inline in the node line,
-   pointer fields ([l]/[r] for maps) as labeled edges — [∅] when the block
-   kept them inline as immediates, a child subtree when they were walked *)
+(* The walked tree, mockup-style: value fields inline in the node line and
+   pointer slots as labeled edges. Which slots edge off is the emitter's
+   masked-layout contract ({!Snapshot.Ds_type.masked_labels}): a masked label
+   present in [block] as an empty pointer draws as [∅], and each missing
+   label takes the next walked child, in order. *)
 let rec node_rows
   (node : Snapshot.Node.t)
   ~ds_type
@@ -61,49 +79,57 @@ let rec node_rows
   ~prefix
   ~rest
   =
-  let pointer_labels = Snapshot.Ds_type.pointer_labels ds_type in
+  let masked = Snapshot.Ds_type.masked_labels ds_type ~block:node.block in
+  let nil_labels = Snapshot.Ds_type.nil_labels ds_type in
+  let in_block label = List.Assoc.mem node.block label ~equal:String.equal in
+  let edge_labels =
+    (* a masked label that is either a walked child (absent) or an empty
+       pointer draws as an edge; other present labels stay inline *)
+    List.filter masked ~f:(fun label ->
+      (not (in_block label))
+      || (List.mem nil_labels label ~equal:String.equal
+          &&
+          match List.Assoc.find node.block label ~equal:String.equal with
+          | Some (Snapshot.Block.Int 0) -> true
+          | Some _ | None -> false))
+  in
   let first =
-    { Row.view = node_line node ~pointer_labels ~new_addresses ~prefix
+    { Row.view = node_line node ~ds_type ~edge_labels ~new_addresses ~prefix
     ; address = Some node.virtual_address
     }
   in
-  let edges =
-    let inline label =
-      List.Assoc.find node.block label ~equal:String.equal
-    in
-    let children = Queue.of_list node.children in
-    let labeled =
-      List.map pointer_labels ~f:(fun label ->
-        match inline label with
-        | Some block -> label, `Inline block
-        | None ->
-          (match Queue.dequeue children with
-           | Some child -> label, `Child child
-           | None -> label, `Inline (Snapshot.Block.Int 0)))
-    in
-    labeled
-    @ List.map (Queue.to_list children) ~f:(fun child -> "", `Child child)
+  let children = Queue.of_list node.children in
+  (* bind the labeled edges before flushing the queue: (@) evaluates its
+     arguments right to left, and the dequeues must come first *)
+  let labeled_edges =
+    List.map edge_labels ~f:(fun label ->
+      match in_block label with
+      | true -> label, `Nil
+      | false ->
+        (match Queue.dequeue children with
+         | Some child -> label, `Child child
+         | None -> label, `Nil))
   in
+  let unclaimed_children =
+    List.map (Queue.to_list children) ~f:(fun child -> "", `Child child)
+  in
+  let edges = labeled_edges @ unclaimed_children in
   let last_index = List.length edges - 1 in
   first
   :: List.concat_mapi edges ~f:(fun index (label, edge) ->
     let is_last = index = last_index in
     let connector = match is_last with true -> "└─" | false -> "├─" in
+    let label = display_label ~ds_type label in
     let arrow =
       match label with "" -> "→ " | label -> [%string "%{label}→ "]
     in
     let head = rest ^ connector ^ arrow in
     match edge with
-    | `Inline block ->
-      let display =
-        match block with
-        | Snapshot.Block.Int 0 -> "∅"
-        | block -> Snapshot.Block.display block
-      in
+    | `Nil ->
       [ { Row.view =
             View.hcat
               [ View.text ~attrs:(Theme.fg' Theme.ghost) head
-              ; View.text ~attrs:(Theme.fg' Theme.faint) display
+              ; View.text ~attrs:(Theme.fg' Theme.faint) "∅"
               ]
         ; address = None
         }

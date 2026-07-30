@@ -31,27 +31,6 @@ module Address : sig
   val display : t -> string
 end
 
-(** Which catalogued data structure the snapshot walked. Constructors mirror
-    the compiler's [Data_structure.t]; new tracked structures show up here as
-    new constructors. *)
-module Ds_type : sig
-  type t =
-    | Map
-    | Set
-    | Queue
-  [@@deriving sexp, bin_io, compare, equal]
-
-  (** Lowercase, for header chips: ["map"], ["set"], ["queue"]. *)
-  val display : t -> string
-
-  (** The block labels that are pointer slots for this structure, in walk
-      order (e.g. [l]/[r] for [Map]). A label absent from a node's
-      {!Node.t.block} held a real pointer — that child was walked and sits in
-      {!Node.t.children} instead, so renderers can pair missing labels with
-      children positionally to recover edge names. *)
-  val pointer_labels : t -> string list
-end
-
 (** One field of a walked heap block: an immediate or opaque value kept
     inline. [Address] points at another tracked structure resolvable through
     the event's registry; [Id] is a registry id boundary. *)
@@ -71,6 +50,36 @@ module Block : sig
   (** Source-ish spelling of the value: [42], ["a"], [0x1a0], [#2],
       [[|1.; 2.|]] ... — what the heap pane prints inside a node. *)
   val display : t -> string
+end
+
+(** Which catalogued data structure the snapshot walked. Constructors mirror
+    the compiler's [Data_structure.t]; new tracked structures show up here as
+    new constructors. *)
+module Ds_type : sig
+  type t =
+    | Map
+    | Set
+    | Queue
+  [@@deriving sexp, bin_io, compare, equal]
+
+  (** Lowercase, for header chips: ["map"], ["set"], ["queue"]. *)
+  val display : t -> string
+
+  (** The masked field labels of one node's kind, in walk order — the
+      compiler's [Data_structure.layout] minus what never reaches the wire
+      (the AVL height [h], a queue's [last]). A label absent from the node's
+      {!Node.t.block} was a walked child: the k-th absence is
+      {!Node.t.children}'s k-th node, which is how a reader recovers which
+      slot a child hung off. [block] disambiguates queue roots
+      ([length]/[first]) from queue cells (numeric [0] = content,
+      [1] = next), and marks a walked boxed value — a map-node child whose
+          labels are all numeric positions, e.g. a tuple in a data slot — as
+          having no DS slots at all. *)
+  val masked_labels : t -> block:(string * Block.t) list -> string list
+
+  (** The labels whose [(Int 0)] means an empty pointer ([Empty]/[Nil])
+      rather than the number 0 — what the heap pane draws as [∅]. *)
+  val nil_labels : t -> string list
 end
 
 (** One heap block of the walked structure: its address, its non-pointer

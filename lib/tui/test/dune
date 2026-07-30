@@ -12,6 +12,8 @@
  ; see lib/parsing/test/dune: work around this switch's ppx_expect
  ; mis-resolving dune's -source-tree-root
  (inline_tests
+  (deps
+   (glob_files_rec ../../../testing/*))
   (flags
    (:standard -source-tree-root .)))
  (preprocess

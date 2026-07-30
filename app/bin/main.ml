@@ -53,8 +53,11 @@ let command =
       "Replays the log a jsip_debugger compiler writes under \
        -visual-replay: the call stack, the source position, and the walked \
        shape of every tracked structure, step by step.\n\n\
-       Try the bundled demo:\n\n\
-      \  dune exec app/bin/main.exe -- -dump-file demo/maps.dump")
+       The dumps record source paths relative to where the program was \
+       compiled, so run from that directory (or point -source-root at it). \
+       Try a bundled golden dump:\n\n\
+      \  dune exec app/bin/main.exe -- -dump-file \
+       testing/expected/map_nested.dump")
     (let%map_open.Command dump_file =
        flag
          "-dump-file"
@@ -63,16 +66,12 @@ let command =
      and source_root =
        flag
          "-source-root"
-         (optional string)
+         (optional_with_default "." string)
          ~doc:
            "DIR directory the dump's source paths resolve against (default: \
-            the dump's directory)"
+            the current directory)"
      in
-     fun () ->
-       let source_root =
-         Option.value source_root ~default:(Filename.dirname dump_file)
-       in
-       main ~dump_file ~source_root)
+     fun () -> main ~dump_file ~source_root)
 ;;
 
 let () = Command_unix.run command

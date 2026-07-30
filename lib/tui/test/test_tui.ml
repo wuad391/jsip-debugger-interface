@@ -19,128 +19,141 @@ let print_view ?(width = 60) ?(height = 14) view =
   |> print_endline
 ;;
 
-(* the same nested dump the replay tests replay: [M.of_list] calling [M.add],
-   then [M.remove] back at depth 1 *)
-let nested_dump =
-  {|{(event (id 1) (loc ((file_path demo/maps.ml) (line_number 4) (char_range (10 32)))) (fn (Function_name M.of_list)) (args ((No_label (expression (Unnamed "[\"a\", 1]"))))) (registry ((1 0x1a0))) (snapshot ((ds_type Map) (root_node ((virtual_address 0x1a0) (block ((v (String a)) (d (Int 1)))) (children ()))))))
-{(event (id 2) (loc ((file_path demo/maps.ml) (line_number 5) (char_range (11 26)))) (fn (Function_name M.add)) (args ((No_label (expression (Unnamed "\"b\""))) (Labelled (label data) (expression (Unnamed 2))))) (registry ((1 0x1a0) (2 0x2b0))) (snapshot ((ds_type Map) (root_node ((virtual_address 0x2b0) (block ((l (Int 0)) (v (String a)) (d (Int 1)))) (children (((virtual_address 0x2b8) (block ((l (Int 0)) (v (String b)) (d (Int 2)) (r (Int 0)))) (children ())))))))))
-}}{(event (id 3) (loc ((file_path demo/maps.ml) (line_number 6) (char_range (11 25)))) (fn (Function_name M.remove)) (args ((No_label (expression (Unnamed "\"a\""))))) (registry ((1 0x1a0) (2 0x2b0) (3 0x2b8))) (snapshot ((ds_type Map) (root_node ((virtual_address 0x2b8) (block ((v (String b)) (d (Int 2)))) (children ()))))))
-}|}
+(* every dump here is a golden fixture — verbatim compiler output vendored
+   under testing/expected/ (see testing/README.md) *)
+let replay_of_fixture name =
+  let parsed_info = Queue.create () in
+  Dump_reader.read_until_empty
+    [%string "../../../testing/expected/%{name}.dump"]
+    ~store_data:(Queue.enqueue parsed_info);
+  Replay.create (Call_stack.create ~parsed_info)
 ;;
 
-let replay =
-  lazy
-    (let file = "tui_dump.txt" in
-     Out_channel.write_all file ~data:nested_dump;
-     let parsed_info = Queue.create () in
-     Dump_reader.read_until_empty
-       file
-       ~store_data:(Queue.enqueue parsed_info);
-     Replay.create (Call_stack.create ~parsed_info))
+let heap_view ?(width = 56) ?(height = 9) replay ~step =
+  let { Replay.Step.call; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  print_view
+    ~width
+    ~height
+    (Heap_pane.view
+       ~width
+       ~height
+       ~snapshot:call.info.snapshot
+       ~registry:call.info.registry
+       ~new_addresses
+       ~scroll:0)
 ;;
 
-let%expect_test "stack pane rows, selection, and locations" =
-  let replay = force replay in
-  let { Replay.Step.frames; _ } = Replay.step_exn replay ~step:1 in
+let%expect_test "stack pane: map_fold's callback runs inside the fold" =
+  let replay = replay_of_fixture "map_fold" in
+  let { Replay.Step.frames; _ } = Replay.step_exn replay ~step:2 in
   print_view
     ~height:5
-    (Stack_pane.view ~width:52 ~height:5 ~frames ~selected:1);
+    (Stack_pane.view ~width:56 ~height:5 ~frames ~selected:1);
   [%expect
     {|
-    ┌ CALL STACK ────────────────────────────── 2 live ┐
-    │  M.of_list ["a", 1]                    maps.ml:4 │
-    │ ▎  M.add "b" ~data:2                   maps.ml:5 │
-    │                                                  │
-    └──────────────────────────────────────────────────┘
+    ┌ CALL STACK ────────────────────────────────── 2 live ┐
+    │  M.add "a" 1 (M.add "b" 2 M.empty)     map_fold.ml:8 │
+    │ ▎  M.add k (v * 2) acc                map_fold.ml:12 │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
     |}]
 ;;
 
-let%expect_test "heap pane: registry strip, tree edges, fresh nodes" =
-  let replay = force replay in
-  let { Replay.Step.call; new_addresses; _ } =
-    Replay.step_exn replay ~step:1
-  in
-  print_view
-    ~height:9
-    (Heap_pane.view
-       ~width:52
-       ~height:9
-       ~snapshot:call.info.snapshot
-       ~registry:call.info.registry
-       ~new_addresses
-       ~scroll:0);
+let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
+  let replay = replay_of_fixture "map_basic" in
+  heap_view replay ~step:1;
   [%expect
     {|
-    ┌ HEAP ───────────────────── map · 2 nodes · 2 new ┐
-    │ live  1↦0x1a0  2↦0x2b0                           │
-    │                                                  │
-    │ ● 0x2b0  v="a"  d=1  new                         │
-    │ ├─l→ ∅                                           │
-    │ └─r→ ● 0x2b8  v="b"  d=2  new                    │
-    │      ├─l→ ∅                                      │
-    │      └─r→ ∅                                      │
-    └──────────────────────────────────────────────────┘
+    ┌ HEAP ───────────────────────── map · 2 nodes · 2 new ┐
+    │ live  1↦0x763be65f19e8  2↦0x763be65ee878             │
+    │                                                      │
+    │ ● 0x763be65ee878  v="a"  d=1  new                    │
+    │ ├─l→ ∅                                               │
+    │ └─r→ ● 0x763be65ee8a8  v="b"  d=2  new               │
+    │      ├─l→ ∅                                          │
+    │      └─r→ ∅                                          │
+    └──────────────────────────────────────────────────────┘
     |}]
 ;;
 
-let%expect_test "heap pane: nothing fresh on the shared-root step" =
-  let replay = force replay in
-  let { Replay.Step.call; new_addresses; _ } =
-    Replay.step_exn replay ~step:2
-  in
-  print_view
-    ~height:6
-    (Heap_pane.view
-       ~width:52
-       ~height:6
-       ~snapshot:call.info.snapshot
-       ~registry:call.info.registry
-       ~new_addresses
-       ~scroll:0);
+let%expect_test "heap pane: a queue chains cells off first/next" =
+  let replay = replay_of_fixture "queue_basic" in
+  heap_view replay ~step:2;
   [%expect
     {|
-    ┌ HEAP ───────────────────────────── map · 1 nodes ┐
-    │ live  1↦0x1a0  2↦0x2b0  3↦0x2b8                  │
-    │                                                  │
-    │ ● 0x2b8  v="b"  d=2                              │
-    │ ├─l→ ∅                                           │
-    └──────────────────────────────────────────────────┘
+    ┌ HEAP ─────────────────────── queue · 3 nodes · 1 new ┐
+    │ live  1↦0x70a6aa9f2228                               │
+    │                                                      │
+    │ ● 0x70a6aa9f2228  length=2                           │
+    │ └─first→ ● 0x70a6aa9efb50  v="x"                     │
+    │          └─next→ ● 0x70a6aa9ec9e0  v="y"  new        │
+    │                  └─next→ ∅                           │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "heap pane: boxed map data becomes a d→ child" =
+  let replay = replay_of_fixture "map_data_kinds" in
+  heap_view replay ~step:2;
+  [%expect
+    {|
+    ┌ HEAP ───────────────────────── map · 2 nodes · 2 new ┐
+    │ live  1↦0x7cc39e1f19e8  2↦0x7cc39e1ee630  3↦0x7cc39e │
+    │                                                      │
+    │ ● 0x7cc39e1e9c50  v="pair"  new                      │
+    │ ├─l→ ∅                                               │
+    │ ├─d→ ● 0x7cc3ae369b18  0=1  1="one"  new             │
+    │ └─r→ ∅                                               │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "heap pane: the registry strip drops GC'd structures" =
+  let replay = replay_of_fixture "map_registry_gc" in
+  heap_view ~height:6 replay ~step:1;
+  [%expect
+    {|
+    ┌ HEAP ───────────────────────── map · 1 nodes · 1 new ┐
+    │ live  2↦0x7647edffffd8                               │
+    │                                                      │
+    │ ● 0x7647edffffd8  v="live"  d=1  new                 │
+    │ ├─l→ ∅                                               │
+    └──────────────────────────────────────────────────────┘
     |}]
 ;;
 
 let%expect_test "source pane: gutter, active line wash, callsite marker" =
   let source =
-    Source_pane.Loaded.of_source_file
-      (Source_file.of_lines
-         [ "(* tiny demo *)"
-         ; "module M = Map.Make (String)"
-         ; ""
-         ; "let t = M.of_list [\"a\", 1]"
-         ; "let t' = M.add \"b\" 2 t"
-         ; "let t'' = M.remove \"a\" t'"
-         ])
+    Jsip_parsing.Source_reader.load "../../../testing/cases/map_basic.ml"
+    |> Or_error.map ~f:Source_pane.Loaded.of_source_file
   in
   print_view
-    ~height:9
+    ~height:11
     (Source_pane.view
-       ~width:52
-       ~height:9
-       ~file_label:"maps.ml"
-       ~source:(Ok source)
-       ~active_line:5
-       ~callsite_line:(Some 4)
-       ~char_range:(11, 26));
+       ~width:56
+       ~height:11
+       ~file_label:"map_basic.ml"
+       ~source
+       ~active_line:8
+       ~callsite_line:(Some 7)
+       ~char_range:(10, 23));
   [%expect
     {|
-    ┌ SOURCE ─────────────────────── maps.ml · 6 lines ┐
-    │    1 (* tiny demo *)                             │
-    │    2 module M = Map.Make (String)                │
-    │    3                                             │
-    │ ▸  4 let t = M.of_list ["a", 1]                  │
-    │ ▎  5 let t' = M.add "b" 2 t                      │
-    │    6 let t'' = M.remove "a" t'                   │
-    │                                                  │
-    └──────────────────────────────────────────────────┘
+    ┌ SOURCE ───────────────────── map_basic.ml · 11 lines ┐
+    │    3 module M = Map.Make (String)                    │
+    │    4                                                 │
+    │    5 let () =                                        │
+    │    6   let m = M.empty in                            │
+    │ ▸  7   let m = M.add "a" 1 m in                      │
+    │ ▎  8   let m = M.add "b" 2 m in                      │
+    │    9   let m = M.remove "a" m in                     │
+    │   10   ignore (M.find "b" m)                         │
+    │   11 ;;                                              │
+    └──────────────────────────────────────────────────────┘
     |}]
 ;;
 
@@ -148,7 +161,7 @@ let%expect_test "source pane: a missing file renders its error" =
   print_view
     ~height:5
     (Source_pane.view
-       ~width:52
+       ~width:56
        ~height:5
        ~file_label:"gone.ml"
        ~source:(Or_error.error_string "no source loaded for gone.ml")
@@ -157,11 +170,11 @@ let%expect_test "source pane: a missing file renders its error" =
        ~char_range:(0, 0));
   [%expect
     {|
-    ┌ SOURCE ─────────────────────── gone.ml · missing ┐
-    │                                                  │
-    │  no source loaded for gone.ml                    │
-    │                                                  │
-    └──────────────────────────────────────────────────┘
+    ┌ SOURCE ─────────────────────────── gone.ml · missing ┐
+    │                                                      │
+    │  no source loaded for gone.ml                        │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
     |}]
 ;;
 
@@ -173,26 +186,26 @@ let%expect_test "footer: ticks mark past, current, future" =
        ~step:1
        ~total:3
        ~playing:false
-       ~status:"M.add \"b\" ~data:2 — maps.ml:5");
+       ~status:"M.add \"b\" 2 m — map_basic.ml:8");
   [%expect
     {|
     ────────────────────────────────────────────────────────
      ━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━
-     ◂ back  step ▸  ⏵ play  │ ▎ M.add "b" ~data:2 — maps.ml
+     ◂ back  step ▸  ⏵ play  │ ▎ M.add "b" 2 m — map_basic.m
     |}]
 ;;
 
 let%expect_test "syntax spans" =
   let spans, depth =
-    Syntax.line ~comment_depth:0 "let t' = M.add \"b\" 2 t (* nice *)"
+    Syntax.line ~comment_depth:0 "let m = M.add \"b\" 2 m (* nice *)"
   in
   print_s [%sexp (spans : (Syntax.Token.t * string) list)];
   print_s [%sexp (depth : int)];
   [%expect
     {|
-    ((Keyword let) (Plain " ") (Plain t') (Plain " ") (Operator =) (Plain " ")
+    ((Keyword let) (Plain " ") (Plain m) (Plain " ") (Operator =) (Plain " ")
      (Uident M) (Operator .) (Plain add) (Plain " ") (String "\"b\"") (Plain " ")
-     (Number 2) (Plain " ") (Plain t) (Plain " ") (Comment "(*")
+     (Number 2) (Plain " ") (Plain m) (Plain " ") (Comment "(*")
      (Comment " nice *)"))
     0
     |}]

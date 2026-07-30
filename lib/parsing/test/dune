@@ -5,6 +5,8 @@
  ; test file's basename, so corrections crash; override it back to the
  ; test directory (last flag wins)
  (inline_tests
+  (deps
+   (glob_files_rec ../../../testing/*))
   (flags
    (:standard -source-tree-root .)))
  (preprocess
