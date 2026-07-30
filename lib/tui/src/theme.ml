@@ -8,27 +8,31 @@ let color hex =
     ~b:(hex land 0xff)
 ;;
 
-(* the mockup's warm-gray palette, straight from the design file *)
-let bg = color 0xeae7e7
-let panel_bg = color 0xf8f4f4
-let strip_bg = color 0xf1eeee
-let accent = color 0xb68235
-let accent_bg = color 0xfff3e4
-let accent_deep = color 0x7d5411
-let fresh = color 0x7d5411
-let text = color 0x201f1d
-let secondary = color 0x605d5d
-let muted = color 0x7d7979
-let faint = color 0x9b9797
-let ghost = color 0xbab6b6
-let border = color 0xd7d3d3
-let border_strong = color 0xbab6b6
-let hairline = color 0xe2dede
-let tick_past = color 0xd7bd94
-let app_purple = color 0x8046a8
-let keyword = color 0x8046a8
-let ident = color 0x2c6284
-let string_lit = color 0x3d6b46
-let number = color 0xa06f24
+(* the design mockup's warm-gray palette, re-pitched for a dark terminal: the
+   same hue relationships (warm grays, gold accent, purple/blue/green syntax)
+   with lightness inverted — backgrounds sink to near-black warm grays, text
+   rises to warm off-white, and the accent gold brightens so it still carries
+   the highlights *)
+let bg = color 0x151312
+let panel_bg = color 0x1d1b19
+let strip_bg = color 0x242220
+let accent = color 0xd4a24e
+let accent_bg = color 0x33291a
+let accent_deep = color 0xeec27c
+let fresh = color 0xeec27c
+let text = color 0xe6e1dc
+let secondary = color 0xb8b2ac
+let muted = color 0x948e88
+let faint = color 0x7a7570
+let ghost = color 0x57534e
+let border = color 0x3a3733
+let border_strong = color 0x4c4843
+let hairline = color 0x2a2825
+let tick_past = color 0x7a6440
+let app_purple = color 0xc39ae2
+let keyword = color 0xc39ae2
+let ident = color 0x7fb8dc
+let string_lit = color 0x96c7a2
+let number = color 0xd8a45e
 let fg c = Attr.fg c
 let fg' c = [ Attr.fg c ]

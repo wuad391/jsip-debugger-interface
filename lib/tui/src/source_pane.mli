@@ -3,7 +3,9 @@
     Line numbers in a gutter, {!Syntax}-colored code, the active line washed
     in the accent background with a [▎] bar, the caller's line marked [▸]
     when it is in the same file, and the event's [char_range] underlined on
-    the active line. Scrolls to keep the active line centered. *)
+    the active line. Long lines wrap onto continuation rows (blank gutter)
+    rather than cropping, and the pane scrolls to keep the active line
+    centered. *)
 
 open! Core
 open Jsip_types

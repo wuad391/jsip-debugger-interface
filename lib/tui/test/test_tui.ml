@@ -45,17 +45,39 @@ let heap_view ?(width = 56) ?(height = 9) replay ~step =
        ~scroll:0)
 ;;
 
-let%expect_test "stack pane: map_fold's callback runs inside the fold" =
+let calls_of replay =
+  Array.init (Replay.length replay) ~f:(fun step ->
+    (Replay.step_exn replay ~step).call)
+;;
+
+let live_of replay ~step =
+  let { Replay.Step.frames; _ } = Replay.step_exn replay ~step in
+  List.map frames ~f:(fun (frame : Call.t) -> fst frame.range)
+;;
+
+let%expect_test "stack pane: every call visible, the live chain lit" =
+  (* at map_fold's step 2 the callback's [M.add] runs inside the fold: both
+     live rows render bright, the rest of the run stays dimmed but listed,
+     and long argument lists wrap *)
   let replay = replay_of_fixture "map_fold" in
-  let { Replay.Step.frames; _ } = Replay.step_exn replay ~step:2 in
   print_view
-    ~height:5
-    (Stack_pane.view ~width:56 ~height:5 ~frames ~selected:1);
+    ~height:10
+    (Stack_pane.view
+       ~width:56
+       ~height:10
+       ~calls:(calls_of replay)
+       ~live:(live_of replay ~step:2)
+       ~selected:1);
   [%expect
     {|
-    ┌ CALL STACK ────────────────────────────────── 2 live ┐
+    ┌ CALL STACK ──────────────────────── 5 calls · 2 live ┐
+    │    M.add "b" 2 M.empty                 map_fold.ml:8 │
     │  M.add "a" 1 (M.add "b" 2 M.empty)     map_fold.ml:8 │
     │ ▎  M.add k (v * 2) acc                map_fold.ml:12 │
+    │    M.add k (v * 2) acc                map_fold.ml:12 │
+    │  M.fold (fun k v acc -> M.add k (v *  map_fold.ml:10 │
+    │    2) acc) m M.empty                                 │
+    │                                                      │
     │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
@@ -143,7 +165,8 @@ let%expect_test "source pane: gutter, active line wash, callsite marker" =
        ~char_range:(10, 23));
   [%expect
     {|
-    ┌ SOURCE ───────────────────── map_basic.ml · 11 lines ┐
+    ┌ SOURCE ───────────────────── map_basic.ml · 10 lines ┐
+    │      value) and [ignore] don't. *)                   │
     │    3 module M = Map.Make (String)                    │
     │    4                                                 │
     │    5 let () =                                        │
@@ -152,7 +175,6 @@ let%expect_test "source pane: gutter, active line wash, callsite marker" =
     │ ▎  8   let m = M.add "b" 2 m in                      │
     │    9   let m = M.remove "a" m in                     │
     │   10   ignore (M.find "b" m)                         │
-    │   11 ;;                                              │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -220,4 +242,47 @@ let%expect_test "tick hit-testing round-trips" =
   in
   print_s [%sexp (List.dedup_and_sort hits ~compare : int list)];
   [%expect {| (0 1 2) |}]
+;;
+
+let%expect_test "wrap: words fold at the width, long words hard-split" =
+  Wrap.spans [ `A, "alpha beta"; `B, " gamma_delta_epsilon zz" ] ~width:12
+  |> List.iter ~f:(fun line ->
+    List.map line ~f:(fun ((_ : [ `A | `B ]), text) -> text)
+    |> String.concat
+    |> fun text -> print_endline [%string "[%{text}]"]);
+  [%expect {|
+    [alpha beta ]
+    [gamma_delta_]
+    [epsilon zz]
+    |}]
+;;
+
+let%expect_test "source pane: long lines wrap under a blank gutter" =
+  let source =
+    Jsip_parsing.Source_reader.load "../../../testing/cases/map_fold.ml"
+    |> Or_error.map ~f:Source_pane.Loaded.of_source_file
+  in
+  print_view
+    ~height:10
+    (Source_pane.view
+       ~width:44
+       ~height:10
+       ~file_label:"map_fold.ml"
+       ~source
+       ~active_line:9
+       ~callsite_line:None
+       ~char_range:(16, 60));
+  [%expect
+    {|
+    ┌ SOURCE ────────── map_fold.ml · 15 lines ┐
+    │    6                                     │
+    │    7 let () =                            │
+    │    8   let m = M.add "a" 1 (M.add "b" 2  │
+    │      M.empty) in                         │
+    │ ▎  9   let doubled =                     │
+    │   10     M.fold                          │
+    │   11       (fun k v acc ->               │
+    │   12         M.add k (v * 2) acc)        │
+    └──────────────────────────────────────────┘
+    |}]
 ;;

@@ -49,7 +49,10 @@ let underline_range spans ~char_range:(range_start, range_stop) =
 
 let gutter_width = 5
 
-let code_line
+(* one file line as one or more visual lines: the gutter number and the
+   callsite marker sit on the first, the active wash and bar span all of
+   them, and long lines wrap instead of cropping *)
+let code_lines
   ~width
   (loaded : Loaded.t)
   ~number
@@ -57,16 +60,8 @@ let code_line
   ~callsite
   ~char_range
   =
-  let marker, marker_attrs =
-    match active, callsite with
-    | true, _ -> "▎", Theme.fg' Theme.accent
-    | false, true -> "▸", Theme.fg' Theme.accent_deep
-    | false, false -> " ", []
-  in
-  let number_view =
-    View.text
-      ~attrs:(Theme.fg' Theme.ghost)
-      (Printf.sprintf "%*d " (gutter_width - 2) number)
+  let bg =
+    match active with true -> Some Theme.accent_bg | false -> None
   in
   let spans = loaded.spans.(number - 1) in
   let spans =
@@ -74,32 +69,43 @@ let code_line
     | true -> underline_range spans ~char_range
     | false -> List.map spans ~f:(fun (token, text) -> token, text, false)
   in
-  let code =
+  let pairs =
     List.map spans ~f:(fun (token, text, underlined) ->
-      let attrs = token_attrs token in
-      let attrs =
-        match underlined with
-        | true -> Attr.underline :: attrs
-        | false -> attrs
-      in
-      View.text ~attrs text)
+      (token, underlined), text)
   in
-  let line =
-    Panel.fit
-      (View.hcat
-         ([ View.text ~attrs:marker_attrs marker; number_view ] @ code))
-      ~width
-      ~height:1
-  in
-  match active with
-  | true -> View.with_colors' ~fill_backdrop:true ~bg:Theme.accent_bg line
-  | false -> line
-;;
-
-let first_visible ~lines ~height ~active_line =
-  Int.min
-    (Int.max 0 (active_line - 1 - (height / 2)))
-    (Int.max 0 (lines - height))
+  let text_width = max 8 (width - gutter_width - 1) in
+  let wrapped = Wrap.spans pairs ~width:text_width in
+  List.mapi wrapped ~f:(fun line_index line_spans ->
+    let marker =
+      match active, callsite && line_index = 0 with
+      | true, _ -> View.text ~attrs:(Theme.fg' Theme.accent) "▎"
+      | false, true -> View.text ~attrs:(Theme.fg' Theme.accent_deep) "▸"
+      | false, false -> View.text " "
+    in
+    let gutter =
+      match line_index with
+      | 0 ->
+        View.text
+          ~attrs:(Theme.fg' Theme.ghost)
+          (Printf.sprintf "%*d " (gutter_width - 2) number)
+      | _ -> View.text (String.make (gutter_width - 1) ' ')
+    in
+    let code =
+      List.map line_spans ~f:(fun ((token, underlined), text) ->
+        let attrs = token_attrs token in
+        let attrs =
+          match underlined with
+          | true -> Attr.underline :: attrs
+          | false -> attrs
+        in
+        View.text ~attrs text)
+    in
+    let line =
+      Panel.fit (View.hcat (marker :: gutter :: code)) ~width ~height:1
+    in
+    match bg with
+    | Some bg -> View.with_colors' ~fill_backdrop:true ~bg line
+    | None -> line)
 ;;
 
 let body ~width ~height ~source ~active_line ~callsite_line ~char_range =
@@ -112,25 +118,38 @@ let body ~width ~height ~source ~active_line ~callsite_line ~char_range =
          ~attrs:[ Theme.fg Theme.faint; Attr.italic ]
          (Error.to_string_hum error))
   | Ok loaded ->
-    let lines = Source_file.length loaded.file in
-    let offset = first_visible ~lines ~height ~active_line in
-    let visible =
-      List.init
-        (Int.min height (lines - offset))
-        ~f:(fun row ->
-          let number = offset + row + 1 in
-          code_line
-            ~width
-            loaded
-            ~number
-            ~active:(number = active_line)
-            ~callsite:
-              (match callsite_line with
-               | Some line -> line = number
-               | None -> false)
-            ~char_range)
+    let visual_lines =
+      List.init (Source_file.length loaded.file) ~f:(fun index ->
+        let number = index + 1 in
+        code_lines
+          ~width
+          loaded
+          ~number
+          ~active:(number = active_line)
+          ~callsite:
+            (match callsite_line with
+             | Some line -> line = number
+             | None -> false)
+          ~char_range
+        |> List.map ~f:(fun view -> number, view))
+      |> List.concat
     in
-    View.vcat visible
+    (* a location past EOF (a fixture newer than its source, say) still lands
+       the view near the end instead of snapping to the top *)
+    let target_line = Int.min active_line (Source_file.length loaded.file) in
+    let active_start =
+      List.findi visual_lines ~f:(fun (_ : int) (number, (_ : View.t)) ->
+        number = target_line)
+      |> Option.value_map ~default:0 ~f:fst
+    in
+    let offset =
+      Int.min
+        (Int.max 0 (active_start - (height / 2)))
+        (Int.max 0 (List.length visual_lines - height))
+    in
+    View.vcat
+      (List.drop visual_lines offset
+       |> List.map ~f:(fun ((_ : int), view) -> view))
 ;;
 
 let view

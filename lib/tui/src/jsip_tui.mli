@@ -15,3 +15,4 @@ module Stack_pane = Stack_pane
 module Syntax = Syntax
 module Theme = Theme
 module Top_bar = Top_bar
+module Wrap = Wrap

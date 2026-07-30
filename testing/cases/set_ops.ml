@@ -1,5 +1,5 @@
-(* Set-producing operations beyond add/remove: of_list, union, inter and diff
-   all return sets, so each is an event. *)
+(* Set-producing operations beyond add/remove: of_list, union, inter
+   and diff all return sets, so each is an event. *)
 module S = Set.Make (Int)
 
 let () =
@@ -8,4 +8,3 @@ let () =
   ignore (S.union a b);
   ignore (S.inter a b);
   ignore (S.diff a b)
-;;

@@ -119,13 +119,22 @@ module Computed = struct
     }
 end
 
-let render ~replay ~sources ~dump_name ~births ~(model : Model.t) ~dimensions
+let render
+  ~replay
+  ~sources
+  ~dump_name
+  ~births
+  ~calls
+  ~(model : Model.t)
+  ~dimensions
   =
   let layout = Layout.compute dimensions in
   let { Replay.Step.call; frames; new_addresses; description } =
     Replay.step_exn replay ~step:model.step
   in
   let count = List.length frames in
+  (* a frame's own event index is the start of its range *)
+  let live = List.map frames ~f:(fun (frame : Call.t) -> fst frame.range) in
   let selected =
     Int.max
       0
@@ -177,7 +186,8 @@ let render ~replay ~sources ~dump_name ~births ~(model : Model.t) ~dimensions
           (Stack_pane.view
              ~width:layout.stack.width
              ~height:layout.stack.height
-             ~frames
+             ~calls
+             ~live
              ~selected)
       ; place
           layout.source
@@ -233,12 +243,17 @@ let render ~replay ~sources ~dump_name ~births ~(model : Model.t) ~dimensions
        | false ->
          (match Layout.inner_position layout.stack position with
           | Some { x = _; y } ->
-            Stack_pane.frame_at
+            Stack_pane.target_at
+              ~width:layout.stack.width
               ~height:layout.stack.height
-              ~frames:count
+              ~calls
+              ~live
               ~selected
               ~row:y
-            |> Option.map ~f:(fun index -> Action.Select_frame index)
+            |> Option.map ~f:(fun target ->
+              match (target : Stack_pane.Target.t) with
+              | Frame index -> Action.Select_frame index
+              | Step step -> Action.Step_to step)
           | None ->
             (match Layout.inner_position layout.heap position with
              | Some { x = _; y } ->
@@ -266,6 +281,10 @@ let render ~replay ~sources ~dump_name ~births ~(model : Model.t) ~dimensions
 
 let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
   let births = birth_steps replay in
+  let calls =
+    Array.init (Replay.length replay) ~f:(fun step ->
+      (Replay.step_exn replay ~step).call)
+  in
   let model, inject =
     Bonsai.state_machine
       ~sexp_of_model:Model.sexp_of_t
@@ -288,7 +307,7 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
     graph;
   let computed =
     let%arr model and dimensions in
-    render ~replay ~sources ~dump_name ~births ~model ~dimensions
+    render ~replay ~sources ~dump_name ~births ~calls ~model ~dimensions
   in
   let view =
     let%arr { Computed.view; _ } = computed in

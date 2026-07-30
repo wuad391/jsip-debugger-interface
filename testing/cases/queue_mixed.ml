@@ -8,4 +8,3 @@ let () =
   let q2 = Queue.create () in
   Queue.transfer q q2;
   Queue.clear q2
-;;

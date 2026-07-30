@@ -9,31 +9,43 @@ program replays that log: step through the run and watch the call stack,
 the source position, and the allocated data structures evolve.
 
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
-interface is the design mockup's layout in terminal cells:
+interface is the design mockup's layout in terminal cells, its warm-gray
+palette re-pitched for dark terminals:
 
 ```
- ● ocaml-debug │ map_fold.dump │ map · replay                       PHASE STEP │ STEP 4/5
-┌ CALL STACK ───────────────────── 2 live ┐┌ HEAP ──────────────── map · 2 nodes · 2 new ┐
-│ ▎M.add "a" 1 (M.add "b" 2 M.empty) ...  ││ live  1↦0x71a0e25f19e8  2↦0x71a0e25ee868 ...│
-│    M.add k (v * 2) acc   map_fold.ml:12 ││                                             │
-│                                         ││ ● 0x71a0e25e6a58  v="a"  d=2  new           │
-└─────────────────────────────────────────┘│ ├─l→ ∅                                      │
-┌ SOURCE ───────── map_fold.ml · 11 lines ┐│ └─r→ ● 0x71a0e25e6a88  v="b"  d=4  new      │
-│    7 let () =                           ││      ├─l→ ∅                                 │
-│ ▎  8   let m = M.add "a" 1 (M.add "b"...││      └─r→ ∅                                 │
-│    9   let doubled = M.fold (fun k v ...││                                             │
-│   10   ignore (M.find "a" doubled)      ││                                             │
-└─────────────────────────────────────────┘└─────────────────────────────────────────────┘
-──────────────────────────────────────────────────────────────────────────────────────────
+ ● ocaml-debug │ map_fold.dump │ map · replay                  PHASE DESCEND │ STEP 3/5
+┌ CALL STACK ───────── 5 calls · 2 live ┐┌ HEAP ─────────────── map · 1 nodes · 1 new ┐
+│    M.add "b" 2 M.empty  map_fold.ml:8 ││ live  1↦0x71a0e25f19e8  2↦0x71a0e25ee868 ...│
+│  M.add "a" 1 (M.add "b" map_fold.ml:8 ││                                             │
+│    2 M.empty)                         ││ ● 0x71a0e25ea278  v="a"  d=2  new           │
+│ ▎  M.add k (v * 2) acc map_fold.ml:12 ││ ├─l→ ∅                                      │
+│    M.add k (v * 2) acc map_fold.ml:12 ││ └─r→ ∅                                      │
+│  M.fold (fun k v acc   map_fold.ml:10 ││                                             │
+│    -> M.add k (v * 2)                 ││                                             │
+│    acc) m M.empty                     ││                                             │
+└───────────────────────────────────────┘│                                             │
+┌ SOURCE ─────── map_fold.ml · 15 lines ┐│                                             │
+│ ▸  8   let m = M.add "a" 1 (M.add     ││                                             │
+│      "b" 2 M.empty) in                ││                                             │
+│    9   let doubled =                  ││                                             │
+│   10     M.fold                       ││                                             │
+│   11       (fun k v acc ->            ││                                             │
+│ ▎ 12         M.add k (v * 2) acc)     ││                                             │
+│   13       m M.empty                  ││                                             │
+└───────────────────────────────────────┘└─────────────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────────────
  ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━
  ◂ back  step ▸  ⏵ play  │ ▎ M.add k (v * 2) acc — map_fold.ml:12    ◂ ▸ step · q quit
 ```
 
-- **Call stack** — the frames live at this step, nested by depth; `↑`/`↓`
-  (or a click) selects a frame and the source pane follows it, marking the
-  caller's line with `▸`.
+- **Call stack** — every call in the run, indented by depth: the current
+  step's live chain renders bright, everything already returned or not yet
+  reached is dimmed (click one to jump there). `↑`/`↓` (or a click) selects
+  a live frame and the source pane follows it, marking the caller's line
+  with `▸`. Long argument lists wrap.
 - **Source** — syntax-highlighted, the active line washed in the accent
-  color, the event's character range underlined.
+  color, the event's character range underlined; long lines wrap under a
+  blank gutter.
 - **Heap** — the walked structure: value fields inline, `l`/`r` pointer
   slots as edges, `∅` for empties, addresses shared with earlier versions
   shown plainly and nodes allocated *at this step* marked `new`. The

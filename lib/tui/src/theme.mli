@@ -1,5 +1,5 @@
 (** The interface's palette — the design mockup's warm-gray scheme as 24-bit
-    terminal colors.
+    terminal colors, re-pitched dark: same hues, lightness inverted.
 
     Every pane draws from here so the whole screen reads as one surface;
     don't inline raw colors in pane modules. Names follow the mockup's roles:

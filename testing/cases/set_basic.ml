@@ -6,4 +6,3 @@ let () =
   let s = S.add 2 s in
   let s = S.remove 1 s in
   ignore (S.mem 2 s)
-;;
