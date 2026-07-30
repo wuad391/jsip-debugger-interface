@@ -1,90 +1,5 @@
 open! Core
 open Jsip_types
-open Scanf
-
-(* looks like: "function_category:[%a]"*)
-let parse_function function_input =
-  match
-    sscanf_opt
-      function_input
-      "%[^:]:[%[^]]]"
-      (fun function_category function_data ->
-         function_category, function_data)
-  with
-  | Some (function_category, function_data) ->
-    (match function_category with
-     | "function_name" -> Some (Function_info.Function_name function_data)
-     | "unnamed" -> Some (Function_info.Unnamed function_data)
-     | _ -> None)
-  | None -> None
-;;
-
-(* looks like: "[(LABEL:[%s],ARGUMENT:[%s]), ...]"*)
-let parse_arguments args =
-  let parse_argument arg =
-    match
-      sscanf_opt
-        arg
-        "LABEL:[{%[^}]}{%[^}]}] ARGUMENT:[%[^]]]"
-        (fun arg_label label_info arg_info ->
-           arg_label, label_info, arg_info)
-    with
-    | Some (arg_label, label_info, arg_info) ->
-      (match arg_label with
-       | "NO_LABEL" ->
-         Some
-           Argument.(
-             No_label { expression = Function_info.Unnamed arg_info })
-       | "LABELLED" ->
-         Some
-           Argument.(
-             Labelled
-               { label = label_info
-               ; expression = Function_info.Unnamed arg_info
-               })
-       | "OPTIONAL" ->
-         Some
-           Argument.(
-             Optional
-               { label = label_info
-               ; expression = Function_info.Unnamed arg_info
-               })
-       | _ -> None)
-    | None -> None
-  in
-  let rec traverse_args acc unparsed_args =
-    match unparsed_args with
-    | [] -> acc
-    | first_arg :: unparsed_args ->
-      (match parse_argument first_arg with
-       | Some arg -> traverse_args (arg :: acc) unparsed_args
-       | None -> failwith "DUMP READER: Internal Argument Parsing error")
-  in
-  let rec reverse acc list =
-    match list with [] -> acc | hd :: tl -> reverse (hd :: acc) tl
-  in
-  reverse [] (traverse_args [] args)
-;;
-
-(* takes in a string representing the location of the function call in the
-   file and parses it *)
-(* looks like: "LOCATION(File "./.tmp_files/tmp.ml", line 2, characters 24-56)"*)
-let parse_location location =
-  match
-    sscanf_opt
-      location
-      "File %[^,], line %d, characters %d-%d"
-      (fun file_path line_number char_range_start char_range_end ->
-         file_path, line_number, char_range_start, char_range_end)
-  with
-  | Some (file_path, line_number, char_range_start, char_range_end) ->
-    Some
-      (Location.create
-         ~file_path
-         ~line_number
-         ~char_range:(char_range_start, char_range_end))
-  | None -> None
-;;
 
 let depth_change depth_update =
   let change = ref 0 in
@@ -93,10 +8,13 @@ let depth_change depth_update =
     | '{' -> change := !change + 1
     | '}' -> change := !change - 1
     | _ -> ());
-  change
+  !change
 ;;
 
-(* looks like: "FUNCTION(...) ARGUMENTS(...) LOCATION(...)"*)
+(* looks like:
+   "[{(event (id 1) (loc ...) (fn ...) (args ...) (registry ...) (snapshot ...))" -- the {}]
+   marker prefix carries the depth delta, the rest of the line is one event
+   sexp that [Dump_wire] reads directly *)
 
 (** takes in a string representing a function call and parses it, pass in an
     external function to handle storing the data *)
@@ -105,31 +23,28 @@ let parse_line
   (current_depth : int ref)
   (store_data : Call.Info.t -> unit)
   =
-  match
-    sscanf_opt
-      line
-      "%[^F]FUNCTION(%[^)]) ARGUMENTS(%[^)]) LOCATION(%[^)])"
-      (fun depth_update function_name arguments location ->
-         depth_update, function_name, arguments, location)
-  with
-  | Some (depth_update, function_name, arguments, location) ->
-    (match
-       ( depth_change depth_update
-       , parse_function function_name
-       , parse_arguments (String.split ~on:';' arguments)
-       , parse_location location )
-     with
-     | depth_update, Some function_info, arguments, Some location ->
-       current_depth := !current_depth + !depth_update;
-       store_data
-         ({ depth = !current_depth; function_info; arguments; location }
-          : Call.Info.t)
-     | _ -> failwith "DUMP READER: Internal Parsing error")
+  match String.index line '(' with
   | None ->
-    (match !current_depth + !(depth_change line) with
-     (* ending line will be brackets indicating the depth returning *)
-     | 0 -> current_depth := !current_depth + !(depth_change line)
+    (* a bare-marker line: only valid as the dump returning to depth 0 *)
+    current_depth := !current_depth + depth_change line;
+    (match !current_depth with
+     | 0 -> ()
      | _ -> failwith "DUMP READER: Incorrect file ending!")
+  | Some payload_start ->
+    let markers = String.prefix line payload_start in
+    let payload = String.drop_prefix line payload_start in
+    current_depth := !current_depth + depth_change markers;
+    let wire = Dump_wire.of_string payload |> Or_error.ok_exn in
+    store_data
+      ({ depth = !current_depth
+       ; id = wire.id
+       ; function_info = wire.fn
+       ; location = wire.loc
+       ; arguments = wire.args
+       ; registry = wire.registry
+       ; snapshot = wire.snapshot
+       }
+       : Call.Info.t)
 ;;
 
 (* reads a file line by line until it is empty *)

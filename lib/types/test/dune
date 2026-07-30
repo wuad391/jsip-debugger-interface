@@ -1,6 +1,10 @@
 (library
  (name types_test)
  (libraries jsip_types expect_test_helpers_core core)
- (inline_tests)
+ ; see lib/parsing/test/dune: work around this switch's ppx_expect
+ ; mis-resolving dune's -source-tree-root
+ (inline_tests
+  (flags
+   (:standard -source-tree-root .)))
  (preprocess
   (pps ppx_jane)))

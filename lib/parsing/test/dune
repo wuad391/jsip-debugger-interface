@@ -1,6 +1,11 @@
 (library
  (name parsing_test)
- (libraries jsip_parsing expect_test_helpers_core core)
- (inline_tests)
+ (libraries jsip_parsing jsip_types expect_test_helpers_core core)
+ ; this switch's ppx_expect resolves dune's -source-tree-root against the
+ ; test file's basename, so corrections crash; override it back to the
+ ; test directory (last flag wins)
+ (inline_tests
+  (flags
+   (:standard -source-tree-root .)))
  (preprocess
   (pps ppx_jane)))

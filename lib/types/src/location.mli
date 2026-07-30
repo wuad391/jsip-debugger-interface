@@ -6,11 +6,7 @@
 
 open! Core
 
-module T : sig
-  type t
-end
-
-include T
+type t [@@deriving sexp]
 
 (* getters *)
 val file_path : t -> string

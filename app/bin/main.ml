@@ -10,9 +10,12 @@ let main file_path =
   in
   Dump_reader.read_until_empty file_path ~store_data:store_temp_state;
   (* create call_stack *)
-  let call_stack = Call_stack.create temp_queue in
+  let (_ : Call_stack.t) = Call_stack.create ~parsed_info:temp_queue in
   ()
 ;;
+
+(* referenced here until the command below is wired up *)
+let (_ : string -> unit) = main
 
 (*=let command =
   Command.async
