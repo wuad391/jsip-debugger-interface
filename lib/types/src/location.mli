@@ -17,3 +17,6 @@ val char_range : t -> int * int
 
 (* the rest. added this comment so format stops smushing above *)
 val create : file_path:string -> line_number:int -> char_range:int * int -> t
+
+(** [file.ml:12] — basename only, the interface's location chip. *)
+val display : t -> string

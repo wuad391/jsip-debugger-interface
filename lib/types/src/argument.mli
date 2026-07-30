@@ -18,3 +18,7 @@ type t =
       ; expression : Function_info.t
       }
 [@@deriving sexp, bin_io]
+
+(** The argument as it would read at the call site: bare, [~label:expr], or
+    [?label:expr]. *)
+val display : t -> string

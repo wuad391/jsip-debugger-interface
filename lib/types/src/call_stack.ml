@@ -2,50 +2,41 @@ open! Core
 
 type t = { call_order : Call.t Array.t }
 
-(* helper: pops the rest of the stack until top is less than incomming *)
-let pop_viable_ranges
-  depth_stack
-  (output_array : (int * int) Array.t)
-  incoming_index
-  incoming_depth
-  =
-  let rec iterate_stack () =
-    match Stack.top depth_stack with
-    | Some (top_index, top_depth) ->
-      (match top_depth <= incoming_depth with
-       | false ->
-         output_array.(top_index - 1) <- top_index, top_index;
-         iterate_stack ()
-       | true ->
-         (match top_depth = incoming_depth with
-          | true ->
-            output_array.(top_index - 1) <- top_index, incoming_index - 1
-          | false -> ()))
-    | None -> failwith "CALL_STACK.create: failed branch setup in create"
+let create ~parsed_info =
+  let length = Queue.length parsed_info in
+  let ranges = Array.create ~len:length (0, 0) in
+  (* Frames still on the stack, as [(index, depth)]. An event at depth [d]
+     closes every open frame at depth >= [d]: a deeper frame's callee chain
+     is over, and a same-depth frame is replaced by its sibling. A closed
+     frame's range ends just before the closing event. *)
+  let open_frames = Stack.create () in
+  Queue.iteri parsed_info ~f:(fun index (info : Call.Info.t) ->
+    let rec close_frames () =
+      match Stack.top open_frames with
+      | Some (open_index, open_depth) when open_depth >= info.depth ->
+        ignore (Stack.pop_exn open_frames : int * int);
+        ranges.(open_index) <- open_index, index - 1;
+        close_frames ()
+      | Some _ | None -> ()
+    in
+    close_frames ();
+    Stack.push open_frames (index, info.depth));
+  (* whatever is still open lives until the end of the dump *)
+  Stack.iter open_frames ~f:(fun (open_index, _depth) ->
+    ranges.(open_index) <- open_index, length - 1);
+  let call_order =
+    Array.init length ~f:(fun index ->
+      Call.create ~info:(Queue.get parsed_info index) ~range:ranges.(index))
   in
-  iterate_stack ()
+  { call_order }
 ;;
 
-let create ~parsed_info =
-  (* iterate and get call_range *)
-  let call_ranges = Array.create ~len:(Queue.length parsed_info) (0, 0) in
-  let depth_stack = Stack.create () in
-  Queue.iteri parsed_info ~f:(fun next_index next_info ->
-    let next_depth = Call.Info.(next_info.depth) in
-    let next_component = next_index, next_depth in
-    (match Stack.is_empty depth_stack with
-     | true -> ()
-     | false ->
-       let _top_index, top_depth = Stack.pop_exn depth_stack in
-       (match top_depth < next_depth with
-        | true -> ()
-        | false ->
-          pop_viable_ranges depth_stack call_ranges next_index next_depth));
-    Stack.push depth_stack next_component);
-  (* create call_order *)
-  let calls = Array.create ~len:(Queue.length parsed_info) Call.empty in
-  Queue.iteri parsed_info ~f:(fun index info ->
-    let call = ({ info; range = call_ranges.(index - 1) } : Call.t) in
-    calls.(index - 1) <- call);
-  { call_order = calls }
+let length t = Array.length t.call_order
+let call_exn t ~step = t.call_order.(step)
+
+let frames_at t ~step =
+  Array.to_list t.call_order
+  |> List.filter ~f:(fun (call : Call.t) ->
+    let lo, hi = call.range in
+    lo <= step && step <= hi)
 ;;

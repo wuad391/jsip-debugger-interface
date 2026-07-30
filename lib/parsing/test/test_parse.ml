@@ -99,9 +99,9 @@ let%expect_test "a dump that does not return to depth 0 is rejected" =
   [%expect {| (Failure "DUMP READER: Incorrect file ending!") |}]
 ;;
 
-(* No stdlib Map/Set/Queue function takes a labelled argument, so a real
-   dump of them only ever shows [No_label]; the wire and the derived
-   reader carry labels all the same. *)
+(* No stdlib Map/Set/Queue function takes a labelled argument, so a real dump
+   of them only ever shows [No_label]; the wire and the derived reader carry
+   labels all the same. *)
 let%expect_test "labelled and optional arguments carry their labels" =
   let line =
     String.concat
@@ -118,7 +118,8 @@ let%expect_test "labelled and optional arguments carry their labels" =
   in
   let wire = Dump_wire.of_string line |> Or_error.ok_exn in
   print_s [%sexp (wire.args : Argument.t list)];
-  [%expect {|
+  [%expect
+    {|
     ((Labelled (label key) (expression (Unnamed "\"a\"")))
      (Labelled (label data) (expression (Unnamed 1)))
      (Optional (label eq) (expression (Unnamed OMITTED)))

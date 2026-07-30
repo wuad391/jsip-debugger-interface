@@ -1,22 +1,30 @@
 open! Core
 
 module Address = struct
-  type t = nativeint [@@deriving bin_io, compare, equal, hash]
+  module T = struct
+    type t = nativeint [@@deriving bin_io, compare, equal, hash]
 
-  (* The wire prints addresses as [0x...] atoms; mirror that so our sexps
-     round-trip byte-for-byte against the compiler's emitter. *)
-  let sexp_of_t t = Sexp.Atom (Printf.sprintf "0x%nx" t)
+    (* The wire prints addresses as [0x...] atoms; mirror that so our sexps
+       round-trip byte-for-byte against the compiler's emitter. *)
+    let sexp_of_t t = Sexp.Atom (Printf.sprintf "0x%nx" t)
 
-  let t_of_sexp sexp =
-    match sexp with
-    | Sexp.List _ ->
-      raise_s [%message "Snapshot.Address: expected an atom" (sexp : Sexp.t)]
-    | Sexp.Atom s ->
-      (try Nativeint.of_string s with
-       | _ ->
-         raise_s
-           [%message "Snapshot.Address: not an address" (sexp : Sexp.t)])
-  ;;
+    let t_of_sexp sexp =
+      match sexp with
+      | Sexp.List _ ->
+        raise_s
+          [%message "Snapshot.Address: expected an atom" (sexp : Sexp.t)]
+      | Sexp.Atom s ->
+        (try Nativeint.of_string s with
+         | _ ->
+           raise_s
+             [%message "Snapshot.Address: not an address" (sexp : Sexp.t)])
+    ;;
+  end
+
+  include T
+  include Comparable.Make (T)
+
+  let display t = Printf.sprintf "0x%nx" t
 end
 
 module Ds_type = struct
@@ -25,6 +33,16 @@ module Ds_type = struct
     | Set
     | Queue
   [@@deriving sexp, bin_io, compare, equal]
+
+  let display t =
+    match t with Map -> "map" | Set -> "set" | Queue -> "queue"
+  ;;
+
+  (* which block labels are pointer slots, in walk order — an absent one was
+     a real pointer and shows up in [Node.children] instead *)
+  let pointer_labels t =
+    match t with Map | Set -> [ "l"; "r" ] | Queue -> []
+  ;;
 end
 
 module Block = struct
@@ -39,6 +57,23 @@ module Block = struct
     | Address of Address.t
     | Id of int
   [@@deriving sexp, bin_io, compare, equal]
+
+  let display t =
+    match t with
+    | Int i -> Int.to_string i
+    | Float f -> Float.to_string f
+    | String s -> [%string {|"%{s}"|}]
+    | Int32 i -> [%string "%{i#Int32}l"]
+    | Int64 i -> [%string "%{i#Int64}L"]
+    | Nativeint i -> [%string "%{i#Nativeint}n"]
+    | Float_array floats ->
+      let body =
+        List.map floats ~f:Float.to_string |> String.concat ~sep:"; "
+      in
+      [%string "[|%{body}|]"]
+    | Address address -> Address.display address
+    | Id id -> [%string "#%{id#Int}"]
+  ;;
 end
 
 module Node = struct

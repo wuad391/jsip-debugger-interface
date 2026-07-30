@@ -1,5 +1,12 @@
 (executable
  (name main)
- (libraries jsip_parsing jsip_types core)
+ (libraries
+  core
+  async
+  core_unix.command_unix
+  jsip_parsing
+  jsip_types
+  jsip_replay
+  jsip_tui)
  (preprocess
   (pps ppx_jane)))

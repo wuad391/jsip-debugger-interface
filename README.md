@@ -1,58 +1,95 @@
-# OCaml project template
+# JSIP Debugger Interface
 
-A blank OCaml project in the Jane Street style: [`Core`](https://opam.ocaml.org/packages/core/)
-as the standard library, `ppx_jane` for deriving, `dune` for builds, expect
-tests, and the `janestreet` ocamlformat profile. Wired up with GitHub Actions
-and the Claude GitHub Action.
+A GDB-style terminal interface for examining the behavior of OCaml
+programs. A jsip_debugger compiler fork, run with `-visual-replay`,
+instruments tracked data structures (stdlib `Map`/`Set`/`Queue`) and logs
+one event per instrumented call — its location, arguments, the live
+registry, and a walked snapshot of the structure's heap shape. This
+program replays that log: step through the run and watch the call stack,
+the source position, and the allocated data structures evolve.
 
-Click **"Use this template"** to start a new project from it.
+Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
+interface is the design mockup's layout in terminal cells:
 
-## First use: rename the package
-
-Everything is named `sandbox` as a placeholder. To rename it to `<your_name>`:
-
-1. `dune-project` — the `(name sandbox)` in the `(package ...)` stanza.
-2. `lib/hello/src/dune` and `lib/hello/test/dune` — `sandbox_hello`,
-   `sandbox.hello`, `sandbox_hello_test`.
-3. `lib/hello/src/sandbox_hello.ml` / `.mli` — rename both files, and update
-   the `open Sandbox_hello` references in `bin/main.ml` and
-   `lib/hello/test/test_hello.ml`.
-
-The generated `sandbox.opam` is produced by dune from `dune-project` — don't
-edit it by hand; it regenerates on the next `dune build`.
-
-## Build, test, format
-
-```sh
-dune build                      # compile
-dune runtest                    # run tests
-dune fmt --auto-promote         # format (.ocamlformat: janestreet profile)
-dune exec bin/main.exe -- Ada   # run the example binary
+```
+ ● ocaml-debug │ maps.dump │ map · replay                      PHASE DESCEND │ STEP 4/7
+┌ CALL STACK ────────────────────── 3 live ┐┌ HEAP ───────────── map · 1 nodes · 1 new ┐
+│  M.add "gamma" 3 t             maps.ml:6 ││ live  1↦0x3a0                            │
+│ ▎  M.add "gamma" 3 OMITTED     maps.ml:6 ││                                          │
+│      M.add "gamma" 3 OMITTED   maps.ml:6 ││ ● 0x4c0  v="gamma"  d=3  h=1  new        │
+└───────────────────────────────────────────┘│ ├─l→ ∅                                   │
+┌ SOURCE ─────────────── maps.ml · 8 lines ┐│ └─r→ ∅                                   │
+│    5 let t = M.of_list [ "beta", 2; ...  ││                                          │
+│ ▎  6 let t' = M.add "gamma" 3 t          ││                                          │
+│    7 let t'' = M.remove "beta" t'        ││                                          │
+└───────────────────────────────────────────┘└──────────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────────────
+ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━ ━━━━━━━━━━
+ ◂ back  step ▸  ⏵ play  │ ▎ M.add "gamma" 3 OMITTED — maps.ml:6    ◂ ▸ step · q quit
 ```
 
-## GitHub Actions
+- **Call stack** — the frames live at this step, nested by depth; `↑`/`↓`
+  (or a click) selects a frame and the source pane follows it, marking the
+  caller's line with `▸`.
+- **Source** — syntax-highlighted, the active line washed in the accent
+  color, the event's character range underlined.
+- **Heap** — the walked structure: value fields inline, `l`/`r` pointer
+  slots as edges, `∅` for empties, addresses shared with earlier versions
+  shown plainly and nodes allocated *at this step* marked `new`. The
+  `live` strip is the event's registry. Clicking a node jumps the replay
+  to the step that allocated it; the wheel scrolls.
+- **Timeline** — one tick per event; click to jump, `space` to play.
 
-Two workflows ship with this template:
+## Run it
 
-- **`.github/workflows/ci.yml`** — builds, tests, and checks formatting on
-  every push to `main` and every PR. Self-contained via `ocaml/setup-ocaml`;
-  needs no secrets.
-- **`.github/workflows/claude.yml`** — runs the
-  [Claude Code Action](https://github.com/anthropics/claude-code-action) when
-  someone writes `@claude` in an issue or PR.
+```sh
+dune exec app/bin/main.exe -- -dump-file demo/maps.dump
+```
 
-The Claude workflow needs an `ANTHROPIC_API_KEY` secret, which is **not**
-copied when you create a repo from this template. In each new repo add it under
-**Settings → Secrets and variables → Actions**, or set it as an **organization
-secret** so all repos inherit it. (You can instead use a
-`CLAUDE_CODE_OAUTH_TOKEN` from `/install-github-app`.)
+`-source-root DIR` says where the dump's relative source paths live
+(default: the dump's directory). Keys: `◂`/`▸` (also `h`/`l`, `p`/`n`)
+step · `space` play/pause · `↑`/`↓` frame · `g`/`G` ends · `PgUp`/`PgDn`
+scroll heap · `q` quit.
+
+## Toolchain
+
+This project builds on the [OxCaml](https://oxcaml.org) switch —
+`bonsai_term` and the rest of the Jane Street `v0.18~preview` closure come
+from the OxCaml opam repository:
+
+```sh
+opam switch create 5.2.0+ox --repos ox=git+https://github.com/oxcaml/opam-repository.git,default
+opam install . --deps-only --with-test
+```
+
+Standard `dune` from there:
+
+```sh
+dune build                 # compile
+dune runtest               # expect tests
+dune fmt                   # format (janestreet profile)
+```
 
 ## Layout
 
 ```
-lib/hello/src/    example library (Sandbox_hello.Hello)
-lib/hello/test/   expect tests
-bin/main.ml       example executable
+lib/types/     wire-shaped data: calls, locations, snapshots, the call stack
+lib/parsing/   dump reader (depth markers + event sexps) and source loader
+lib/replay/    the replay model: per-step frames, fresh addresses, captions
+lib/tui/       the bonsai_term interface: panes, theme, layout, app
+app/bin/       the executable
+demo/          a hand-written dump + matching source to try the interface on
 ```
 
-See `CLAUDE.md` for the full code conventions.
+Each `lib/<x>/` has `src/` and `test/`; tests are expect tests
+(`dune runtest --auto-promote` to accept output changes — read the diff).
+
+## GitHub Actions
+
+- **`.github/workflows/ci.yml`** — builds, tests, and checks formatting on
+  every push to `main` and every PR, on the OxCaml toolchain (the first
+  run builds the compiler; later runs hit setup-ocaml's cache).
+- **`.github/workflows/claude.yml`** — runs the
+  [Claude Code Action](https://github.com/anthropics/claude-code-action)
+  when someone writes `@claude` in an issue or PR. Needs an
+  `ANTHROPIC_API_KEY` secret.

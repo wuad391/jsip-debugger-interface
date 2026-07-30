@@ -32,11 +32,11 @@ type t =
       instrumentation. *)
   ; args : Argument.t list
   (** every argument keeps its label kind — [No_label], or
-      [Labelled]/[Optional] carrying the label. Only the [expression]
-      inside is always [Function_info.Unnamed]: the compiler prints each
-      argument as source text, even a bare identifier, so [Function_name]
-      never appears here. An argument the application was abstracted over
-      reads ["OMITTED"]. *)
+      [Labelled]/[Optional] carrying the label. Only the [expression] inside
+      is always [Function_info.Unnamed]: the compiler prints each argument as
+      source text, even a bare identifier, so [Function_name] never appears
+      here. An argument the application was abstracted over reads
+      ["OMITTED"]. *)
   ; registry : (int * Snapshot.Address.t) list
   (** the live weak registry at event time as [(id, address)] pairs *)
   ; snapshot : Snapshot.t

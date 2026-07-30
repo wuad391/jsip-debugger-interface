@@ -25,10 +25,17 @@ jobs:
       - name: Check out the code
         uses: actions/checkout@v4
 
+      # The TUI is built on bonsai_term, whose v0.18~preview releases (and
+      # their Jane Street dependency closure) live in the OxCaml opam
+      # repository and build against the OxCaml compiler variant. The first
+      # run compiles the compiler (~30 min); setup-ocaml caches the switch.
       - name: Set up OCaml
         uses: ocaml/setup-ocaml@v3
         with:
-          ocaml-compiler: "5.2"
+          ocaml-compiler: ocaml-variants.5.2.0+ox
+          opam-repositories: |
+            ox: https://github.com/oxcaml/opam-repository.git
+            default: https://github.com/ocaml/opam-repository.git
 
       - name: Install dependencies
         run: opam install . --deps-only --with-test

@@ -1,0 +1,6 @@
+(library
+ (name jsip_replay)
+ (public_name jsip-debugger-interface.jsip_replay)
+ (libraries core jsip_types)
+ (preprocess
+  (pps ppx_jane)))

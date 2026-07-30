@@ -12,3 +12,7 @@ type t =
   | Function_name of string
   | Unnamed of string
 [@@deriving sexp, bin_io, compare, equal, hash]
+
+(** What the interface prints for the callee: the name of a [Function_name],
+    or the source text an [Unnamed] carries. *)
+val display : t -> string

@@ -23,6 +23,12 @@ open! Core
     exactly like the wire; reads back any form [Nativeint.of_string] accepts. *)
 module Address : sig
   type t = nativeint [@@deriving sexp, bin_io, compare, equal, hash]
+
+  include Comparable.S with type t := t
+
+  (** The wire spelling, [0x%nx] — what the interface shows next to every
+      heap node. *)
+  val display : t -> string
 end
 
 (** Which catalogued data structure the snapshot walked. Constructors mirror
@@ -34,6 +40,16 @@ module Ds_type : sig
     | Set
     | Queue
   [@@deriving sexp, bin_io, compare, equal]
+
+  (** Lowercase, for header chips: ["map"], ["set"], ["queue"]. *)
+  val display : t -> string
+
+  (** The block labels that are pointer slots for this structure, in walk
+      order (e.g. [l]/[r] for [Map]). A label absent from a node's
+      {!Node.t.block} held a real pointer — that child was walked and sits in
+      {!Node.t.children} instead, so renderers can pair missing labels with
+      children positionally to recover edge names. *)
+  val pointer_labels : t -> string list
 end
 
 (** One field of a walked heap block: an immediate or opaque value kept
@@ -51,6 +67,10 @@ module Block : sig
     | Address of Address.t
     | Id of int
   [@@deriving sexp, bin_io, compare, equal]
+
+  (** Source-ish spelling of the value: [42], ["a"], [0x1a0], [#2],
+      [[|1.; 2.|]] ... — what the heap pane prints inside a node. *)
+  val display : t -> string
 end
 
 (** One heap block of the walked structure: its address, its non-pointer

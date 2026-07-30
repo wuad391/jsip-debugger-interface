@@ -1,6 +1,12 @@
-(*=open! Core
+open! Core
 
 type t = { source : Line.t Array.t }
 
-let create ~size = { source = Array.create ~len:size Call.empty }
-let get_line t i = Array.get t.source (i - 1)*)
+let of_lines lines = { source = Array.of_list lines }
+let length t = Array.length t.source
+
+let line t ~number =
+  match number >= 1 && number <= length t with
+  | true -> Some t.source.(number - 1)
+  | false -> None
+;;

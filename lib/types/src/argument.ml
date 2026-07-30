@@ -15,3 +15,12 @@ module T = struct
 end
 
 include T
+
+let display t =
+  match t with
+  | No_label { expression } -> Function_info.display expression
+  | Labelled { label; expression } ->
+    [%string "~%{label}:%{Function_info.display expression}"]
+  | Optional { label; expression } ->
+    [%string "?%{label}:%{Function_info.display expression}"]
+;;

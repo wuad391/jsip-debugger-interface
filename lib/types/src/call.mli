@@ -19,6 +19,10 @@ end
 type t =
   { info : Info.t
   ; range : int * int
+  (** the 0-based, inclusive span of events (indices into
+      {!Call_stack.t.call_order}) during which this call is on the stack:
+      from its own event until the last event before one at its depth or
+      shallower *)
   }
 [@@deriving sexp_of]
 
