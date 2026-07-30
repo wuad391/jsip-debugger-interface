@@ -24,6 +24,9 @@ module Ds_type = struct
     | Map
     | Set
     | Queue
+    | Core_map
+    | Core_set
+    | Core_queue
   [@@deriving sexp, bin_io, compare, equal]
 end
 

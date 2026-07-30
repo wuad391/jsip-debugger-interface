@@ -99,9 +99,65 @@ let%expect_test "a dump that does not return to depth 0 is rejected" =
   [%expect {| (Failure "DUMP READER: Incorrect file ending!") |}]
 ;;
 
-(* No stdlib Map/Set/Queue function takes a labelled argument, so a real
-   dump of them only ever shows [No_label]; the wire and the derived
-   reader carry labels all the same. *)
+(* The wire shapes the compiler emits for Base/Core structures ([Core_*] in
+   [Snapshot.Ds_type]): a Core map is a wrapper record — comparator left
+   unmasked, so only [length] stays inline and the tree walks as the child —
+   over [Leaf]/[Node] blocks; a Core queue root keeps its cursor fields and
+   walks the backing [Option_array] as one child with numeric labels. The
+   reader carries labels opaquely, so both parse unchanged. *)
+let%expect_test "core map and core queue snapshots parse" =
+  let parse_and_print line =
+    let wire = Dump_wire.of_string line |> Or_error.ok_exn in
+    print_s [%sexp (wire.snapshot : Snapshot.t)]
+  in
+  parse_and_print
+    (String.concat
+       [ {|(event (id 4) (loc ((file_path t.ml) (line_number 9) |}
+       ; {|(char_range (10 52)))) (fn (Function_name Map.set)) |}
+       ; {|(args ((No_label (expression (Unnamed m))) |}
+       ; {|(Labelled (label key) (expression (Unnamed 1))) |}
+       ; {|(Labelled (label data) (expression (Unnamed 2))))) |}
+       ; {|(registry ((4 0x7f10c0e100))) |}
+       ; {|(snapshot ((ds_type Core_map) (root_node |}
+       ; {|((virtual_address 0x7f10c0e100) (block ((length (Int 1)))) |}
+       ; {|(children (((virtual_address 0x7f10c0e130) |}
+       ; {|(block ((k (Int 1)) (v (Int 2)))) (children ())))))))))|}
+       ]);
+  [%expect
+    {|
+    ((ds_type Core_map)
+     (root_node
+      ((virtual_address 0x7f10c0e100) (block ((length (Int 1))))
+       (children
+        (((virtual_address 0x7f10c0e130) (block ((k (Int 1)) (v (Int 2))))
+          (children ())))))))
+    |}];
+  parse_and_print
+    (String.concat
+       [ {|(event (id 5) (loc ((file_path t.ml) (line_number 12) |}
+       ; {|(char_range (2 20)))) (fn (Function_name Queue.enqueue)) |}
+       ; {|(args ((No_label (expression (Unnamed q))) |}
+       ; {|(No_label (expression (Unnamed 7))))) |}
+       ; {|(registry ((5 0x7f10c0e200))) |}
+       ; {|(snapshot ((ds_type Core_queue) (root_node |}
+       ; {|((virtual_address 0x7f10c0e200) |}
+       ; {|(block ((front (Int 0)) (length (Int 1)))) |}
+       ; {|(children (((virtual_address 0x7f10c0e230) |}
+       ; {|(block ((0 (Int 7)))) (children ())))))))))|}
+       ]);
+  [%expect
+    {|
+    ((ds_type Core_queue)
+     (root_node
+      ((virtual_address 0x7f10c0e200) (block ((front (Int 0)) (length (Int 1))))
+       (children
+        (((virtual_address 0x7f10c0e230) (block ((0 (Int 7)))) (children ())))))))
+    |}]
+;;
+
+(* No stdlib Map/Set/Queue function takes a labelled argument, so a real dump
+   of them only ever shows [No_label]; the wire and the derived reader carry
+   labels all the same. *)
 let%expect_test "labelled and optional arguments carry their labels" =
   let line =
     String.concat
@@ -118,7 +174,8 @@ let%expect_test "labelled and optional arguments carry their labels" =
   in
   let wire = Dump_wire.of_string line |> Or_error.ok_exn in
   print_s [%sexp (wire.args : Argument.t list)];
-  [%expect {|
+  [%expect
+    {|
     ((Labelled (label key) (expression (Unnamed "\"a\"")))
      (Labelled (label data) (expression (Unnamed 1)))
      (Optional (label eq) (expression (Unnamed OMITTED)))

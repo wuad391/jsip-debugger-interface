@@ -26,13 +26,31 @@ module Address : sig
 end
 
 (** Which catalogued data structure the snapshot walked. Constructors mirror
-    the compiler's [Data_structure.t]; new tracked structures show up here as
-    new constructors. *)
+    the compiler's [Data_structure.t] in name and ORDER (the C walker stores
+    the constructor index verbatim), so new tracked structures are appended.
+
+    The [Core_*] constructors cover [Base] and [Core] both: [Core]'s
+    [Map]/[Set]/[Queue] types are aliases of [Base]'s, so the walker sees one
+    representation. Unlike their stdlib counterparts, [Base]'s [Map] and
+    [Set] wrap their tree in a record ([{comparator; tree; length}] for
+    [Map]) whose comparator field holds closures — the compiler leaves it
+    unmasked, so it never reaches the wire — and [Base.Queue] is an
+    [Option_array]-backed circular buffer, not a linked chain. *)
 module Ds_type : sig
   type t =
-    | Map
-    | Set
+    | Map (** stdlib [Map]: [Node {l; v; d; r; h}] tree blocks *)
+    | Set (** stdlib [Set]: [Node {l; v; r; h}] tree blocks *)
     | Queue
+    (** stdlib [Queue]: [{length; first; last}] root, [Cons] cell chain *)
+    | Core_map
+    (** [Base]/[Core] [Map]: [{comparator; tree; length}] root over
+        [Leaf (k, v)] / [Node (l, k, v, r, h)] tree blocks *)
+    | Core_set
+    (** [Base]/[Core] [Set]: wrapper record over [Leaf v] /
+        [Node (l, v, r, h, size)] tree blocks *)
+    | Core_queue
+    (** [Base]/[Core] [Queue]: [{num_mutations; front; mask; length; elts}]
+        root; [elts] is the backing [Option_array] *)
   [@@deriving sexp, bin_io, compare, equal]
 end
 
