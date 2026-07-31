@@ -147,10 +147,22 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
 ;;
 
 let%expect_test "heap pane: a collected structure is simply gone" =
+  (* the case tracks a map that dies inside [make], forces a full major
+     collection, then tracks another: before, the pane shows the doomed map;
+     after, the registry no longer carries it and neither do we *)
   let replay = replay_of_fixture "map_registry_gc" in
+  heap_view ~height:8 replay ~step:0;
   heap_view ~height:8 replay ~step:1;
   [%expect
     {|
+    ┌ HEAP ────────────────────── 1 live · 1 nodes · 1 new ┐
+    │ ▸ #1 · map                                           │
+    │ ┌──────────────────────┐                             │
+    │ │ #1 · "dead" ↦ 0  new │                             │
+    │ │ 0x7647edff0770       │                             │
+    │ └──────────────────────┘                             │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
     ┌ HEAP ────────────────────── 1 live · 1 nodes · 1 new ┐
     │ ▸ #2 · map                                           │
     │ ┌──────────────────────┐                             │
