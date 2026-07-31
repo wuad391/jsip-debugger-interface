@@ -20,3 +20,7 @@ let char_range t = t.char_range
 let create ~file_path ~line_number ~char_range =
   { file_path; line_number; char_range }
 ;;
+
+let display t =
+  [%string "%{Filename.basename t.file_path}:%{t.line_number#Int}"]
+;;

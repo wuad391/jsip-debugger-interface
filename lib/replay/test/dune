@@ -1,0 +1,17 @@
+(library
+ (name replay_test)
+ (libraries
+  jsip_replay
+  jsip_parsing
+  jsip_types
+  expect_test_helpers_core
+  core)
+ ; see lib/parsing/test/dune: work around this switch's ppx_expect
+ ; mis-resolving dune's -source-tree-root
+ (inline_tests
+  (deps
+   (glob_files_rec ../../../demo/*))
+  (flags
+   (:standard -source-tree-root .)))
+ (preprocess
+  (pps ppx_jane)))

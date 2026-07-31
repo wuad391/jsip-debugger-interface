@@ -1,0 +1,6 @@
+; testing/ holds byte-for-byte compiler output (golden dumps and the
+; programs that produced them — see testing/README.md). Data only: their
+; line numbers and char ranges must keep matching the dumps, so neither
+; the formatter nor the compiler may touch them.
+
+(data_only_dirs testing)
