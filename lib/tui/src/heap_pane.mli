@@ -1,28 +1,33 @@
-(** The heap pane: the current event's walked structure as a tree.
+(** The heap pane: the current event's walked structure as a tree of the
+    mockup's node cards.
 
-    Value fields sit inline in each node's line; pointer slots (the emitter's
+    Each node draws as a bordered card — its meaning up top ([{"a" ↦ 2}] for
+    a map binding, the element for a set, [length n] for a queue root, the
+    content for a cell, the joined positions for a walked value block), the
+    tail of its address in small type below. Pointer slots (the emitter's
     masked-layout contract, {!Jsip_types.Snapshot.Ds_type.masked_labels})
-    draw as labeled edges — [∅] where the runtime kept an empty immediate, a
-    subtree where a block was walked. Queue cells' numeric wire labels print
-    as [v]/[next]. Nodes whose address first appeared at this step get the
-    mockup's "freshly allocated" treatment. A [live] strip along the top
-    shows the event's registry — every tracked structure still alive.
+    hang off the card as labeled edges — a subtree where a block was walked,
+    [∅] where an interior node's slot is empty; leaves keep their empty slots
+    to themselves. Cards allocated at this step get the fresh border and a
+    [new] chip. Queue cells' numeric wire labels print as [v]/[next].
 
     {v
-    live  1↦0x1a0  2↦0x2b0
-
-    ● 0x2b0  v="a"  d=1  new
+    ┌───────────────┐
+    │ "a" ↦ 2   new │
+    │ 0x…a278       │
+    └───────────────┘
     ├─l→ ∅
-    └─r→ ● 0x2b8  v="b"  d=2  new
-         ├─l→ ∅
-         └─r→ ∅
+    └─r→ ┌──────────────┐
+         │ "b" ↦ 4  new │
+         │ 0x…a2a8      │
+         └──────────────┘
     v} *)
 
 open! Core
 open Jsip_types
 module View := Bonsai_term.View
 
-(** One drawn line, remembering which node it heads (edge and strip rows head
+(** One drawn line, remembering which node it belongs to (edge rows belong to
     none) so clicks can resolve to an address. *)
 module Row : sig
   type t =
@@ -31,10 +36,8 @@ module Row : sig
     }
 end
 
-(** The rows [view] draws: the [live] registry strip, a blank, then the tree. *)
 val rows
   :  snapshot:Snapshot.t
-  -> registry:(int * Snapshot.Address.t) list
   -> new_addresses:Snapshot.Address.Set.t
   -> Row.t list
 
@@ -45,7 +48,6 @@ val view
   :  width:int
   -> height:int
   -> snapshot:Snapshot.t
-  -> registry:(int * Snapshot.Address.t) list
   -> new_addresses:Snapshot.Address.Set.t
   -> scroll:int
   -> View.t
@@ -54,7 +56,6 @@ val view
     scrolling — the app jumps the replay to that node's allocation step. *)
 val address_at
   :  snapshot:Snapshot.t
-  -> registry:(int * Snapshot.Address.t) list
   -> new_addresses:Snapshot.Address.Set.t
   -> scroll:int
   -> height:int

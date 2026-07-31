@@ -7,7 +7,7 @@ let label text =
   View.text ~attrs:(Theme.fg' Theme.faint) (String.uppercase text)
 ;;
 
-let view ~width ~dump_name ~structure ~phase ~step ~total =
+let view ~width ~dump_name ~structure ~step ~total =
   let left =
     View.hcat
       [ View.text " "
@@ -23,10 +23,7 @@ let view ~width ~dump_name ~structure ~phase ~step ~total =
   in
   let right =
     View.hcat
-      [ label "phase "
-      ; View.text ~attrs:(Theme.fg' Theme.secondary) (String.uppercase phase)
-      ; divider
-      ; label "step "
+      [ label "step "
       ; View.text ~attrs:(Theme.fg' Theme.text) (Int.to_string step)
       ; View.text ~attrs:(Theme.fg' Theme.faint) [%string "/%{total#Int}"]
       ; View.text " "

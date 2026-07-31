@@ -12,10 +12,12 @@ let fit view ~width ~height =
   View.zcat [ cropped; View.transparent_rectangle ~width ~height ]
 ;;
 
+let repeat glyph ~width =
+  String.concat (List.init (max 0 width) ~f:(fun (_ : int) -> glyph))
+;;
+
 let horizontal_rule ~width ~color =
-  View.text
-    ~attrs:(Theme.fg' color)
-    (String.concat (List.init width ~f:(fun _ -> "─")))
+  View.text ~attrs:(Theme.fg' color) (repeat "─" ~width)
 ;;
 
 let inner_width ~width = max 0 (width - 4)
@@ -36,9 +38,7 @@ let view ?(strong = false) ~title ~meta ~width ~height body =
     View.hcat
       [ View.text ~attrs:border_attrs "┌ "
       ; title_view
-      ; View.text
-          ~attrs:border_attrs
-          (" " ^ String.concat (List.init fill ~f:(fun _ -> "─")))
+      ; View.text ~attrs:border_attrs (" " ^ repeat "─" ~width:fill)
       ; View.text " "
       ; meta_view
       ; View.text ~attrs:border_attrs " ┐"

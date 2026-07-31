@@ -13,29 +13,29 @@ interface is the design mockup's layout in terminal cells, its warm-gray
 palette re-pitched for dark terminals:
 
 ```
- ● ocaml-debug │ map_fold.dump │ map · replay                  PHASE DESCEND │ STEP 3/5
-┌ CALL STACK ───────── 5 calls · 2 live ┐┌ HEAP ─────────────── map · 1 nodes · 1 new ┐
-│    M.add "b" 2 M.empty  map_fold.ml:8 ││ live  1↦0x71a0e25f19e8  2↦0x71a0e25ee868 ...│
-│  M.add "a" 1 (M.add "b" map_fold.ml:8 ││                                             │
-│    2 M.empty)                         ││ ● 0x71a0e25ea278  v="a"  d=2  new           │
-│ ▎  M.add k (v * 2) acc map_fold.ml:12 ││ ├─l→ ∅                                      │
-│    M.add k (v * 2) acc map_fold.ml:12 ││ └─r→ ∅                                      │
-│  M.fold (fun k v acc   map_fold.ml:10 ││                                             │
-│    -> M.add k (v * 2)                 ││                                             │
-│    acc) m M.empty                     ││                                             │
-└───────────────────────────────────────┘│                                             │
-┌ SOURCE ─────── map_fold.ml · 15 lines ┐│                                             │
-│ ▸  8   let m = M.add "a" 1 (M.add     ││                                             │
-│      "b" 2 M.empty) in                ││                                             │
-│    9   let doubled =                  ││                                             │
-│   10     M.fold                       ││                                             │
-│   11       (fun k v acc ->            ││                                             │
-│ ▎ 12         M.add k (v * 2) acc)     ││                                             │
-│   13       m M.empty                  ││                                             │
-└───────────────────────────────────────┘└─────────────────────────────────────────────┘
-────────────────────────────────────────────────────────────────────────────────────────
+ ● ocaml-debug │ map_fold.dump │ map · replay                                 STEP 5/5
+┌ CALL STACK ───────── 5 calls · 1 live ┐┌ HEAP ─────────────────────── map · 2 nodes ┐
+│    M.add "b" 2 M.empty  map_fold.ml:8 ││ ┌─────────┐                                │
+│  M.add "a" 1 (M.add     map_fold.ml:8 ││ │ "a" ↦ 2 │                                │
+│    "b" 2 M.empty)                     ││ │ 0x…6a58 │                                │
+│    M.add k (v * 2)     map_fold.ml:12 ││ └─────────┘                                │
+│      acc                              ││ ├─l→ ∅                                     │
+│    M.add k (v * 2)     map_fold.ml:12 ││ └─r→ ┌─────────┐                           │
+│      acc                              ││      │ "b" ↦ 4 │                           │
+│ ▎M.fold (fun k v acc   map_fold.ml:10 ││      │ 0x…6a88 │                           │
+│ ▎  -> M.add k (v * 2) acc) m M.empty  ││      └─────────┘                           │
+└───────────────────────────────────────┘│                                            │
+┌ SOURCE ─────── map_fold.ml · 15 lines ┐│                                            │
+│    8   let m = M.add "a" 1 (M.add     ││                                            │
+│          "b" 2 M.empty) in            ││                                            │
+│    9   let doubled =                  ││                                            │
+│ ▎ 10     M.fold                       ││                                            │
+│   11       (fun k v acc ->            ││                                            │
+│   12         M.add k (v * 2) acc)     ││                                            │
+└───────────────────────────────────────┘└────────────────────────────────────────────┘
+──────────────────────────────────────────────────────────────────────────────────────
  ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━
- ◂ back  step ▸  ⏵ play  │ ▎ M.add k (v * 2) acc — map_fold.ml:12    ◂ ▸ step · q quit
+ ◂ back  step ▸  ⏵ play        ◂ ▸ step · space play · ↑ ↓ frame · click jumps · q quit
 ```
 
 - **Call stack** — every call in the run, indented by depth: the current
@@ -46,11 +46,13 @@ palette re-pitched for dark terminals:
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
   blank gutter.
-- **Heap** — the walked structure: value fields inline, `l`/`r` pointer
-  slots as edges, `∅` for empties, addresses shared with earlier versions
-  shown plainly and nodes allocated *at this step* marked `new`. The
-  `live` strip is the event's registry. Clicking a node jumps the replay
-  to the step that allocated it; the wheel scrolls.
+- **Heap** — the walked structure as node cards: each box carries the
+  node's meaning (`"a" ↦ 2` for a map binding, `length n` for a queue
+  root, the element for sets and cells) over the tail of its address;
+  pointer slots hang off as labeled edges, `∅` where an interior slot is
+  empty, and cards allocated *at this step* get the fresh border and a
+  `new` chip. Clicking a card jumps the replay to the step that allocated
+  it; the wheel scrolls.
 - **Timeline** — one tick per event; click to jump, `space` to play.
 
 ## Run it

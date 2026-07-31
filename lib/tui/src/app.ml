@@ -98,19 +98,6 @@ let birth_steps replay =
         ~f:(fun births address -> Map.add_exn births ~key:address ~data:step))
 ;;
 
-let phase replay ~step =
-  let depth_at step = (Replay.step_exn replay ~step).call.info.depth in
-  match step with
-  | 0 -> "setup"
-  | step ->
-    (match
-       Ordering.of_int (compare (depth_at step) (depth_at (step - 1)))
-     with
-     | Greater -> "descend"
-     | Less -> "unwind"
-     | Equal -> "step")
-;;
-
 module Computed = struct
   type t =
     { view : View.t
@@ -129,7 +116,7 @@ let render
   ~dimensions
   =
   let layout = Layout.compute dimensions in
-  let { Replay.Step.call; frames; new_addresses; description } =
+  let { Replay.Step.call; frames; new_addresses; description = _ } =
     Replay.step_exn replay ~step:model.step
   in
   let count = List.length frames in
@@ -165,7 +152,6 @@ let render
         [%message
           "no source loaded for" ~file:(Location.file_path location : string)]
   in
-  let registry = call.info.registry in
   let snapshot = call.info.snapshot in
   let place (region : Region.t) view =
     View.pad ~l:region.x ~t:region.y view
@@ -178,7 +164,6 @@ let render
              ~width:layout.top_bar.width
              ~dump_name
              ~structure:(Snapshot.Ds_type.display snapshot.ds_type)
-             ~phase:(phase replay ~step:model.step)
              ~step:(model.step + 1)
              ~total:(Replay.length replay))
       ; place
@@ -205,7 +190,6 @@ let render
              ~width:layout.heap.width
              ~height:layout.heap.height
              ~snapshot
-             ~registry
              ~new_addresses
              ~scroll:model.heap_scroll)
       ; View.pad
@@ -214,8 +198,7 @@ let render
              ~width:dimensions.Dimensions.width
              ~step:model.step
              ~total:(Replay.length replay)
-             ~playing:model.playing
-             ~status:description)
+             ~playing:model.playing)
       ; View.rectangle
           ~attrs:[ Attr.bg Theme.bg ]
           ~width:dimensions.width
@@ -259,7 +242,6 @@ let render
              | Some { x = _; y } ->
                Heap_pane.address_at
                  ~snapshot
-                 ~registry
                  ~new_addresses
                  ~scroll:model.heap_scroll
                  ~height:layout.heap.height

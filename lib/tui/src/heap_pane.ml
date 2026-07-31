@@ -10,6 +10,15 @@ module Row = struct
     }
 end
 
+(* real addresses are twelve hex digits of noise; the box keeps the tail as
+   an identity hint and the full address stays in the data *)
+let short_address address =
+  let hex = Snapshot.Address.display address in
+  match String.length hex > 8 with
+  | true -> [%string "0x…%{String.suffix hex 4}"]
+  | false -> hex
+;;
+
 (* queue cells label their fields numerically on the wire (0 = content, 1 =
    next); everything else keeps its own label *)
 let display_label ~ds_type label =
@@ -19,59 +28,132 @@ let display_label ~ds_type label =
   | (Map | Set | Queue), label -> label
 ;;
 
-let node_line
-  (node : Snapshot.Node.t)
-  ~ds_type
-  ~edge_labels
-  ~new_addresses
-  ~prefix
-  =
-  let is_new = Set.mem new_addresses node.virtual_address in
-  let address_attrs =
-    match is_new with
-    | true -> [ Theme.fg Theme.fresh; Attr.bold ]
-    | false -> Theme.fg' Theme.faint
+(* what the box says: the mockup's ["key" ↦ data] for map nodes, the element
+   for sets, [length n] for queue roots, the content for cells, the joined
+   positions for a walked value block — plus any leftover fields, labeled *)
+let summary_spans (node : Snapshot.Node.t) ~ds_type ~hidden_labels =
+  let field label =
+    List.Assoc.find node.block label ~equal:String.equal
+    |> Option.map ~f:Snapshot.Block.display
   in
-  let bullet_color =
-    match is_new with true -> Theme.fresh | false -> Theme.accent
+  let used, main =
+    match (ds_type : Snapshot.Ds_type.t) with
+    | (Map | Set) when Snapshot.Ds_type.is_value_block node.block ->
+      ( List.map node.block ~f:fst
+      , [ ( `Value
+          , List.map node.block ~f:(fun ((_ : string), block) ->
+              Snapshot.Block.display block)
+            |> String.concat ~sep:", " )
+        ] )
+    | Map ->
+      ( [ "v"; "d" ]
+      , List.concat
+          [ (match field "v" with Some key -> [ `Key, key ] | None -> [])
+          ; [ `Arrow, " ↦ " ]
+          ; (match field "d" with
+             | Some data -> [ `Value, data ]
+             | None -> [])
+          ] )
+    | Set -> [ "v" ], [ `Key, Option.value (field "v") ~default:"·" ]
+    | Queue ->
+      (match field "length" with
+       | Some length -> [ "length" ], [ `Label, "length "; `Value, length ]
+       | None -> [ "0" ], [ `Value, Option.value (field "0") ~default:"·" ])
   in
-  let fields =
-    List.filter node.block ~f:(fun (label, _) ->
-      not (List.mem edge_labels label ~equal:String.equal))
+  let leftovers =
+    List.filter node.block ~f:(fun (label, (_ : Snapshot.Block.t)) ->
+      (not (List.mem hidden_labels label ~equal:String.equal))
+      && not (List.mem used label ~equal:String.equal))
     |> List.concat_map ~f:(fun (label, block) ->
-      [ View.text "  "
-      ; View.text
-          ~attrs:(Theme.fg' Theme.muted)
-          [%string "%{display_label ~ds_type label}="]
-      ; View.text
-          ~attrs:(Theme.fg' Theme.text)
-          (Snapshot.Block.display block)
+      [ `Label, [%string "  %{display_label ~ds_type label}="]
+      ; `Value, Snapshot.Block.display block
       ])
   in
-  let chip =
-    match is_new with
-    | true ->
-      [ View.text "  "
-      ; View.text ~attrs:[ Theme.fg Theme.fresh; Attr.italic ] "new"
-      ]
-    | false -> []
-  in
-  View.hcat
-    ([ View.text ~attrs:(Theme.fg' Theme.ghost) prefix
-     ; View.text ~attrs:[ Theme.fg bullet_color ] "● "
-     ; View.text
-         ~attrs:address_attrs
-         (Snapshot.Address.display node.virtual_address)
-     ]
-     @ fields
-     @ chip)
+  main @ leftovers
 ;;
 
-(* The walked tree, mockup-style: value fields inline in the node line and
-   pointer slots as labeled edges. Which slots edge off is the emitter's
-   masked-layout contract ({!Snapshot.Ds_type.masked_labels}): a masked label
-   present in [block] as an empty pointer draws as [∅], and each missing
-   label takes the next walked child, in order. *)
+let span_view (tag, text) =
+  let attrs =
+    match tag with
+    | `Key -> [ Theme.fg Theme.text; Attr.bold ]
+    | `Value -> Theme.fg' Theme.text
+    | `Arrow -> Theme.fg' Theme.ghost
+    | `Label -> Theme.fg' Theme.muted
+  in
+  View.text ~attrs text
+;;
+
+(* the mockup's node card, in cells:
+   {v
+   ┌────────────────┐
+   │ "a" ↦ 2    new │
+   │ 0x…a278        │
+   └────────────────┘
+   v} *)
+let box_rows
+  (node : Snapshot.Node.t)
+  ~ds_type
+  ~hidden_labels
+  ~new_addresses
+  ~prefix
+  ~rest
+  =
+  let is_new = Set.mem new_addresses node.virtual_address in
+  let border_color =
+    match is_new with true -> Theme.fresh | false -> Theme.border_strong
+  in
+  let border = Theme.fg' border_color in
+  let summary =
+    let spans =
+      List.map (summary_spans node ~ds_type ~hidden_labels) ~f:span_view
+    in
+    match is_new with
+    | true ->
+      View.hcat
+        (spans
+         @ [ View.text "  "
+           ; View.text ~attrs:[ Theme.fg Theme.fresh; Attr.italic ] "new"
+           ])
+    | false -> View.hcat spans
+  in
+  let address =
+    View.text
+      ~attrs:(Theme.fg' Theme.faint)
+      (short_address node.virtual_address)
+  in
+  let inner = max (View.width summary) (View.width address) in
+  let ghost_prefix text = View.text ~attrs:(Theme.fg' Theme.ghost) text in
+  let horizontal = Panel.repeat "─" ~width:(inner + 2) in
+  let content line =
+    View.hcat
+      [ ghost_prefix rest
+      ; View.text ~attrs:border "│ "
+      ; Panel.fit line ~width:inner ~height:1
+      ; View.text ~attrs:border " │"
+      ]
+  in
+  let row view = { Row.view; address = Some node.virtual_address } in
+  [ row
+      (View.hcat
+         [ ghost_prefix prefix
+         ; View.text ~attrs:border [%string "┌%{horizontal}┐"]
+         ])
+  ; row (content summary)
+  ; row (content address)
+  ; row
+      (View.hcat
+         [ ghost_prefix rest
+         ; View.text ~attrs:border [%string "└%{horizontal}┘"]
+         ])
+  ]
+;;
+
+(* The walked tree, mockup-style: one card per node, pointer slots as labeled
+   edges hanging below it. Which slots edge off is the emitter's
+   masked-layout contract ({!Snapshot.Ds_type.masked_labels}): a missing
+   masked label takes the next walked child, in order; an empty pointer shows
+   as [∅] — but a leaf (no walked children at all) keeps its empty slots to
+   itself. *)
 let rec node_rows
   (node : Snapshot.Node.t)
   ~ds_type
@@ -82,21 +164,35 @@ let rec node_rows
   let masked = Snapshot.Ds_type.masked_labels ds_type ~block:node.block in
   let nil_labels = Snapshot.Ds_type.nil_labels ds_type in
   let in_block label = List.Assoc.mem node.block label ~equal:String.equal in
-  let edge_labels =
-    (* a masked label that is either a walked child (absent) or an empty
-       pointer draws as an edge; other present labels stay inline *)
-    List.filter masked ~f:(fun label ->
-      (not (in_block label))
-      || (List.mem nil_labels label ~equal:String.equal
-          &&
-          match List.Assoc.find node.block label ~equal:String.equal with
-          | Some (Snapshot.Block.Int 0) -> true
-          | Some _ | None -> false))
+  (* pointer slots never print as fields: a missing masked label is a walked
+     child, and a masked nil ([Int 0] in a nil-able slot) is an empty pointer
+     — drawn as an [∅] edge on interior nodes, and simply omitted on leaves
+     so they stay compact *)
+  let empty_pointer label =
+    List.mem nil_labels label ~equal:String.equal
+    &&
+    match List.Assoc.find node.block label ~equal:String.equal with
+    | Some (Snapshot.Block.Int 0) -> true
+    | Some _ | None -> false
   in
-  let first =
-    { Row.view = node_line node ~ds_type ~edge_labels ~new_addresses ~prefix
-    ; address = Some node.virtual_address
-    }
+  let pointer_labels =
+    List.filter masked ~f:(fun label ->
+      (not (in_block label)) || empty_pointer label)
+  in
+  let edge_labels =
+    match List.is_empty node.children with
+    | true ->
+      List.filter pointer_labels ~f:(fun label -> not (in_block label))
+    | false -> pointer_labels
+  in
+  let box =
+    box_rows
+      node
+      ~ds_type
+      ~hidden_labels:pointer_labels
+      ~new_addresses
+      ~prefix
+      ~rest
   in
   let children = Queue.of_list node.children in
   (* bind the labeled edges before flushing the queue: (@) evaluates its
@@ -115,8 +211,8 @@ let rec node_rows
   in
   let edges = labeled_edges @ unclaimed_children in
   let last_index = List.length edges - 1 in
-  first
-  :: List.concat_mapi edges ~f:(fun index (label, edge) ->
+  box
+  @ List.concat_mapi edges ~f:(fun index (label, edge) ->
     let is_last = index = last_index in
     let connector = match is_last with true -> "└─" | false -> "├─" in
     let label = display_label ~ds_type label in
@@ -145,33 +241,13 @@ let rec node_rows
       node_rows child ~ds_type ~new_addresses ~prefix:head ~rest:pad_under)
 ;;
 
-let registry_row registry =
-  let entries =
-    List.concat_map registry ~f:(fun (id, address) ->
-      [ View.text "  "
-      ; View.text ~attrs:(Theme.fg' Theme.secondary) [%string "%{id#Int}"]
-      ; View.text ~attrs:(Theme.fg' Theme.ghost) "↦"
-      ; View.text
-          ~attrs:(Theme.fg' Theme.faint)
-          (Snapshot.Address.display address)
-      ])
-  in
-  { Row.view =
-      View.hcat (View.text ~attrs:(Theme.fg' Theme.muted) "live" :: entries)
-  ; address = None
-  }
-;;
-
-let rows ~snapshot ~registry ~new_addresses =
-  let tree =
-    node_rows
-      snapshot.Snapshot.root_node
-      ~ds_type:snapshot.ds_type
-      ~new_addresses
-      ~prefix:""
-      ~rest:""
-  in
-  [ registry_row registry; { Row.view = View.none; address = None } ] @ tree
+let rows ~snapshot ~new_addresses =
+  node_rows
+    snapshot.Snapshot.root_node
+    ~ds_type:snapshot.ds_type
+    ~new_addresses
+    ~prefix:""
+    ~rest:""
 ;;
 
 let count_nodes snapshot =
@@ -183,8 +259,8 @@ let count_nodes snapshot =
 
 let scroll_limit rows ~height = Int.max 0 (List.length rows - height)
 
-let view ~width ~height ~snapshot ~registry ~new_addresses ~scroll =
-  let all_rows = rows ~snapshot ~registry ~new_addresses in
+let view ~width ~height ~snapshot ~new_addresses ~scroll =
+  let all_rows = rows ~snapshot ~new_addresses in
   let scroll = Int.min scroll (scroll_limit all_rows ~height:(height - 2)) in
   let visible =
     List.drop all_rows scroll
@@ -205,8 +281,8 @@ let view ~width ~height ~snapshot ~registry ~new_addresses ~scroll =
   Panel.view ~title:"heap" ~meta ~width ~height (View.vcat visible)
 ;;
 
-let address_at ~snapshot ~registry ~new_addresses ~scroll ~height ~row =
-  let all_rows = rows ~snapshot ~registry ~new_addresses in
+let address_at ~snapshot ~new_addresses ~scroll ~height ~row =
+  let all_rows = rows ~snapshot ~new_addresses in
   let scroll = Int.min scroll (scroll_limit all_rows ~height:(height - 2)) in
   match List.nth all_rows (row + scroll) with
   | Some { Row.address; view = _ } -> address

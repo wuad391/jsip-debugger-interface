@@ -80,6 +80,10 @@ module Ds_type : sig
   (** The labels whose [(Int 0)] means an empty pointer ([Empty]/[Nil])
       rather than the number 0 — what the heap pane draws as [∅]. *)
   val nil_labels : t -> string list
+
+  (** Whether a node is a walked boxed value rather than a DS node — all its
+      labels are numeric positions (see {!masked_labels}). *)
+  val is_value_block : (string * Block.t) list -> bool
 end
 
 (** One heap block of the walked structure: its address, its non-pointer

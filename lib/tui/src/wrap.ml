@@ -9,20 +9,9 @@ let chunks spans =
   |> List.filter ~f:(fun ((_ : _), text) -> not (String.is_empty text))
 ;;
 
-let hard_split (tag, text) ~width =
-  let rec split text pieces =
-    match String.length text <= width with
-    | true -> List.rev ((tag, text) :: pieces)
-    | false ->
-      split
-        (String.drop_prefix text width)
-        ((tag, String.prefix text width) :: pieces)
-  in
-  split text []
-;;
-
-let spans spans ~width =
-  match width < 2 with
+let spans ?first_width spans ~width =
+  let first_width = Option.value first_width ~default:width in
+  match width < 2 || first_width < 2 with
   | true -> [ spans ]
   | false ->
     let flush line lines =
@@ -30,34 +19,28 @@ let spans spans ~width =
       | true -> lines
       | false -> List.rev line :: lines
     in
-    let lines, line, (_ : int) =
-      List.fold
-        (chunks spans)
-        ~init:([], [], 0)
-        ~f:(fun (lines, line, column) (tag, text) ->
-          let length = String.length text in
-          match column + length <= width with
-          | true -> lines, (tag, text) :: line, column + length
-          | false ->
-            (* drop the whitespace a break lands on; hard-split a word that
-               cannot fit even on its own line *)
-            (match String.equal text " " with
-             | true -> flush line lines, [], 0
-             | false ->
-               (match length > width with
-                | true ->
-                  let pieces = hard_split (tag, text) ~width in
-                  let full, last =
-                    List.drop_last_exn pieces, List.last_exn pieces
-                  in
-                  let lines =
-                    List.fold
-                      full
-                      ~init:(flush line lines)
-                      ~f:(fun lines piece -> [ piece ] :: lines)
-                  in
-                  lines, [ last ], String.length (snd last)
-                | false -> flush line lines, [ tag, text ], length)))
+    let rec go chunks line column limit lines =
+      match chunks with
+      | [] -> flush line lines
+      | ((tag, text) as chunk) :: rest ->
+        let length = String.length text in
+        (match column + length <= limit with
+         | true ->
+           go rest ((tag, text) :: line) (column + length) limit lines
+         | false ->
+           (* break here: drop the whitespace the break lands on, and
+              hard-split a word that cannot fit even on a fresh line *)
+           (match String.equal text " " with
+            | true -> go rest [] 0 width (flush line lines)
+            | false ->
+              (match column = 0 with
+               | true ->
+                 let head = tag, String.prefix text limit in
+                 let tail = tag, String.drop_prefix text limit in
+                 go (tail :: rest) [] 0 width (flush [ head ] lines)
+               | false -> go (chunk :: rest) [] 0 width (flush line lines))))
     in
-    (match List.rev (flush line lines) with [] -> [ [] ] | lines -> lines)
+    (match List.rev (go (chunks spans) [] 0 first_width []) with
+     | [] -> [ [] ]
+     | lines -> lines)
 ;;

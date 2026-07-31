@@ -2,8 +2,7 @@
 
     Three rows — a rule, the mockup's per-step tick bar (past gold-washed,
     current accent, future hairline; clickable to jump), and the controls
-    row: back/step/play chips, the blinking status caret with the step's
-    description, key hints right-aligned. *)
+    row: back/step/play chips with the key hints right-aligned. *)
 
 open! Core
 module View := Bonsai_term.View
@@ -17,13 +16,7 @@ module Button : sig
 end
 
 (** Three rows tall. [step] is 0-based. *)
-val view
-  :  width:int
-  -> step:int
-  -> total:int
-  -> playing:bool
-  -> status:string
-  -> View.t
+val view : width:int -> step:int -> total:int -> playing:bool -> View.t
 
 (** Which step a click at column [x] of the tick row jumps to. *)
 val step_at : width:int -> total:int -> x:int -> int option

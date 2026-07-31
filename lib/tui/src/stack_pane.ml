@@ -50,11 +50,14 @@ let rows ~width ~calls ~live ~selected =
       |> String.concat ~sep:" "
     in
     let location = Location.display call.info.location in
-    let text_width =
-      max 8 (width - 1 - indent - String.length location - 1)
-    in
+    (* the first line leaves room for the location chip and a gap; the
+       continuations only for their own two-space indent *)
+    let available = width - 1 - indent in
     let wrapped =
-      Wrap.spans [ `Fn, fn; `Args, [%string " %{args}"] ] ~width:text_width
+      Wrap.spans
+        [ `Fn, fn; `Args, [%string " %{args}"] ]
+        ~first_width:(max 8 (available - String.length location - 2))
+        ~width:(max 8 (available - 2))
     in
     let bar line_index =
       match is_selected, line_index with

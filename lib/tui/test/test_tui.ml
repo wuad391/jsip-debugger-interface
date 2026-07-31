@@ -29,7 +29,7 @@ let replay_of_fixture name =
   Replay.create (Call_stack.create ~parsed_info)
 ;;
 
-let heap_view ?(width = 56) ?(height = 9) replay ~step =
+let heap_view ?(width = 56) ?(height = 15) replay ~step =
   let { Replay.Step.call; new_addresses; _ } =
     Replay.step_exn replay ~step
   in
@@ -40,7 +40,6 @@ let heap_view ?(width = 56) ?(height = 9) replay ~step =
        ~width
        ~height
        ~snapshot:call.info.snapshot
-       ~registry:call.info.registry
        ~new_addresses
        ~scroll:0)
 ;;
@@ -89,13 +88,19 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   [%expect
     {|
     ┌ HEAP ───────────────────────── map · 2 nodes · 2 new ┐
-    │ live  1↦0x763be65f19e8  2↦0x763be65ee878             │
-    │                                                      │
-    │ ● 0x763be65ee878  v="a"  d=1  new                    │
+    │ ┌──────────────┐                                     │
+    │ │ "a" ↦ 1  new │                                     │
+    │ │ 0x…e878      │                                     │
+    │ └──────────────┘                                     │
     │ ├─l→ ∅                                               │
-    │ └─r→ ● 0x763be65ee8a8  v="b"  d=2  new               │
-    │      ├─l→ ∅                                          │
-    │      └─r→ ∅                                          │
+    │ └─r→ ┌──────────────┐                                │
+    │      │ "b" ↦ 2  new │                                │
+    │      │ 0x…e8a8      │                                │
+    │      └──────────────┘                                │
+    │                                                      │
+    │                                                      │
+    │                                                      │
+    │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -106,12 +111,18 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
   [%expect
     {|
     ┌ HEAP ─────────────────────── queue · 3 nodes · 1 new ┐
-    │ live  1↦0x70a6aa9f2228                               │
-    │                                                      │
-    │ ● 0x70a6aa9f2228  length=2                           │
-    │ └─first→ ● 0x70a6aa9efb50  v="x"                     │
-    │          └─next→ ● 0x70a6aa9ec9e0  v="y"  new        │
-    │                  └─next→ ∅                           │
+    │ ┌──────────┐                                         │
+    │ │ length 2 │                                         │
+    │ │ 0x…2228  │                                         │
+    │ └──────────┘                                         │
+    │ └─first→ ┌─────────┐                                 │
+    │          │ "x"     │                                 │
+    │          │ 0x…fb50 │                                 │
+    │          └─────────┘                                 │
+    │          └─next→ ┌──────────┐                        │
+    │                  │ "y"  new │                        │
+    │                  │ 0x…c9e0  │                        │
+    │                  └──────────┘                        │
     │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
@@ -123,27 +134,35 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
   [%expect
     {|
     ┌ HEAP ───────────────────────── map · 2 nodes · 2 new ┐
-    │ live  1↦0x7cc39e1f19e8  2↦0x7cc39e1ee630  3↦0x7cc39e │
-    │                                                      │
-    │ ● 0x7cc39e1e9c50  v="pair"  new                      │
+    │ ┌────────────────┐                                   │
+    │ │ "pair" ↦   new │                                   │
+    │ │ 0x…9c50        │                                   │
+    │ └────────────────┘                                   │
     │ ├─l→ ∅                                               │
-    │ ├─d→ ● 0x7cc3ae369b18  0=1  1="one"  new             │
+    │ ├─d→ ┌───────────────┐                               │
+    │ │    │ 1, "one"  new │                               │
+    │ │    │ 0x…9b18       │                               │
+    │ │    └───────────────┘                               │
     │ └─r→ ∅                                               │
+    │                                                      │
+    │                                                      │
     │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
 
-let%expect_test "heap pane: the registry strip drops GC'd structures" =
+let%expect_test "heap pane: a collected structure is simply gone" =
   let replay = replay_of_fixture "map_registry_gc" in
-  heap_view ~height:6 replay ~step:1;
+  heap_view ~height:8 replay ~step:1;
   [%expect
     {|
     ┌ HEAP ───────────────────────── map · 1 nodes · 1 new ┐
-    │ live  2↦0x7647edffffd8                               │
+    │ ┌─────────────────┐                                  │
+    │ │ "live" ↦ 1  new │                                  │
+    │ │ 0x…ffd8         │                                  │
+    │ └─────────────────┘                                  │
     │                                                      │
-    │ ● 0x7647edffffd8  v="live"  d=1  new                 │
-    │ ├─l→ ∅                                               │
+    │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -166,7 +185,7 @@ let%expect_test "source pane: gutter, active line wash, callsite marker" =
   [%expect
     {|
     ┌ SOURCE ───────────────────── map_basic.ml · 10 lines ┐
-    │      value) and [ignore] don't. *)                   │
+    │           value) and [ignore] don't. *)              │
     │    3 module M = Map.Make (String)                    │
     │    4                                                 │
     │    5 let () =                                        │
@@ -203,17 +222,12 @@ let%expect_test "source pane: a missing file renders its error" =
 let%expect_test "footer: ticks mark past, current, future" =
   print_view
     ~height:3
-    (Footer.view
-       ~width:56
-       ~step:1
-       ~total:3
-       ~playing:false
-       ~status:"M.add \"b\" 2 m — map_basic.ml:8");
+    (Footer.view ~width:56 ~step:1 ~total:3 ~playing:false);
   [%expect
     {|
     ────────────────────────────────────────────────────────
      ━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━
-     ◂ back  step ▸  ⏵ play  │ ▎ M.add "b" 2 m — map_basic.m
+     ◂ back  step ▸  ⏵ play   ◂ ▸ step · space play · ↑ ↓ fr
     |}]
 ;;
 
@@ -278,7 +292,7 @@ let%expect_test "source pane: long lines wrap under a blank gutter" =
     │    6                                     │
     │    7 let () =                            │
     │    8   let m = M.add "a" 1 (M.add "b" 2  │
-    │      M.empty) in                         │
+    │          M.empty) in                     │
     │ ▎  9   let doubled =                     │
     │   10     M.fold                          │
     │   11       (fun k v acc ->               │

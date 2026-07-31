@@ -33,5 +33,9 @@ val fit : View.t -> width:int -> height:int -> View.t
     one column of padding each side are the panel's. *)
 val inner_width : width:int -> int
 
+(** [glyph] repeated [width] times — for multi-byte box characters where
+    [String.make] would count bytes. *)
+val repeat : string -> width:int -> string
+
 (** A [─] run, for separators inside panes. *)
 val horizontal_rule : width:int -> color:Bonsai_term.Attr.Color.t -> View.t

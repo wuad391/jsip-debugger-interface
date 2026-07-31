@@ -56,7 +56,7 @@ let ticks ~width ~step ~total =
   Panel.fit (View.hcat (View.text " " :: views)) ~width ~height:1
 ;;
 
-let controls ~width ~playing ~status =
+let controls ~width ~playing =
   let chip ?(attrs = Theme.fg' Theme.text) text =
     View.hcat [ View.text ~attrs text; View.text "  " ]
   in
@@ -74,9 +74,6 @@ let controls ~width ~playing ~status =
       ; chip "◂ back"
       ; chip "step ▸"
       ; chip ~attrs:play_attrs play_label
-      ; View.text ~attrs:(Theme.fg' Theme.border) "│ "
-      ; View.text ~attrs:[ Theme.fg Theme.accent; Attr.blink ] "▎"
-      ; View.text ~attrs:(Theme.fg' Theme.text) [%string " %{status}"]
       ]
   in
   let hints =
@@ -102,7 +99,7 @@ let button_at ~x =
     match x >= start && x <= stop with true -> Some button | false -> None)
 ;;
 
-let view ~width ~step ~total ~playing ~status =
+let view ~width ~step ~total ~playing =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
@@ -110,6 +107,6 @@ let view ~width ~step ~total ~playing ~status =
     (View.vcat
        [ Panel.horizontal_rule ~width ~color:Theme.border
        ; ticks ~width ~step ~total
-       ; controls ~width ~playing ~status
+       ; controls ~width ~playing
        ])
 ;;

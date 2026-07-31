@@ -74,7 +74,21 @@ let code_lines
       (token, underlined), text)
   in
   let text_width = max 8 (width - gutter_width - 1) in
-  let wrapped = Wrap.spans pairs ~width:text_width in
+  (* continuations tuck under the line's own indentation *)
+  let continuation_indent =
+    let raw =
+      Option.value (Source_file.line loaded.file ~number) ~default:""
+    in
+    Int.min
+      (String.length (String.take_while raw ~f:(Char.equal ' ')) + 2)
+      (text_width / 2)
+  in
+  let wrapped =
+    Wrap.spans
+      pairs
+      ~first_width:text_width
+      ~width:(max 8 (text_width - continuation_indent))
+  in
   List.mapi wrapped ~f:(fun line_index line_spans ->
     let marker =
       match active, callsite && line_index = 0 with
@@ -88,7 +102,8 @@ let code_lines
         View.text
           ~attrs:(Theme.fg' Theme.ghost)
           (Printf.sprintf "%*d " (gutter_width - 2) number)
-      | _ -> View.text (String.make (gutter_width - 1) ' ')
+      | _ ->
+        View.text (String.make (gutter_width - 1 + continuation_indent) ' ')
     in
     let code =
       List.map line_spans ~f:(fun ((token, underlined), text) ->
