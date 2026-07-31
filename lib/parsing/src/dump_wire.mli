@@ -11,7 +11,7 @@
         (fn (Function_name M.add))
         (args ((No_label (expression (Unnamed "\"a\"")))
                (No_label (expression (Unnamed m)))))
-        (registry ((1 0x7f08c0e0)))
+        (registry ((1 0x7f08c0e0 m)))
         (snapshot ((ds_type Map) (root_node ...))))
     ]}
 
@@ -37,8 +37,9 @@ type t =
       source text, even a bare identifier, so [Function_name] never appears
       here. An argument the application was abstracted over reads
       ["OMITTED"]. *)
-  ; registry : (int * Snapshot.Address.t) list
-  (** the live weak registry at event time as [(id, address)] pairs *)
+  ; registry : Registry_entry.t list
+  (** the live weak registry at event time — ids, current addresses, and
+      latest observed variable names *)
   ; snapshot : Snapshot.t
   }
 [@@deriving sexp]

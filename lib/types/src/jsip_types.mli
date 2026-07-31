@@ -7,6 +7,7 @@ module Function_info = Function_info
 module Snapshot = Snapshot
 module Argument = Argument
 module Location = Location
+module Registry_entry = Registry_entry
 module Line = Line
 module Source_file = Source_file
 module Call = Call

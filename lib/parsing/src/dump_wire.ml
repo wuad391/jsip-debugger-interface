@@ -6,7 +6,7 @@ type t =
   ; loc : Location.t
   ; fn : Function_info.t
   ; args : Argument.t list
-  ; registry : (int * Snapshot.Address.t) list
+  ; registry : Registry_entry.t list
   ; snapshot : Snapshot.t
   }
 [@@deriving sexp] [@@sexp.allow_extra_fields]

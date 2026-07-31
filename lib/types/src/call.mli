@@ -7,10 +7,10 @@ module Info : sig
     ; function_info : Function_info.t
     ; location : Location.t
     ; arguments : Argument.t list
-    ; registry : (int * Snapshot.Address.t) list
-    (** every tracked-and-alive structure at event time, as
-        [(id, current address)] pairs; resolves [Address]/[Id] references
-        inside [snapshot] *)
+    ; registry : Registry_entry.t list
+    (** every tracked-and-alive structure at event time; resolves [Id]
+        references inside [snapshot] and carries the latest variable name
+        each structure was observed under *)
     ; snapshot : Snapshot.t (** the walked shape of the structure *)
     }
   [@@deriving sexp_of]

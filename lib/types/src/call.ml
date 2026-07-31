@@ -7,7 +7,7 @@ module Info = struct
     ; function_info : Function_info.t
     ; location : Location.t
     ; arguments : Argument.t list
-    ; registry : (int * Snapshot.Address.t) list
+    ; registry : Registry_entry.t list
     ; snapshot : Snapshot.t
     }
   [@@deriving sexp_of]

@@ -23,10 +23,20 @@ open Jsip_types
 module Structure : sig
   type t =
     { id : int
+    ; name : string option
+    (** the latest variable name the structure was observed under *)
     ; address : Snapshot.Address.t
     ; snapshot : Snapshot.t
     ; is_current : bool
     }
+
+  (** [name], or [#id] for a structure never observed under one. *)
+  val display : t -> string
+
+  (** [snapshot]'s root stamped with [address] — the registry re-captures
+      every structure's address at every event, so a renderer drawing an
+      older walk still shows the root address of record. *)
+  val current_root : t -> Snapshot.Node.t
 end
 
 module Step : sig

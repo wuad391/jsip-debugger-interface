@@ -53,7 +53,11 @@ module Block = struct
         List.map floats ~f:Float.to_string |> String.concat ~sep:"; "
       in
       [%string "[|%{body}|]"]
-    | Address address -> Address.display address
+    | Address address ->
+      (* a block the walker chose not to decode (a closure, an abstract or
+         custom block) — angle brackets say "opaque", the address says which
+         one *)
+      [%string "⟨%{Address.display address}⟩"]
     | Id id -> [%string "#%{id#Int}"]
   ;;
 end
@@ -63,47 +67,74 @@ module Ds_type = struct
     | Map
     | Set
     | Queue
+    | Hashtbl
   [@@deriving sexp, bin_io, compare, equal]
 
   let display t =
-    match t with Map -> "map" | Set -> "set" | Queue -> "queue"
-  ;;
-
-  (* The masked field labels of one node's kind, in walk order — the
-     compiler's [Data_structure.layout] minus the fields that never reach the
-     wire (the AVL height [h], a queue's [last]). A label absent from a
-     node's [block] was a walked child; the k-th absence is [children]'s k-th
-     node. Queue roots ([{length; first}]) and cells (numeric 0 = content, 1
-     = next) share a [ds_type]; the root is the node whose block carries
-     [length] or [first]. *)
-  (* a walked boxed value (a tuple in a map's data slot, say) is a generic
-     scanned block, not a DS node: its fields get numeric positional labels
-     and none of them are DS slots *)
-  let is_value_block block =
-    (not (List.is_empty block))
-    && List.for_all block ~f:(fun (label, (_ : Block.t)) ->
-      String.for_all label ~f:Char.is_digit)
-  ;;
-
-  let masked_labels t ~block =
     match t with
-    | (Map | Set) when is_value_block block -> []
-    | Map -> [ "l"; "v"; "d"; "r" ]
-    | Set -> [ "l"; "v"; "r" ]
-    | Queue ->
-      let is_root =
-        List.exists block ~f:(fun (label, (_ : Block.t)) ->
-          String.equal label "length" || String.equal label "first")
-      in
-      (match is_root with
-       | true -> [ "length"; "first" ]
-       | false -> [ "0"; "1" ])
+    | Map -> "map"
+    | Set -> "set"
+    | Queue -> "queue"
+    | Hashtbl -> "hashtbl"
   ;;
 
-  (* labels whose [(Int 0)] is an empty pointer ([Empty]/[Nil]), not the
-     number 0 *)
-  let nil_labels t =
-    match t with Map | Set -> [ "l"; "r" ] | Queue -> [ "first"; "1" ]
+  (* One layer of a DS's internal representation, mirroring the compiler's
+     [Data_structure.layout] with the masks spelled as label lists.
+     [interior] fields point one layer deeper into the structure's own
+     skeleton; [payload] fields hold user data; anything else was bookkeeping
+     and never reached the wire. [Array_elements] is a variable-size block
+     (an array) whose every element is interior. *)
+  module Layer = struct
+    type t =
+      | Fixed of
+          { labels : string list
+          ; interior : string list
+          ; payload : string list
+          }
+      | Array_elements
+  end
+
+  (* the layers of one DS, root first, in the order interior edges meet them;
+     nonempty, and past the last layer the last repeats (an interior chain —
+     a map's l/r spine, a bucket list's next — keeps its own layer forever) *)
+  let layers t : Layer.t list =
+    match t with
+    | Map ->
+      [ Fixed
+          { labels = [ "l"; "v"; "d"; "r" ]
+          ; interior = [ "l"; "r" ]
+          ; payload = [ "v"; "d" ]
+          }
+      ]
+    | Set ->
+      [ Fixed
+          { labels = [ "l"; "v"; "r" ]
+          ; interior = [ "l"; "r" ]
+          ; payload = [ "v" ]
+          }
+      ]
+    | Queue ->
+      [ Fixed
+          { labels = [ "length"; "first" ]
+          ; interior = [ "first" ]
+          ; payload = [ "length" ]
+          }
+      ; Fixed
+          { labels = [ "0"; "1" ]; interior = [ "1" ]; payload = [ "0" ] }
+      ]
+    | Hashtbl ->
+      [ Fixed
+          { labels = [ "size"; "data" ]
+          ; interior = [ "data" ]
+          ; payload = [ "size" ]
+          }
+      ; Array_elements
+      ; Fixed
+          { labels = [ "key"; "data"; "next" ]
+          ; interior = [ "next" ]
+          ; payload = [ "key"; "data" ]
+          }
+      ]
   ;;
 end
 

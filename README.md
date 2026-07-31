@@ -2,7 +2,7 @@
 
 A GDB-style terminal interface for examining the behavior of OCaml
 programs. A jsip_debugger compiler fork, run with `-visual-replay`,
-instruments tracked data structures (stdlib `Map`/`Set`/`Queue`) and logs
+instruments tracked data structures (stdlib `Map`/`Set`/`Queue`/`Hashtbl`) and logs
 one event per instrumented call — its location, arguments, the live
 registry, and a walked snapshot of the structure's heap shape. This
 program replays that log: step through the run and watch the call stack,
@@ -49,12 +49,17 @@ bright blue across all panes, the gold reserved for the heap's cards:
   blank gutter.
 - **Heap** — every live tracked structure: one keeps the shape of its
   most recent walk and only leaves the pane when the registry drops it.
-  A field referencing another live structure (an `Id` into the registry,
-  or a matching `Address`) links that structure's whole tree in at the
-  reference site with a `#id ·` tag — so a map added to a queue hangs off
-  the queue's cell. Only unreferenced structures get their own
-  `#id · kind` section (the one this event walked marked in blue). Each
-  is drawn like a CS tree diagram:
+  A payload field referencing another live structure (an `Id` into the
+  registry) links that structure's whole tree in at the reference site —
+  so a map added to a queue hangs off the queue's cell. Structures carry
+  the latest variable name they were observed under (`m ·`, `tbl ·`;
+  `#id` when anonymous), root addresses re-stamp from the registry on
+  every redraw, and only unreferenced structures get their own section
+  header (the one this event walked marked in blue). Nodes follow the
+  emitter's layered layout contract — interior skeleton vs user payload,
+  hashtbl's record → bucket array → chains included; closures and other
+  undecoded blocks print as `⟨0x…⟩`. Each structure is drawn like a CS
+  tree diagram:
   gold-outlined node cards (the node's meaning over its full address), a
   parent centered above its children, siblings sharing a level under a
   labeled rail, `∅` where an interior slot is empty. Cards allocated *at

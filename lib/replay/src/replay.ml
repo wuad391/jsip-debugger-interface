@@ -4,10 +4,27 @@ open Jsip_types
 module Structure = struct
   type t =
     { id : int
+    ; name : string option
     ; address : Snapshot.Address.t
     ; snapshot : Snapshot.t
     ; is_current : bool
     }
+
+  (* the latest variable name, or [#id] for a structure never observed under
+     one *)
+  let display t =
+    match t.name with Some name -> name | None -> [%string "#%{t.id#Int}"]
+  ;;
+
+  (* The walk's shape stamped with the registry's address of record: the
+     registry re-captures every structure's address at every event, while the
+     snapshot keeps whatever the structure's own last walk saw — so a redraw
+     always shows the current root address even when the walk is older.
+     Interior addresses stay as-of that walk; only the runtime can refresh
+     those. *)
+  let current_root t =
+    { t.snapshot.root_node with virtual_address = t.address }
+  ;;
 end
 
 module Step = struct
@@ -70,14 +87,17 @@ let create call_stack =
         (* a registry id always has a walk by the time it appears — its first
            event is what registered it — so a miss is dropped rather than
            invented *)
-        List.filter_map call.info.registry ~f:(fun (id, address) ->
-          Map.find !latest_walk id
-          |> Option.map ~f:(fun snapshot ->
-            { Structure.id
-            ; address
-            ; snapshot
-            ; is_current = id = call.info.id
-            }))
+        List.filter_map
+          call.info.registry
+          ~f:(fun { Registry_entry.id; address; name } ->
+            Map.find !latest_walk id
+            |> Option.map ~f:(fun snapshot ->
+              { Structure.id
+              ; name
+              ; address
+              ; snapshot
+              ; is_current = id = call.info.id
+              }))
       in
       { Step.call
       ; frames = Call_stack.frames_at call_stack ~step

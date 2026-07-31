@@ -53,37 +53,46 @@ module Block : sig
 end
 
 (** Which catalogued data structure the snapshot walked. Constructors mirror
-    the compiler's [Data_structure.t]; new tracked structures show up here as
+    the compiler's [Data_structure.t] — order included, since constructor
+    order is the C walker's contract; new tracked structures show up here as
     new constructors. *)
 module Ds_type : sig
   type t =
     | Map
     | Set
     | Queue
+    | Hashtbl
   [@@deriving sexp, bin_io, compare, equal]
 
-  (** Lowercase, for header chips: ["map"], ["set"], ["queue"]. *)
+  (** Lowercase, for header chips: ["map"], ["hashtbl"], ... *)
   val display : t -> string
 
-  (** The masked field labels of one node's kind, in walk order — the
-      compiler's [Data_structure.layout] minus what never reaches the wire
-      (the AVL height [h], a queue's [last]). A label absent from the node's
-      {!Node.t.block} was a walked child: the k-th absence is
-      {!Node.t.children}'s k-th node, which is how a reader recovers which
-      slot a child hung off. [block] disambiguates queue roots
-      ([length]/[first]) from queue cells (numeric [0] = content,
-      [1] = next), and marks a walked boxed value — a map-node child whose
-          labels are all numeric positions, e.g. a tuple in a data slot — as
-          having no DS slots at all. *)
-  val masked_labels : t -> block:(string * Block.t) list -> string list
+  (** One layer of the structure's internal representation, mirroring the
+      compiler's [Data_structure.layout] with the masks spelled as label
+      lists. A node's [block] holds every masked field it kept inline; a
+      masked label absent from it was a walked child, and the k-th such
+      absence is the k-th child — that recovery is per layer:
 
-  (** The labels whose [(Int 0)] means an empty pointer ([Empty]/[Nil])
-      rather than the number 0 — what the heap pane draws as [∅]. *)
-  val nil_labels : t -> string list
+      - [Fixed]: [interior] fields lead one layer deeper into the structure's
+        own skeleton, [payload] fields hold user data (walked payload blocks
+        and everything below them are generic value blocks with numeric
+        positional labels, no masks).
+      - [Array_elements]: a variable-size block whose fields get numeric
+        labels and are all interior. *)
+  module Layer : sig
+    type t =
+      | Fixed of
+          { labels : string list
+          ; interior : string list
+          ; payload : string list
+          }
+      | Array_elements
+  end
 
-  (** Whether a node is a walked boxed value rather than a DS node — all its
-      labels are numeric positions (see {!masked_labels}). *)
-  val is_value_block : (string * Block.t) list -> bool
+  (** Root first, in the order interior edges meet them; nonempty, and past
+      the end the last layer repeats (a map's l/r spine, a bucket chain's
+      next). *)
+  val layers : t -> Layer.t list
 end
 
 (** One heap block of the walked structure: its address, its non-pointer

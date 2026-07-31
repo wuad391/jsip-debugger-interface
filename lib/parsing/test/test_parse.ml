@@ -8,20 +8,27 @@ open Jsip_parsing
 let fixture name = [%string "../../../testing/expected/%{name}.dump"]
 
 let all_fixtures =
-  [ "map_alias_open"
+  [ "hashtbl_basic"
+  ; "map_alias_open"
   ; "map_basic"
   ; "map_data_kinds"
   ; "map_fold"
   ; "map_nested"
   ; "map_partial_neg"
   ; "map_registry_gc"
+  ; "map_wide_payload"
   ; "neg_plain"
   ; "neg_untracked"
   ; "queue_basic"
   ; "queue_mixed"
+  ; "queue_of_closures"
   ; "queue_of_maps"
+  ; "queue_of_queues"
+  ; "queue_transfer"
+  ; "queue_wide_tuple"
   ; "set_basic"
   ; "set_ops"
+  ; "stdout_mixed"
   ]
 ;;
 
@@ -40,11 +47,11 @@ let%expect_test "unsexp one real event line" =
       (args
        ((No_label (expression (Unnamed "\"a\"")))
         (No_label (expression (Unnamed 1))) (No_label (expression (Unnamed m)))))
-      (registry ((1 0x763be65f19e8)))
+      (registry ((1 0x70f32cff19c0 m)))
       (snapshot
        ((ds_type Map)
         (root_node
-         ((virtual_address 0x763be65f19e8)
+         ((virtual_address 0x70f32cff19c0)
           (block ((l (Int 0)) (v (String a)) (d (Int 1)) (r (Int 0))))
           (children ())))))))
     |}]
@@ -93,6 +100,7 @@ let%expect_test "every golden dump parses end to end" =
     print_endline [%string "%{name}: %{!events#Int} events"]);
   [%expect
     {|
+    hashtbl_basic: 6 events
     map_alias_open: 1 events
     map_basic: 3 events
     map_data_kinds: 3 events
@@ -100,13 +108,19 @@ let%expect_test "every golden dump parses end to end" =
     map_nested: 2 events
     map_partial_neg: 0 events
     map_registry_gc: 2 events
+    map_wide_payload: 1 events
     neg_plain: 0 events
     neg_untracked: 0 events
     queue_basic: 5 events
-    queue_mixed: 7 events
+    queue_mixed: 8 events
+    queue_of_closures: 3 events
     queue_of_maps: 3 events
+    queue_of_queues: 6 events
+    queue_transfer: 6 events
+    queue_wide_tuple: 2 events
     set_basic: 3 events
     set_ops: 5 events
+    stdout_mixed: 3 events
     |}]
 ;;
 

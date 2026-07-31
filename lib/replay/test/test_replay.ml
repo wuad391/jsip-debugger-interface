@@ -73,15 +73,17 @@ let%expect_test "the registry drops structures the GC collected" =
     ~f:(fun step ->
       let { Replay.Step.call; _ } = Replay.step_exn replay ~step in
       let registry =
-        List.map call.info.registry ~f:(fun (id, address) ->
-          [%string "%{id#Int}↦%{Snapshot.Address.display address}"])
+        List.map call.info.registry ~f:(fun (entry : Registry_entry.t) ->
+          [%string
+            "%{Registry_entry.display entry}↦%{Snapshot.Address.display \
+             entry.address}"])
         |> String.concat ~sep:" "
       in
       print_endline [%string "%{step#Int}: registry %{registry}"]);
   [%expect
     {|
-    0: registry 1↦0x7647edff0770
-    1: registry 2↦0x7647edffffd8
+    0: registry #1↦0x7647edff0770
+    1: registry #2↦0x7647edffffd8
     |}]
 ;;
 
