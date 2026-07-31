@@ -368,3 +368,34 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
+
+let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
+  (* the cell's content is (Id 1) — the registry resolves it, so the map's
+     tree hangs off the cell's v→ edge, tagged #1 *)
+  let replay = replay_of_fixture "queue_of_maps" in
+  heap_view ~height:21 replay ~step:2;
+  [%expect
+    {|
+    ┌ HEAP ────────────────────── 2 live · 3 nodes · 1 new ┐
+    │ ▸ #2 · queue                                         │
+    │ ┌────────────────┐                                   │
+    │ │ length 1       │                                   │
+    │ │ 0x7a7fb4dee590 │                                   │
+    │ └────────────────┘                                   │
+    │          │                                           │
+    │        first                                         │
+    │ ┌────────────────┐                                   │
+    │ │ ·  new         │                                   │
+    │ │ 0x7a7fb4debb90 │                                   │
+    │ └────────────────┘                                   │
+    │          │                                           │
+    │          v                                           │
+    │ ┌────────────────┐                                   │
+    │ │ #1 · "k" ↦ 1   │                                   │
+    │ │ 0x7a7fb4df16d8 │                                   │
+    │ └────────────────┘                                   │
+    │                                                      │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
+    |}]
+;;

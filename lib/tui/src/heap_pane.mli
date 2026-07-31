@@ -1,11 +1,17 @@
 (** The heap pane: every live tracked structure, each drawn the way a CS
     diagram draws a tree.
 
-    One section per registry entry — a [#id · kind] header (with the
-    structure this step's event walked in the highlight blue) over its tree.
     A structure keeps the shape of its most recent walk and only leaves the
     pane when the registry drops it (the GC collected it) — see
-    {!Jsip_replay.Replay.Structure}.
+    {!Jsip_replay.Replay.Structure}. A field holding a reference to another
+    live structure — an [Id] into the registry, or an [Address] matching one
+    — links that structure's whole tree in as a child at the reference site,
+    its root card tagged [#id ·]; only structures nothing references get
+    their own [#id · kind] section header (the one this step's event walked
+    in the highlight blue). Each structure is drawn once: a second reference,
+    or a cycle, stays an inline [#id]. So in [queue_of_maps], once
+    [Queue.add m q] runs, the map's tree hangs off the queue cell's [v→]
+    edge.
 
     Each node is a card — its meaning up top ([{"a" ↦ 2}] for a map binding,
     the element for a set, [length n] for a queue root, the content for a

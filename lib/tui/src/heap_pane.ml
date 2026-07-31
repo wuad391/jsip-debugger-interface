@@ -21,6 +21,44 @@ module Placed = struct
   let shift t ~dx ~dy = { t with x = t.x + dx; y = t.y + dy }
 end
 
+(* everything reference-following needs while a step's canvas is drawn: the
+   registry both ways, and which structures are already on it *)
+module Context = struct
+  type t =
+    { by_id : Replay.Structure.t Int.Map.t
+    ; by_address : Replay.Structure.t Snapshot.Address.Map.t
+    ; drawn : Int.Hash_set.t
+    ; new_addresses : Snapshot.Address.Set.t
+    }
+
+  let create ~structures ~new_addresses =
+    { by_id =
+        Int.Map.of_alist_reduce
+          (List.map structures ~f:(fun (structure : Replay.Structure.t) ->
+             structure.id, structure))
+          ~f:(fun first (_ : Replay.Structure.t) -> first)
+    ; by_address =
+        Snapshot.Address.Map.of_alist_reduce
+          (List.map structures ~f:(fun (structure : Replay.Structure.t) ->
+             structure.address, structure))
+          ~f:(fun first (_ : Replay.Structure.t) -> first)
+    ; drawn = Int.Hash_set.create ()
+    ; new_addresses
+    }
+  ;;
+
+  (* an [Id] indexes the registry directly; an [Address] matches a tracked
+     structure's current address *)
+  let resolve t (block : Snapshot.Block.t) =
+    match block with
+    | Id id -> Map.find t.by_id id
+    | Address address -> Map.find t.by_address address
+    | Int _ | Float _ | String _ | Int32 _ | Int64 _ | Nativeint _
+    | Float_array _ ->
+      None
+  ;;
+end
+
 (* queue cells label their fields numerically on the wire (0 = content, 1 =
    next); everything else keeps its own label *)
 let display_label ~ds_type label =
@@ -32,18 +70,25 @@ let display_label ~ds_type label =
 
 (* what the card says: the mockup's ["key" ↦ data] for map nodes, the element
    for sets, [length n] for queue roots, the content for cells, the joined
-   positions for a walked value block — plus any leftover fields, labeled *)
+   positions for a walked value block — plus any leftover fields, labeled.
+   Hidden fields (pointer slots, references drawn as edges) never print. *)
 let summary_spans (node : Snapshot.Node.t) ~ds_type ~hidden_labels =
+  let hidden label = List.mem hidden_labels label ~equal:String.equal in
   let field label =
-    List.Assoc.find node.block label ~equal:String.equal
-    |> Option.map ~f:Snapshot.Block.display
+    match hidden label with
+    | true -> None
+    | false ->
+      List.Assoc.find node.block label ~equal:String.equal
+      |> Option.map ~f:Snapshot.Block.display
   in
   let used, main =
     match (ds_type : Snapshot.Ds_type.t) with
     | (Map | Set) when Snapshot.Ds_type.is_value_block node.block ->
       ( List.map node.block ~f:fst
       , [ ( `Value
-          , List.map node.block ~f:(fun ((_ : string), block) ->
+          , List.filter node.block ~f:(fun (label, (_ : Snapshot.Block.t)) ->
+              not (hidden label))
+            |> List.map ~f:(fun ((_ : string), block) ->
               Snapshot.Block.display block)
             |> String.concat ~sep:", " )
         ] )
@@ -58,14 +103,17 @@ let summary_spans (node : Snapshot.Node.t) ~ds_type ~hidden_labels =
           ] )
     | Set -> [ "v" ], [ `Key, Option.value (field "v") ~default:"·" ]
     | Queue ->
-      (match field "length" with
-       | Some length -> [ "length" ], [ `Label, "length "; `Value, length ]
-       | None -> [ "0" ], [ `Value, Option.value (field "0") ~default:"·" ])
+      (match List.Assoc.mem node.block "length" ~equal:String.equal with
+       | true ->
+         ( [ "length" ]
+         , [ `Label, "length "
+           ; `Value, Option.value (field "length") ~default:"·"
+           ] )
+       | false -> [ "0" ], [ `Value, Option.value (field "0") ~default:"·" ])
   in
   let leftovers =
     List.filter node.block ~f:(fun (label, (_ : Snapshot.Block.t)) ->
-      (not (List.mem hidden_labels label ~equal:String.equal))
-      && not (List.mem used label ~equal:String.equal))
+      (not (hidden label)) && not (List.mem used label ~equal:String.equal))
     |> List.concat_map ~f:(fun (label, block) ->
       [ `Label, [%string "  %{display_label ~ds_type label}="]
       ; `Value, Snapshot.Block.display block
@@ -85,31 +133,51 @@ let span_view (tag, text) =
   View.text ~attrs text
 ;;
 
-(* the mockup's node card — gold outline, the full address in small type:
+(* the mockup's node card — gold outline, the full address in small type. A
+   structure's root reached through a reference keeps its identity as a
+   [#id ·] tag before the summary:
    {v
-   ┌──────────────────────┐
-   │ "a" ↦ 2          new │
-   │ 0x763be65ee878       │
-   └──────────────────────┘
+   ┌───────────────────────┐
+   │ #1 · "a" ↦ 2      new │
+   │ 0x763be65ee878        │
+   └───────────────────────┘
    v} *)
-let node_box (node : Snapshot.Node.t) ~ds_type ~hidden_labels ~new_addresses =
+let node_box
+  (node : Snapshot.Node.t)
+  ~ds_type
+  ~hidden_labels
+  ~tag
+  ~new_addresses
+  =
   let is_new = Set.mem new_addresses node.virtual_address in
   let border_color =
     match is_new with true -> Theme.fresh | false -> Theme.accent
   in
   let border = Theme.fg' border_color in
   let summary =
+    let tag_views =
+      match tag with
+      | None -> []
+      | Some (id, is_current) ->
+        let attrs =
+          match is_current with
+          | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
+          | false -> Theme.fg' Theme.muted
+        in
+        [ View.text ~attrs [%string "#%{id#Int} · "] ]
+    in
     let spans =
       List.map (summary_spans node ~ds_type ~hidden_labels) ~f:span_view
     in
     match is_new with
     | true ->
       View.hcat
-        (spans
+        (tag_views
+         @ spans
          @ [ View.text "  "
            ; View.text ~attrs:[ Theme.fg Theme.fresh; Attr.italic ] "new"
            ])
-    | false -> View.hcat spans
+    | false -> View.hcat (tag_views @ spans)
   in
   let address =
     View.text
@@ -183,9 +251,13 @@ let rail_labels ~labeled_centers =
 
 (* Lay the subtree out the way a CS diagram draws it: the node's card
    centered over its children, siblings side by side on one level, a rail
-   connecting the card to each child's center. Returns the canvas, the card's
-   center column, and every card's position for hit-testing. *)
-let rec tree (node : Snapshot.Node.t) ~ds_type ~new_addresses
+   connecting the card to each child's center. A field holding a reference to
+   another tracked structure ([Id] into the registry, or an [Address]
+   matching one) links that structure's whole tree in as a child — each
+   structure is drawn once, so a second reference (or a cycle) stays an
+   inline [#id]. Returns the canvas, the card's center column, and every
+   card's position for hit-testing. *)
+let rec tree (node : Snapshot.Node.t) ~ds_type ?tag ~(context : Context.t) ()
   : View.t * int * Placed.t list
   =
   let masked = Snapshot.Ds_type.masked_labels ds_type ~block:node.block in
@@ -205,14 +277,39 @@ let rec tree (node : Snapshot.Node.t) ~ds_type ~new_addresses
     List.filter masked ~f:(fun label ->
       (not (in_block label)) || empty_pointer label)
   in
-  let edge_labels =
+  let slot_labels =
     match List.is_empty node.children with
     | true ->
       List.filter pointer_labels ~f:(fun label -> not (in_block label))
     | false -> pointer_labels
   in
+  (* a field that references another live structure becomes an edge to that
+     structure's tree — claimed here so it is drawn exactly once *)
+  let reference_edges =
+    List.filter_map node.block ~f:(fun (label, block) ->
+      match List.mem pointer_labels label ~equal:String.equal with
+      | true -> None
+      | false ->
+        (match Context.resolve context block with
+         | Some (structure : Replay.Structure.t)
+           when not (Hash_set.mem context.drawn structure.id) ->
+           Hash_set.add context.drawn structure.id;
+           Some (label, `Ref structure)
+         | Some _ | None -> None))
+  in
+  let hidden_labels =
+    pointer_labels
+    @ List.map
+        reference_edges
+        ~f:(fun (label, (_ : [ `Ref of Replay.Structure.t ])) -> label)
+  in
   let box =
-    node_box node ~ds_type ~hidden_labels:pointer_labels ~new_addresses
+    node_box
+      node
+      ~ds_type
+      ~hidden_labels
+      ~tag
+      ~new_addresses:context.new_addresses
   in
   let box_width = View.width box in
   let box_height = View.height box in
@@ -227,8 +324,8 @@ let rec tree (node : Snapshot.Node.t) ~ds_type ~new_addresses
   let children = Queue.of_list node.children in
   (* bind the labeled edges before flushing the queue: (@) evaluates its
      arguments right to left, and the dequeues must come first *)
-  let labeled_edges =
-    List.map edge_labels ~f:(fun label ->
+  let slot_edges =
+    List.map slot_labels ~f:(fun label ->
       match in_block label with
       | true -> label, `Nil
       | false ->
@@ -239,7 +336,12 @@ let rec tree (node : Snapshot.Node.t) ~ds_type ~new_addresses
   let unclaimed_children =
     List.map (Queue.to_list children) ~f:(fun child -> "", `Child child)
   in
-  match labeled_edges @ unclaimed_children with
+  match
+    slot_edges
+    @ List.map reference_edges ~f:(fun (label, `Ref structure) ->
+      label, `Ref structure)
+    @ unclaimed_children
+  with
   | [] -> box, box_width / 2, [ box_placed ]
   | edges ->
     let rendered =
@@ -247,7 +349,15 @@ let rec tree (node : Snapshot.Node.t) ~ds_type ~new_addresses
         let label = display_label ~ds_type label in
         match edge with
         | `Nil -> label, (View.text ~attrs:(Theme.fg' Theme.faint) "∅", 0, [])
-        | `Child child -> label, tree child ~ds_type ~new_addresses)
+        | `Child child -> label, tree child ~ds_type ~context ()
+        | `Ref (structure : Replay.Structure.t) ->
+          ( label
+          , tree
+              structure.snapshot.root_node
+              ~ds_type:structure.snapshot.ds_type
+              ~tag:(structure.id, structure.is_current)
+              ~context
+              () ))
     in
     (* children row, left to right *)
     let (_ : int), placed_children =
@@ -346,29 +456,57 @@ let structure_header { Replay.Structure.id; snapshot; is_current; _ } =
       [ View.text "  "; View.text ~attrs:(Theme.fg' Theme.muted) label ]
 ;;
 
-(* every live structure, stacked: a header, its tree, a breathing row *)
+(* Every live structure, stacked: a header, its tree, a breathing row. A
+   structure referenced from another one is drawn inside its referrer's tree
+   instead of as its own section — the registry still decides what is alive,
+   only the placement moves. *)
 let layout ~structures ~new_addresses =
-  let views, placed, (_ : int) =
-    List.fold
-      structures
-      ~init:([], [], 0)
-      ~f:(fun (views, all_placed, y) (structure : Replay.Structure.t) ->
-        let canvas, (_ : int), placed =
-          tree
-            structure.snapshot.root_node
-            ~ds_type:structure.snapshot.ds_type
-            ~new_addresses
-        in
-        let views =
-          View.pad ~t:(y + 1) canvas
-          :: View.pad ~t:y (structure_header structure)
-          :: views
-        in
-        let placed =
-          List.map placed ~f:(Placed.shift ~dx:0 ~dy:(y + 1)) @ all_placed
-        in
-        views, placed, y + 1 + View.height canvas + 1)
+  let context = Context.create ~structures ~new_addresses in
+  let referenced =
+    let rec walk (owner : Replay.Structure.t) (node : Snapshot.Node.t) acc =
+      let acc =
+        List.fold node.block ~init:acc ~f:(fun acc ((_ : string), block) ->
+          match Context.resolve context block with
+          | Some (target : Replay.Structure.t) when target.id <> owner.id ->
+            Set.add acc target.id
+          | Some _ | None -> acc)
+      in
+      List.fold node.children ~init:acc ~f:(fun acc child ->
+        walk owner child acc)
+    in
+    List.fold structures ~init:Int.Set.empty ~f:(fun acc structure ->
+      walk structure structure.Replay.Structure.snapshot.root_node acc)
   in
+  let section (views, all_placed, y) (structure : Replay.Structure.t) =
+    match Hash_set.mem context.drawn structure.id with
+    | true -> views, all_placed, y
+    | false ->
+      Hash_set.add context.drawn structure.id;
+      let canvas, (_ : int), placed =
+        tree
+          structure.snapshot.root_node
+          ~ds_type:structure.snapshot.ds_type
+          ~context
+          ()
+      in
+      let views =
+        View.pad ~t:(y + 1) canvas
+        :: View.pad ~t:y (structure_header structure)
+        :: views
+      in
+      let placed =
+        List.map placed ~f:(Placed.shift ~dx:0 ~dy:(y + 1)) @ all_placed
+      in
+      views, placed, y + 1 + View.height canvas + 1
+  in
+  let top_level =
+    List.filter structures ~f:(fun (structure : Replay.Structure.t) ->
+      not (Set.mem referenced structure.id))
+  in
+  let acc = List.fold top_level ~init:([], [], 0) ~f:section in
+  (* mutually-referencing structures have no unreferenced root; anything
+     still undrawn gets its own section after all *)
+  let views, placed, (_ : int) = List.fold structures ~init:acc ~f:section in
   View.zcat views, placed
 ;;
 
