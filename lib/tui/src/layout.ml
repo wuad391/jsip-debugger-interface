@@ -17,7 +17,7 @@ let compute ({ height; width } : Dimensions.t) =
   let main_height = max 6 (height - 1 - footer_height) in
   (* mockup grid: left column 1fr, heap 1.32fr; stack row 1.28fr over source
      0.72fr *)
-  let left_width = max 34 (width * 43 / 100) in
+  let left_width = max 34 (width * 50 / 100) in
   let heap_width = max 20 (width - left_width) in
   let stack_height = max 4 (main_height * 55 / 100) in
   let source_height = max 4 (main_height - stack_height) in

@@ -10,32 +10,33 @@ the source position, and the allocated data structures evolve.
 
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells, its warm-gray
-palette re-pitched for dark terminals:
+palette re-pitched for dark terminals — selection and position in one
+bright blue across all panes, the gold reserved for the heap's cards:
 
 ```
- ● ocaml-debug │ map_fold.dump │ map · replay                                 STEP 5/5
-┌ CALL STACK ───────── 5 calls · 1 live ┐┌ HEAP ─────────────────────── map · 2 nodes ┐
-│    M.add "b" 2 M.empty  map_fold.ml:8 ││ ┌─────────┐                                │
-│  M.add "a" 1 (M.add     map_fold.ml:8 ││ │ "a" ↦ 2 │                                │
-│    "b" 2 M.empty)                     ││ │ 0x…6a58 │                                │
-│    M.add k (v * 2)     map_fold.ml:12 ││ └─────────┘                                │
-│      acc                              ││ ├─l→ ∅                                     │
-│    M.add k (v * 2)     map_fold.ml:12 ││ └─r→ ┌─────────┐                           │
-│      acc                              ││      │ "b" ↦ 4 │                           │
-│ ▎M.fold (fun k v acc   map_fold.ml:10 ││      │ 0x…6a88 │                           │
-│ ▎  -> M.add k (v * 2) acc) m M.empty  ││      └─────────┘                           │
-└───────────────────────────────────────┘│                                            │
-┌ SOURCE ─────── map_fold.ml · 15 lines ┐│                                            │
-│    8   let m = M.add "a" 1 (M.add     ││                                            │
-│          "b" 2 M.empty) in            ││                                            │
-│    9   let doubled =                  ││                                            │
-│ ▎ 10     M.fold                       ││                                            │
-│   11       (fun k v acc ->            ││                                            │
-│   12         M.add k (v * 2) acc)     ││                                            │
-└───────────────────────────────────────┘└────────────────────────────────────────────┘
-──────────────────────────────────────────────────────────────────────────────────────
- ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━ ━━━━━━━━━━━━━
- ◂ back  step ▸  ⏵ play        ◂ ▸ step · space play · ↑ ↓ frame · click jumps · q quit
+ ● ocaml-debug │ set_ops.dump │ set · replay                                       STEP 3/5
+┌ CALL STACK ────────────── 5 calls · 1 live ┐┌ HEAP ───────────── set · 4 nodes · 4 new ┐
+│  S.of_list [1; 2; 3]          set_ops.ml:6 ││            ┌────────────────┐            │
+│  S.of_list [3; 4]             set_ops.ml:7 ││            │ 3  new         │            │
+│ ▎S.union a b                  set_ops.ml:8 ││            │ 0x714aae9ea098 │            │
+│  S.inter a b                  set_ops.ml:9 ││            └────────────────┘            │
+│  S.diff a b                  set_ops.ml:10 ││           ┌─────────┴──────────┐         │
+│                                            ││           l                    r         │
+│                                            ││  ┌────────────────┐   ┌────────────────┐ │
+│                                            ││  │ 2  new         │   │ 4  new         │ │
+│                                            ││  │ 0x714aae9ea0c0 │   │ 0x714aae9ea1a8 │ │
+│                                            ││  └────────────────┘   └────────────────┘ │
+└────────────────────────────────────────────┘│     ┌─────┴─────┐                        │
+┌ SOURCE ───────────── set_ops.ml · 10 lines ┐│     l           r                        │
+│    5 let () =                              ││ ┌────────────────┐   ∅                   │
+│    6   let a = S.of_list [ 1; 2; 3 ] in    ││ │ 1  new         │                       │
+│    7   let b = S.of_list [ 3; 4 ] in       ││ │ 0x714aae9ea0e8 │                       │
+│ ▎  8   ignore (S.union a b);               ││ └────────────────┘                       │
+│    9   ignore (S.inter a b);               ││                                          │
+└────────────────────────────────────────────┘└──────────────────────────────────────────┘
+────────────────────────────────────────────────────────────────────────────────────────────
+ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━
+ ◂ back  step ▸  ⏵ play              ◂ ▸ step · space play · ↑ ↓ frame · click jumps · q quit
 ```
 
 - **Call stack** — every call in the run, indented by depth: the current
@@ -46,13 +47,12 @@ palette re-pitched for dark terminals:
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
   blank gutter.
-- **Heap** — the walked structure as node cards: each box carries the
-  node's meaning (`"a" ↦ 2` for a map binding, `length n` for a queue
-  root, the element for sets and cells) over the tail of its address;
-  pointer slots hang off as labeled edges, `∅` where an interior slot is
-  empty, and cards allocated *at this step* get the fresh border and a
-  `new` chip. Clicking a card jumps the replay to the step that allocated
-  it; the wheel scrolls.
+- **Heap** — the walked structure drawn like a CS tree diagram:
+  gold-outlined node cards (the node's meaning over its full address), a
+  parent centered above its children, siblings sharing a level under a
+  labeled rail, `∅` where an interior slot is empty. Cards allocated *at
+  this step* get the brighter fresh border and a `new` chip. Clicking a
+  card jumps the replay to the step that allocated it; the wheel scrolls.
 - **Timeline** — one tick per event; click to jump, `space` to play.
 
 ## Run it

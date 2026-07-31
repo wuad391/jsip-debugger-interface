@@ -3,21 +3,22 @@ open Jsip_types
 module Attr = Bonsai_term.Attr
 module View = Bonsai_term.View
 
-module Row = struct
+(* where a node's card landed on the tree canvas, for click-to-jump *)
+module Placed = struct
   type t =
-    { view : View.t
-    ; address : Snapshot.Address.t option
+    { x : int
+    ; y : int
+    ; width : int
+    ; height : int
+    ; address : Snapshot.Address.t
     }
-end
 
-(* real addresses are twelve hex digits of noise; the box keeps the tail as
-   an identity hint and the full address stays in the data *)
-let short_address address =
-  let hex = Snapshot.Address.display address in
-  match String.length hex > 8 with
-  | true -> [%string "0x…%{String.suffix hex 4}"]
-  | false -> hex
-;;
+  let contains t ~x ~y =
+    x >= t.x && x < t.x + t.width && y >= t.y && y < t.y + t.height
+  ;;
+
+  let shift t ~dx ~dy = { t with x = t.x + dx; y = t.y + dy }
+end
 
 (* queue cells label their fields numerically on the wire (0 = content, 1 =
    next); everything else keeps its own label *)
@@ -28,7 +29,7 @@ let display_label ~ds_type label =
   | (Map | Set | Queue), label -> label
 ;;
 
-(* what the box says: the mockup's ["key" ↦ data] for map nodes, the element
+(* what the card says: the mockup's ["key" ↦ data] for map nodes, the element
    for sets, [length n] for queue roots, the content for cells, the joined
    positions for a walked value block — plus any leftover fields, labeled *)
 let summary_spans (node : Snapshot.Node.t) ~ds_type ~hidden_labels =
@@ -83,24 +84,17 @@ let span_view (tag, text) =
   View.text ~attrs text
 ;;
 
-(* the mockup's node card, in cells:
+(* the mockup's node card — gold outline, the full address in small type:
    {v
-   ┌────────────────┐
-   │ "a" ↦ 2    new │
-   │ 0x…a278        │
-   └────────────────┘
+   ┌──────────────────────┐
+   │ "a" ↦ 2          new │
+   │ 0x763be65ee878       │
+   └──────────────────────┘
    v} *)
-let box_rows
-  (node : Snapshot.Node.t)
-  ~ds_type
-  ~hidden_labels
-  ~new_addresses
-  ~prefix
-  ~rest
-  =
+let node_box (node : Snapshot.Node.t) ~ds_type ~hidden_labels ~new_addresses =
   let is_new = Set.mem new_addresses node.virtual_address in
   let border_color =
-    match is_new with true -> Theme.fresh | false -> Theme.border_strong
+    match is_new with true -> Theme.fresh | false -> Theme.accent
   in
   let border = Theme.fg' border_color in
   let summary =
@@ -119,55 +113,86 @@ let box_rows
   let address =
     View.text
       ~attrs:(Theme.fg' Theme.faint)
-      (short_address node.virtual_address)
+      (Snapshot.Address.display node.virtual_address)
   in
   let inner = max (View.width summary) (View.width address) in
-  let ghost_prefix text = View.text ~attrs:(Theme.fg' Theme.ghost) text in
   let horizontal = Panel.repeat "─" ~width:(inner + 2) in
   let content line =
     View.hcat
-      [ ghost_prefix rest
-      ; View.text ~attrs:border "│ "
+      [ View.text ~attrs:border "│ "
       ; Panel.fit line ~width:inner ~height:1
       ; View.text ~attrs:border " │"
       ]
   in
-  let row view = { Row.view; address = Some node.virtual_address } in
-  [ row
-      (View.hcat
-         [ ghost_prefix prefix
-         ; View.text ~attrs:border [%string "┌%{horizontal}┐"]
-         ])
-  ; row (content summary)
-  ; row (content address)
-  ; row
-      (View.hcat
-         [ ghost_prefix rest
-         ; View.text ~attrs:border [%string "└%{horizontal}┘"]
-         ])
-  ]
+  View.vcat
+    [ View.text ~attrs:border [%string "┌%{horizontal}┐"]
+    ; content summary
+    ; content address
+    ; View.text ~attrs:border [%string "└%{horizontal}┘"]
+    ]
 ;;
 
-(* The walked tree, mockup-style: one card per node, pointer slots as labeled
-   edges hanging below it. Which slots edge off is the emitter's
-   masked-layout contract ({!Snapshot.Ds_type.masked_labels}): a missing
-   masked label takes the next walked child, in order; an empty pointer shows
-   as [∅] — but a leaf (no walked children at all) keeps its empty slots to
-   itself. *)
-let rec node_rows
-  (node : Snapshot.Node.t)
-  ~ds_type
-  ~new_addresses
-  ~prefix
-  ~rest
+let sibling_gap = 3
+
+(* the ┌──┴──┐ rail between a parent and its children, hooks at each child's
+   center *)
+let rail ~parent_center ~centers =
+  let leftmost = List.min_elt centers ~compare |> Option.value ~default:0 in
+  let rightmost = List.max_elt centers ~compare |> Option.value ~default:0 in
+  let glyph x =
+    let is_child = List.mem centers x ~equal:Int.equal in
+    let is_parent = x = parent_center in
+    match x < leftmost || x > rightmost with
+    | true -> " "
+    | false ->
+      (match is_parent, is_child with
+       | true, true ->
+         (* a lone child hangs straight down; an aligned middle child crosses
+            the rail *)
+         (match leftmost = rightmost with true -> "│" | false -> "┼")
+       | true, false -> "┴"
+       | false, true ->
+         (match x = leftmost, x = rightmost with
+          | true, _ -> "┌"
+          | _, true -> "┐"
+          | false, false -> "┬")
+       | false, false -> "─")
+  in
+  View.text
+    ~attrs:(Theme.fg' Theme.ghost)
+    (String.concat (List.init (rightmost + 1) ~f:glyph))
+;;
+
+(* edge labels sitting under their hooks *)
+let rail_labels ~labeled_centers =
+  let width =
+    List.fold labeled_centers ~init:0 ~f:(fun width (center, label) ->
+      max width (center + 1 + (String.length label / 2) + String.length label))
+  in
+  let buffer = Bytes.make width ' ' in
+  List.iter labeled_centers ~f:(fun (center, label) ->
+    let start = max 0 (center - (String.length label / 2)) in
+    String.iteri label ~f:(fun i char ->
+      let at = start + i in
+      match at < width with true -> Bytes.set buffer at char | false -> ()));
+  View.text
+    ~attrs:(Theme.fg' Theme.muted)
+    (Bytes.to_string buffer |> String.rstrip)
+;;
+
+(* Lay the subtree out the way a CS diagram draws it: the node's card
+   centered over its children, siblings side by side on one level, a rail
+   connecting the card to each child's center. Returns the canvas, the card's
+   center column, and every card's position for hit-testing. *)
+let rec tree (node : Snapshot.Node.t) ~ds_type ~new_addresses
+  : View.t * int * Placed.t list
   =
   let masked = Snapshot.Ds_type.masked_labels ds_type ~block:node.block in
   let nil_labels = Snapshot.Ds_type.nil_labels ds_type in
   let in_block label = List.Assoc.mem node.block label ~equal:String.equal in
   (* pointer slots never print as fields: a missing masked label is a walked
-     child, and a masked nil ([Int 0] in a nil-able slot) is an empty pointer
-     — drawn as an [∅] edge on interior nodes, and simply omitted on leaves
-     so they stay compact *)
+     child, and a masked nil is an empty pointer — shown as [∅] under
+     interior nodes, omitted under leaves *)
   let empty_pointer label =
     List.mem nil_labels label ~equal:String.equal
     &&
@@ -186,13 +211,17 @@ let rec node_rows
     | false -> pointer_labels
   in
   let box =
-    box_rows
-      node
-      ~ds_type
-      ~hidden_labels:pointer_labels
-      ~new_addresses
-      ~prefix
-      ~rest
+    node_box node ~ds_type ~hidden_labels:pointer_labels ~new_addresses
+  in
+  let box_width = View.width box in
+  let box_height = View.height box in
+  let box_placed =
+    { Placed.x = 0
+    ; y = 0
+    ; width = box_width
+    ; height = box_height
+    ; address = node.virtual_address
+    }
   in
   let children = Queue.of_list node.children in
   (* bind the labeled edges before flushing the queue: (@) evaluates its
@@ -209,45 +238,101 @@ let rec node_rows
   let unclaimed_children =
     List.map (Queue.to_list children) ~f:(fun child -> "", `Child child)
   in
-  let edges = labeled_edges @ unclaimed_children in
-  let last_index = List.length edges - 1 in
-  box
-  @ List.concat_mapi edges ~f:(fun index (label, edge) ->
-    let is_last = index = last_index in
-    let connector = match is_last with true -> "└─" | false -> "├─" in
-    let label = display_label ~ds_type label in
-    let arrow =
-      match label with "" -> "→ " | label -> [%string "%{label}→ "]
+  match labeled_edges @ unclaimed_children with
+  | [] -> box, box_width / 2, [ box_placed ]
+  | edges ->
+    let rendered =
+      List.map edges ~f:(fun (label, edge) ->
+        let label = display_label ~ds_type label in
+        match edge with
+        | `Nil -> label, (View.text ~attrs:(Theme.fg' Theme.faint) "∅", 0, [])
+        | `Child child -> label, tree child ~ds_type ~new_addresses)
     in
-    let head = rest ^ connector ^ arrow in
-    match edge with
-    | `Nil ->
-      [ { Row.view =
-            View.hcat
-              [ View.text ~attrs:(Theme.fg' Theme.ghost) head
-              ; View.text ~attrs:(Theme.fg' Theme.faint) "∅"
-              ]
-        ; address = None
-        }
-      ]
-    | `Child child ->
-      (* the arrow is [label ^ "→ "]: label chars + 2 display columns *)
-      let arrow_columns = String.length label + 2 in
-      let pad_under =
-        rest
-        ^ (match is_last with true -> "  " | false -> "│ ")
-        ^ String.make arrow_columns ' '
-      in
-      node_rows child ~ds_type ~new_addresses ~prefix:head ~rest:pad_under)
+    (* children row, left to right *)
+    let (_ : int), placed_children =
+      List.fold_map
+        rendered
+        ~init:0
+        ~f:(fun x (label, (view, center, placed)) ->
+          ( x + View.width view + sibling_gap
+          , (label, view, x, x + center, placed) ))
+    in
+    let centers =
+      List.map
+        placed_children
+        ~f:
+          (fun
+            ( (_ : string)
+            , (_ : View.t)
+            , (_ : int)
+            , center
+            , (_ : Placed.t list) )
+          -> center)
+    in
+    let leftmost = List.hd_exn centers in
+    let rightmost = List.last_exn centers in
+    let midpoint = (leftmost + rightmost) / 2 in
+    (* center the card over its children; if the card is wider than the
+       spread, shift the children right instead *)
+    let parent_x = max 0 (midpoint - (box_width / 2)) in
+    let child_shift = max 0 ((box_width / 2) - midpoint) in
+    let centers = List.map centers ~f:(fun center -> center + child_shift) in
+    let parent_center = parent_x + (box_width / 2) in
+    let labeled_centers =
+      List.zip_exn
+        centers
+        (List.map
+           placed_children
+           ~f:
+             (fun
+               ( label
+               , (_ : View.t)
+               , (_ : int)
+               , (_ : int)
+               , (_ : Placed.t list) )
+             -> label))
+      |> List.filter_map ~f:(fun (center, label) ->
+        match String.is_empty label with
+        | true -> None
+        | false -> Some (center, label))
+    in
+    let rail_rows =
+      [ rail ~parent_center ~centers ]
+      @
+      match List.is_empty labeled_centers with
+      | true -> []
+      | false -> [ rail_labels ~labeled_centers ]
+    in
+    let children_y = box_height + List.length rail_rows in
+    let children_views, children_placed =
+      List.fold
+        placed_children
+        ~init:([], [])
+        ~f:
+          (fun
+            (views, all_placed) ((_ : string), view, x, (_ : int), placed) ->
+          let x = x + child_shift in
+          ( View.pad ~l:x ~t:children_y view :: views
+          , List.map placed ~f:(Placed.shift ~dx:x ~dy:children_y)
+            @ all_placed ))
+    in
+    let canvas =
+      View.zcat
+        ((View.pad ~l:parent_x box
+          :: List.mapi rail_rows ~f:(fun i row ->
+            View.pad ~t:(box_height + i) row))
+         @ children_views)
+    in
+    ( canvas
+    , parent_center
+    , Placed.shift box_placed ~dx:parent_x ~dy:0 :: children_placed )
 ;;
 
-let rows ~snapshot ~new_addresses =
-  node_rows
-    snapshot.Snapshot.root_node
-    ~ds_type:snapshot.ds_type
-    ~new_addresses
-    ~prefix:""
-    ~rest:""
+let layout ~snapshot ~new_addresses =
+  let canvas, (_ : int), placed =
+    tree snapshot.Snapshot.root_node ~ds_type:snapshot.ds_type ~new_addresses
+  in
+  canvas, placed
 ;;
 
 let count_nodes snapshot =
@@ -257,16 +342,13 @@ let count_nodes snapshot =
   count snapshot.Snapshot.root_node
 ;;
 
-let scroll_limit rows ~height = Int.max 0 (List.length rows - height)
+let clamp_scroll canvas ~height ~scroll =
+  Int.min scroll (Int.max 0 (View.height canvas - (height - 2)))
+;;
 
 let view ~width ~height ~snapshot ~new_addresses ~scroll =
-  let all_rows = rows ~snapshot ~new_addresses in
-  let scroll = Int.min scroll (scroll_limit all_rows ~height:(height - 2)) in
-  let visible =
-    List.drop all_rows scroll
-    |> List.map ~f:(fun (row : Row.t) ->
-      Panel.fit row.view ~width:(Panel.inner_width ~width) ~height:1)
-  in
+  let canvas, (_ : Placed.t list) = layout ~snapshot ~new_addresses in
+  let scroll = clamp_scroll canvas ~height ~scroll in
   let nodes = count_nodes snapshot in
   let fresh = Set.length new_addresses in
   let meta =
@@ -278,13 +360,12 @@ let view ~width ~height ~snapshot ~new_addresses ~scroll =
     | 0 -> base
     | fresh -> [%string "%{base} · %{fresh#Int} new"]
   in
-  Panel.view ~title:"heap" ~meta ~width ~height (View.vcat visible)
+  Panel.view ~title:"heap" ~meta ~width ~height (View.crop ~t:scroll canvas)
 ;;
 
-let address_at ~snapshot ~new_addresses ~scroll ~height ~row =
-  let all_rows = rows ~snapshot ~new_addresses in
-  let scroll = Int.min scroll (scroll_limit all_rows ~height:(height - 2)) in
-  match List.nth all_rows (row + scroll) with
-  | Some { Row.address; view = _ } -> address
-  | None -> None
+let address_at ~snapshot ~new_addresses ~scroll ~height ~x ~y =
+  let canvas, placed = layout ~snapshot ~new_addresses in
+  let scroll = clamp_scroll canvas ~height ~scroll in
+  List.find placed ~f:(Placed.contains ~x ~y:(y + scroll))
+  |> Option.map ~f:(fun (placed : Placed.t) -> placed.address)
 ;;

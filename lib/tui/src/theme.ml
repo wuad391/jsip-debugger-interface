@@ -15,11 +15,14 @@ let color hex =
    the highlights *)
 let bg = color 0x151312
 let panel_bg = color 0x1d1b19
-let strip_bg = color 0x242220
 let accent = color 0xd4a24e
-let accent_bg = color 0x33291a
-let accent_deep = color 0xeec27c
 let fresh = color 0xeec27c
+
+(* selection and position live in one hue so the eye can chase it across
+   panes: a bright blue for bars, washes, and the current tick *)
+let highlight = color 0x4da3ff
+let highlight_bg = color 0x16324c
+let highlight_deep = color 0xa6d2ff
 let text = color 0xe6e1dc
 let secondary = color 0xb8b2ac
 let muted = color 0x948e88
@@ -28,7 +31,7 @@ let ghost = color 0x57534e
 let border = color 0x3a3733
 let border_strong = color 0x4c4843
 let hairline = color 0x2a2825
-let tick_past = color 0x7a6440
+let tick_past = color 0x2e5578
 let app_purple = color 0xc39ae2
 let keyword = color 0xc39ae2
 let ident = color 0x7fb8dc

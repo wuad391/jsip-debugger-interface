@@ -47,7 +47,7 @@ let ticks ~width ~step ~total =
     List.map (tick_cells ~width ~total) ~f:(fun (cell_step, cell_width) ->
       let color =
         match Ordering.of_int (compare cell_step step) with
-        | Equal -> Theme.accent
+        | Equal -> Theme.highlight
         | Less -> Theme.tick_past
         | Greater -> Theme.hairline
       in
@@ -62,7 +62,7 @@ let controls ~width ~playing =
   in
   let play_attrs =
     match playing with
-    | true -> [ Theme.fg Theme.accent_deep; Attr.bold ]
+    | true -> [ Theme.fg Theme.highlight; Attr.bold ]
     | false -> Theme.fg' Theme.text
   in
   let play_label =

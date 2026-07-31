@@ -61,7 +61,7 @@ let code_lines
   ~char_range
   =
   let bg =
-    match active with true -> Some Theme.accent_bg | false -> None
+    match active with true -> Some Theme.highlight_bg | false -> None
   in
   let spans = loaded.spans.(number - 1) in
   let spans =
@@ -92,8 +92,8 @@ let code_lines
   List.mapi wrapped ~f:(fun line_index line_spans ->
     let marker =
       match active, callsite && line_index = 0 with
-      | true, _ -> View.text ~attrs:(Theme.fg' Theme.accent) "▎"
-      | false, true -> View.text ~attrs:(Theme.fg' Theme.accent_deep) "▸"
+      | true, _ -> View.text ~attrs:(Theme.fg' Theme.highlight) "▎"
+      | false, true -> View.text ~attrs:(Theme.fg' Theme.highlight) "▸"
       | false, false -> View.text " "
     in
     let gutter =

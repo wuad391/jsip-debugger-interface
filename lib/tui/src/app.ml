@@ -239,13 +239,15 @@ let render
               | Step step -> Action.Step_to step)
           | None ->
             (match Layout.inner_position layout.heap position with
-             | Some { x = _; y } ->
+             | Some { x; y } ->
+               (* the panel pads the body one column right of the border *)
                Heap_pane.address_at
                  ~snapshot
                  ~new_addresses
                  ~scroll:model.heap_scroll
                  ~height:layout.heap.height
-                 ~row:y
+                 ~x:(max 0 (x - 1))
+                 ~y
                |> Option.bind ~f:(Map.find births)
                |> Option.map ~f:(fun step -> Action.Step_to step)
              | None -> None)))

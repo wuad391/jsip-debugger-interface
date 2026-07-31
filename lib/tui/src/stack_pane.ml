@@ -31,12 +31,14 @@ let rows ~width ~calls ~live ~selected =
       match live_index with Some frame -> frame = selected | None -> false
     in
     let bg =
-      match is_selected with true -> Some Theme.accent_bg | false -> None
+      match is_selected with
+      | true -> Some Theme.highlight_bg
+      | false -> None
     in
     let fn_attrs, args_color, loc_color =
       match live_index, is_selected with
       | Some _, true ->
-        ( [ Theme.fg Theme.accent_deep; Attr.bold ]
+        ( [ Theme.fg Theme.highlight_deep; Attr.bold ]
         , Theme.secondary
         , Theme.faint )
       | Some _, false ->
@@ -61,7 +63,7 @@ let rows ~width ~calls ~live ~selected =
     in
     let bar line_index =
       match is_selected, line_index with
-      | true, _ -> View.text ~attrs:(Theme.fg' Theme.accent) "▎"
+      | true, _ -> View.text ~attrs:(Theme.fg' Theme.highlight) "▎"
       | false, _ -> View.text " "
     in
     let render_span (tag, text) =

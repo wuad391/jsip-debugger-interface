@@ -12,14 +12,19 @@ module Attr := Bonsai_term.Attr
 
 val bg : Attr.Color.t
 val panel_bg : Attr.Color.t
-val strip_bg : Attr.Color.t
-val accent : Attr.Color.t
-val accent_bg : Attr.Color.t
-val accent_deep : Attr.Color.t
 
-(** The "allocated at this step" highlight. *)
+(** The brand gold: the session dot and the heap cards' outlines. *)
+val accent : Attr.Color.t
+
+(** The "allocated at this step" gold, brighter than {!accent}. *)
 val fresh : Attr.Color.t
 
+(** Selection and position — the bright blue that follows the current step
+    and frame across the stack, source, heap, and timeline. *)
+val highlight : Attr.Color.t
+
+val highlight_bg : Attr.Color.t
+val highlight_deep : Attr.Color.t
 val text : Attr.Color.t
 val secondary : Attr.Color.t
 val muted : Attr.Color.t
