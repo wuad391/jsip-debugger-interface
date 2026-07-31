@@ -1,10 +1,20 @@
 open! Core
 open Jsip_types
 
+module Structure = struct
+  type t =
+    { id : int
+    ; address : Snapshot.Address.t
+    ; snapshot : Snapshot.t
+    ; is_current : bool
+    }
+end
+
 module Step = struct
   type t =
     { call : Call.t
     ; frames : Call.t list
+    ; structures : Structure.t list
     ; new_addresses : Snapshot.Address.Set.t
     ; description : string
     }
@@ -45,14 +55,33 @@ let description (call : Call.t) =
 
 let create call_stack =
   let seen = ref Snapshot.Address.Set.empty in
+  (* each event walks one structure; everything else in the registry keeps
+     the shape of its own most recent walk *)
+  let latest_walk = ref Int.Map.empty in
   let steps =
     Array.init (Call_stack.length call_stack) ~f:(fun step ->
       let call = Call_stack.call_exn call_stack ~step in
       let addresses = addresses_of_snapshot call.info.snapshot in
       let new_addresses = Set.diff addresses !seen in
       seen := Set.union !seen addresses;
+      latest_walk
+      := Map.set !latest_walk ~key:call.info.id ~data:call.info.snapshot;
+      let structures =
+        (* a registry id always has a walk by the time it appears — its first
+           event is what registered it — so a miss is dropped rather than
+           invented *)
+        List.filter_map call.info.registry ~f:(fun (id, address) ->
+          Map.find !latest_walk id
+          |> Option.map ~f:(fun snapshot ->
+            { Structure.id
+            ; address
+            ; snapshot
+            ; is_current = id = call.info.id
+            }))
+      in
       { Step.call
       ; frames = Call_stack.frames_at call_stack ~step
+      ; structures
       ; new_addresses
       ; description = description call
       })

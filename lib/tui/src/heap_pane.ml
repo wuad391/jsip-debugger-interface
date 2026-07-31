@@ -1,5 +1,6 @@
 open! Core
 open Jsip_types
+open Jsip_replay
 module Attr = Bonsai_term.Attr
 module View = Bonsai_term.View
 
@@ -328,34 +329,72 @@ let rec tree (node : Snapshot.Node.t) ~ds_type ~new_addresses
     , Placed.shift box_placed ~dx:parent_x ~dy:0 :: children_placed )
 ;;
 
-let layout ~snapshot ~new_addresses =
-  let canvas, (_ : int), placed =
-    tree snapshot.Snapshot.root_node ~ds_type:snapshot.ds_type ~new_addresses
+(* the section header over one structure's tree: its registry id and kind,
+   the one this step's event walked marked in the highlight blue *)
+let structure_header { Replay.Structure.id; snapshot; is_current; _ } =
+  let label =
+    [%string "#%{id#Int} · %{Snapshot.Ds_type.display snapshot.ds_type}"]
   in
-  canvas, placed
+  match is_current with
+  | true ->
+    View.hcat
+      [ View.text ~attrs:(Theme.fg' Theme.highlight) "▸ "
+      ; View.text ~attrs:[ Theme.fg Theme.highlight_deep; Attr.bold ] label
+      ]
+  | false ->
+    View.hcat
+      [ View.text "  "; View.text ~attrs:(Theme.fg' Theme.muted) label ]
 ;;
 
-let count_nodes snapshot =
+(* every live structure, stacked: a header, its tree, a breathing row *)
+let layout ~structures ~new_addresses =
+  let views, placed, (_ : int) =
+    List.fold
+      structures
+      ~init:([], [], 0)
+      ~f:(fun (views, all_placed, y) (structure : Replay.Structure.t) ->
+        let canvas, (_ : int), placed =
+          tree
+            structure.snapshot.root_node
+            ~ds_type:structure.snapshot.ds_type
+            ~new_addresses
+        in
+        let views =
+          View.pad ~t:(y + 1) canvas
+          :: View.pad ~t:y (structure_header structure)
+          :: views
+        in
+        let placed =
+          List.map placed ~f:(Placed.shift ~dx:0 ~dy:(y + 1)) @ all_placed
+        in
+        views, placed, y + 1 + View.height canvas + 1)
+  in
+  View.zcat views, placed
+;;
+
+let count_nodes structures =
   let rec count (node : Snapshot.Node.t) =
     1 + List.sum (module Int) node.children ~f:count
   in
-  count snapshot.Snapshot.root_node
+  List.sum
+    (module Int)
+    structures
+    ~f:(fun (structure : Replay.Structure.t) ->
+      count structure.snapshot.root_node)
 ;;
 
 let clamp_scroll canvas ~height ~scroll =
   Int.min scroll (Int.max 0 (View.height canvas - (height - 2)))
 ;;
 
-let view ~width ~height ~snapshot ~new_addresses ~scroll =
-  let canvas, (_ : Placed.t list) = layout ~snapshot ~new_addresses in
+let view ~width ~height ~structures ~new_addresses ~scroll =
+  let canvas, (_ : Placed.t list) = layout ~structures ~new_addresses in
   let scroll = clamp_scroll canvas ~height ~scroll in
-  let nodes = count_nodes snapshot in
   let fresh = Set.length new_addresses in
+  let live = List.length structures in
+  let nodes = count_nodes structures in
   let meta =
-    let base =
-      [%string
-        "%{Snapshot.Ds_type.display snapshot.ds_type} · %{nodes#Int} nodes"]
-    in
+    let base = [%string "%{live#Int} live · %{nodes#Int} nodes"] in
     match fresh with
     | 0 -> base
     | fresh -> [%string "%{base} · %{fresh#Int} new"]
@@ -363,8 +402,8 @@ let view ~width ~height ~snapshot ~new_addresses ~scroll =
   Panel.view ~title:"heap" ~meta ~width ~height (View.crop ~t:scroll canvas)
 ;;
 
-let address_at ~snapshot ~new_addresses ~scroll ~height ~x ~y =
-  let canvas, placed = layout ~snapshot ~new_addresses in
+let address_at ~structures ~new_addresses ~scroll ~height ~x ~y =
+  let canvas, placed = layout ~structures ~new_addresses in
   let scroll = clamp_scroll canvas ~height ~scroll in
   List.find placed ~f:(Placed.contains ~x ~y:(y + scroll))
   |> Option.map ~f:(fun (placed : Placed.t) -> placed.address)

@@ -16,10 +16,25 @@
 open! Core
 open Jsip_types
 
+(** One tracked structure alive at a step: a registry entry joined with the
+    shape of that structure's most recent walk. A structure stays here, at
+    its latest shape, until the registry drops it (the GC collected it);
+    [is_current] marks the one this step's event walked. *)
+module Structure : sig
+  type t =
+    { id : int
+    ; address : Snapshot.Address.t
+    ; snapshot : Snapshot.t
+    ; is_current : bool
+    }
+end
+
 module Step : sig
   type t =
     { call : Call.t (** the event that fired at this step *)
     ; frames : Call.t list (** the live stack, outermost first *)
+    ; structures : Structure.t list
+    (** every live tracked structure, in registry order *)
     ; new_addresses : Snapshot.Address.Set.t
     (** addresses in this step's snapshot that no earlier snapshot mentioned
         — the nodes this call allocated *)

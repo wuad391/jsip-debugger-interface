@@ -30,18 +30,13 @@ let replay_of_fixture name =
 ;;
 
 let heap_view ?(width = 56) ?(height = 15) replay ~step =
-  let { Replay.Step.call; new_addresses; _ } =
+  let { Replay.Step.structures; new_addresses; _ } =
     Replay.step_exn replay ~step
   in
   print_view
     ~width
     ~height
-    (Heap_pane.view
-       ~width
-       ~height
-       ~snapshot:call.info.snapshot
-       ~new_addresses
-       ~scroll:0)
+    (Heap_pane.view ~width ~height ~structures ~new_addresses ~scroll:0)
 ;;
 
 let calls_of replay =
@@ -87,20 +82,20 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   heap_view replay ~step:1;
   [%expect
     {|
-    ┌ HEAP ───────────────────────── map · 2 nodes · 2 new ┐
+    ┌ HEAP ────────────────────── 2 live · 3 nodes · 2 new ┐
+    │   #1 · map                                           │
+    │ ┌────────────────┐                                   │
+    │ │ "a" ↦ 1        │                                   │
+    │ │ 0x763be65f19e8 │                                   │
+    │ └────────────────┘                                   │
+    │                                                      │
+    │ ▸ #2 · map                                           │
     │ ┌────────────────┐                                   │
     │ │ "a" ↦ 1  new   │                                   │
     │ │ 0x763be65ee878 │                                   │
     │ └────────────────┘                                   │
     │    ┌─────┴──────┐                                    │
     │    l            r                                    │
-    │    ∅   ┌────────────────┐                            │
-    │        │ "b" ↦ 2  new   │                            │
-    │        │ 0x763be65ee8a8 │                            │
-    │        └────────────────┘                            │
-    │                                                      │
-    │                                                      │
-    │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -110,7 +105,8 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
   heap_view replay ~step:2;
   [%expect
     {|
-    ┌ HEAP ─────────────────────── queue · 3 nodes · 1 new ┐
+    ┌ HEAP ────────────────────── 1 live · 3 nodes · 1 new ┐
+    │ ▸ #1 · queue                                         │
     │ ┌────────────────┐                                   │
     │ │ length 2       │                                   │
     │ │ 0x70a6aa9f2228 │                                   │
@@ -123,7 +119,6 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
     │ └────────────────┘                                   │
     │          │                                           │
     │        next                                          │
-    │ ┌────────────────┐                                   │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -133,20 +128,20 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
   heap_view replay ~step:2;
   [%expect
     {|
-    ┌ HEAP ───────────────────────── map · 2 nodes · 2 new ┐
-    │    ┌────────────────┐                                │
-    │    │ "pair" ↦   new │                                │
-    │    │ 0x7cc39e1e9c50 │                                │
-    │    └────────────────┘                                │
-    │ ┌───────────┴┬───────────┐                           │
-    │ l            d           r                           │
-    │ ∅   ┌────────────────┐   ∅                           │
-    │     │ 1, "one"  new  │                               │
-    │     │ 0x7cc3ae369b18 │                               │
-    │     └────────────────┘                               │
+    ┌ HEAP ────────────────────── 3 live · 5 nodes · 2 new ┐
+    │   #1 · map                                           │
+    │ ┌────────────────┐                                   │
+    │ │ "pi" ↦ 3.14    │                                   │
+    │ │ 0x7cc39e1f19e8 │                                   │
+    │ └────────────────┘                                   │
     │                                                      │
-    │                                                      │
-    │                                                      │
+    │   #2 · map                                           │
+    │       ┌────────────────┐                             │
+    │       │ "pi" ↦ 3.14    │                             │
+    │       │ 0x7cc39e1ee630 │                             │
+    │       └────────────────┘                             │
+    │          ┌─────┴─────┐                               │
+    │          l           r                               │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -156,12 +151,12 @@ let%expect_test "heap pane: a collected structure is simply gone" =
   heap_view ~height:8 replay ~step:1;
   [%expect
     {|
-    ┌ HEAP ───────────────────────── map · 1 nodes · 1 new ┐
+    ┌ HEAP ────────────────────── 1 live · 1 nodes · 1 new ┐
+    │ ▸ #2 · map                                           │
     │ ┌─────────────────┐                                  │
     │ │ "live" ↦ 1  new │                                  │
     │ │ 0x7647edffffd8  │                                  │
     │ └─────────────────┘                                  │
-    │                                                      │
     │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
@@ -306,32 +301,32 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
   heap_view ~width:60 replay ~step:2;
   [%expect
     {|
-    ┌ HEAP ───────────────────────────── set · 4 nodes · 4 new ┐
-    │                 ┌────────────────┐                       │
-    │                 │ 3  new         │                       │
-    │                 │ 0x714aae9ea098 │                       │
-    │                 └────────────────┘                       │
-    │                ┌─────────┴──────────┐                    │
-    │                l                    r                    │
-    │       ┌────────────────┐   ┌────────────────┐            │
-    │       │ 2  new         │   │ 4  new         │            │
-    │       │ 0x714aae9ea0c0 │   │ 0x714aae9ea1a8 │            │
-    │       └────────────────┘   └────────────────┘            │
-    │          ┌─────┴─────┐                                   │
-    │          l           r                                   │
-    │ ┌────────────────┐   ∅                                   │
+    ┌ HEAP ────────────────────────── 3 live · 9 nodes · 4 new ┐
+    │   #1 · set                                               │
+    │ ┌────────────────┐                                       │
+    │ │ 1              │                                       │
+    │ │ 0x714aae9f17e8 │                                       │
+    │ └────────────────┘                                       │
+    │    ┌─────┴──────┐                                        │
+    │    l            r                                        │
+    │    ∅   ┌────────────────┐                                │
+    │        │ 2              │                                │
+    │        │ 0x714aae9f1810 │                                │
+    │        └────────────────┘                                │
+    │           ┌─────┴──────┐                                 │
+    │           l            r                                 │
     └──────────────────────────────────────────────────────────┘
     |}]
 ;;
 
 let%expect_test "heap clicks land on cards, not the space between" =
   let replay = replay_of_fixture "map_basic" in
-  let { Replay.Step.call; new_addresses; _ } =
+  let { Replay.Step.structures; new_addresses; _ } =
     Replay.step_exn replay ~step:1
   in
   let at ~x ~y =
     Heap_pane.address_at
-      ~snapshot:call.info.snapshot
+      ~structures
       ~new_addresses
       ~scroll:0
       ~height:15
@@ -344,8 +339,32 @@ let%expect_test "heap clicks land on cards, not the space between" =
   print_endline (at ~x:10 ~y:8);
   print_endline (at ~x:30 ~y:5);
   [%expect {|
+    0x763be65f19e8
     0x763be65ee878
-    0x763be65ee8a8
     ·
+    |}]
+;;
+
+let%expect_test "heap pane: the map outlives the queue's arrival" =
+  (* queue_of_maps: after [Queue.create] the registry holds both the map (id
+     1, its earlier walk) and the fresh queue (id 2, current) *)
+  let replay = replay_of_fixture "queue_of_maps" in
+  heap_view ~height:14 replay ~step:1;
+  [%expect
+    {|
+    ┌ HEAP ────────────────────── 2 live · 2 nodes · 1 new ┐
+    │   #1 · map                                           │
+    │ ┌────────────────┐                                   │
+    │ │ "k" ↦ 1        │                                   │
+    │ │ 0x7a7fb4df16d8 │                                   │
+    │ └────────────────┘                                   │
+    │                                                      │
+    │ ▸ #2 · queue                                         │
+    │ ┌────────────────┐                                   │
+    │ │ length 0  new  │                                   │
+    │ │ 0x7a7fb4dee590 │                                   │
+    │ └────────────────┘                                   │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
     |}]
 ;;

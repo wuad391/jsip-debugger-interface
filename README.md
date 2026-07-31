@@ -47,7 +47,10 @@ bright blue across all panes, the gold reserved for the heap's cards:
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
   blank gutter.
-- **Heap** — the walked structure drawn like a CS tree diagram:
+- **Heap** — every live tracked structure (one `#id · kind` section per
+  registry entry, the one this event walked marked in blue): a structure
+  keeps the shape of its most recent walk and only leaves the pane when
+  the registry drops it. Each is drawn like a CS tree diagram:
   gold-outlined node cards (the node's meaning over its full address), a
   parent centered above its children, siblings sharing a level under a
   labeled rail, `∅` where an interior slot is empty. Cards allocated *at

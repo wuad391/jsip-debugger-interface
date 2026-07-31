@@ -17,7 +17,7 @@ let show_steps replay =
   List.iter
     (List.init (Replay.length replay) ~f:Fn.id)
     ~f:(fun step ->
-      let { Replay.Step.frames; new_addresses; description; call = _ } =
+      let { Replay.Step.frames; new_addresses; description; _ } =
         Replay.step_exn replay ~step
       in
       let stack = List.length frames in
@@ -89,4 +89,29 @@ let%expect_test "files come back in first-appearance order" =
   let replay = replay_of_fixture "map_basic" in
   print_s [%sexp (Replay.files replay : string list)];
   [%expect {| (testing/cases/map_basic.ml) |}]
+;;
+
+let%expect_test "structures live until the registry drops them" =
+  let replay = replay_of_fixture "queue_of_maps" in
+  List.iter
+    (List.init (Replay.length replay) ~f:Fn.id)
+    ~f:(fun step ->
+      let { Replay.Step.structures; _ } = Replay.step_exn replay ~step in
+      let show =
+        List.map
+          structures
+          ~f:(fun { Replay.Structure.id; snapshot; is_current; _ } ->
+            let mark = match is_current with true -> "▸" | false -> " " in
+            [%string
+              "%{mark}#%{id#Int} %{Snapshot.Ds_type.display \
+               snapshot.ds_type}"])
+        |> String.concat ~sep:"  "
+      in
+      print_endline [%string "step %{step#Int}: %{show}"]);
+  [%expect
+    {|
+    step 0: ▸#1 map
+    step 1:  #1 map  ▸#2 queue
+    step 2:  #1 map  ▸#2 queue
+    |}]
 ;;

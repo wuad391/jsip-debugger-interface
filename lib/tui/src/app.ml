@@ -116,7 +116,13 @@ let render
   ~dimensions
   =
   let layout = Layout.compute dimensions in
-  let { Replay.Step.call; frames; new_addresses; description = _ } =
+  let { Replay.Step.call
+      ; frames
+      ; structures
+      ; new_addresses
+      ; description = _
+      }
+    =
     Replay.step_exn replay ~step:model.step
   in
   let count = List.length frames in
@@ -189,7 +195,7 @@ let render
           (Heap_pane.view
              ~width:layout.heap.width
              ~height:layout.heap.height
-             ~snapshot
+             ~structures
              ~new_addresses
              ~scroll:model.heap_scroll)
       ; View.pad
@@ -242,7 +248,7 @@ let render
              | Some { x; y } ->
                (* the panel pads the body one column right of the border *)
                Heap_pane.address_at
-                 ~snapshot
+                 ~structures
                  ~new_addresses
                  ~scroll:model.heap_scroll
                  ~height:layout.heap.height
