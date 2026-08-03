@@ -27,8 +27,18 @@ let highlight = color 0x4da3ff
 let highlight_bg = color 0x16324c
 let highlight_deep = color 0xa6d2ff
 
+(* the keyboard cursor rides alongside the selection, so it needs a hue the
+   blue cannot be confused with at a glance — orange, its complement *)
+let cursor = color 0xf2913d
+let cursor_bg = color 0x4a2c10
+let cursor_deep = color 0xffc489
+
 (* heap node cards outline in a calmer blue than the selection *)
 let card_border = color 0x5d8cc2
+
+(* the rails between cards are the diagram's pointers, not chrome — brighter
+   than the pane dividers so the edges read ahead of them *)
+let rail = color 0x9c958c
 let text = color 0xefebe6
 let secondary = color 0xd8d3cd
 let muted = color 0xbbb5ad

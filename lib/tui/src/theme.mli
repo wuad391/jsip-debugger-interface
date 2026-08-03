@@ -27,8 +27,22 @@ val highlight : Attr.Color.t
 val highlight_bg : Attr.Color.t
 val highlight_deep : Attr.Color.t
 
+(** Where the keyboard is, as opposed to where the selection is: the orange
+    that marks the pane [Tab] last focused and, inside it, the card or row
+    [Enter] would commit to. Blue says "chosen", orange says "about to be" —
+    the two are on screen together while you aim. *)
+val cursor : Attr.Color.t
+
+val cursor_bg : Attr.Color.t
+val cursor_deep : Attr.Color.t
+
 (** The heap cards' outline — a calmer blue than {!highlight}. *)
 val card_border : Attr.Color.t
+
+(** The rails joining heap cards. Brighter than {!border}: those lines are
+    the diagram's pointers, so they should read ahead of the pane chrome
+    rather than behind it. *)
+val rail : Attr.Color.t
 
 val text : Attr.Color.t
 val secondary : Attr.Color.t

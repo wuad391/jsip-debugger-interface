@@ -5,6 +5,38 @@ module Attr = Bonsai_term.Attr
 module View = Bonsai_term.View
 module Layer = Snapshot.Ds_type.Layer
 
+(* which card is chosen and which one the keyboard is aiming at. Both are
+   addresses because that is what a click yields and what the canvas keys
+   cards by; either may be absent, and while you aim they are both on screen
+   — blue behind, orange ahead. *)
+module Selection = struct
+  type t =
+    { selected : Snapshot.Address.t option
+    ; cursor : Snapshot.Address.t option
+    }
+  [@@deriving sexp_of, equal]
+
+  let none = { selected = None; cursor = None }
+
+  let is address slot =
+    match slot with
+    | Some other -> Snapshot.Address.equal other address
+    | None -> false
+  ;;
+
+  let selects t address = is address t.selected
+  let aims_at t address = is address t.cursor
+end
+
+module Direction = struct
+  type t =
+    | Up
+    | Down
+    | Left
+    | Right
+  [@@deriving sexp_of, equal]
+end
+
 (* where a node's card landed on the tree canvas, for click-to-jump *)
 module Placed = struct
   type t =
@@ -39,9 +71,12 @@ module Context = struct
         versions (and a payload may even cycle), so a second occurrence
         points at the first instead of redrawing it *)
     ; new_addresses : Snapshot.Address.Set.t
+    ; selection : Selection.t
+    (** which card is blue and which is orange — geometry depends on it,
+        because only the selected card spells out its address *)
     }
 
-  let create ~structures ~nodes ~new_addresses =
+  let create ~structures ~nodes ~new_addresses ~selection =
     { by_id =
         Int.Map.of_alist_reduce
           (List.map structures ~f:(fun (structure : Replay.Structure.t) ->
@@ -56,6 +91,7 @@ module Context = struct
     ; drawn = Int.Hash_set.create ()
     ; drawn_nodes = Int.Hash_set.create ()
     ; new_addresses
+    ; selection
     }
   ;;
 
@@ -313,15 +349,21 @@ end
 
 let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
 
-(* the node card — blue outline, the structure's name riding the border's top
-   left, a green [new] tag riding the top right for this step's allocations,
-   the full address in small type, and (when folded) how many nodes are
-   tucked away, spelled out below the card. The current structure's root card
-   is washed in the highlight background.
+(* the node card — the structure's name riding the border's top left, a green
+   [new] tag riding the top right for this step's allocations, and (when
+   folded) how many nodes are tucked away, spelled out below the card. The
+   outline is blue on the selected card, orange on the one the keyboard is
+   aiming at, and the calmer card blue everywhere else; the same three states
+   pick the wash.
+
+   Only the selected card spells out its address. Every card carrying twelve
+   hex digits set the whole diagram's width from a string nobody was reading;
+   showing it on the one card whose identity is actually in question buys
+   three columns and a row back on all the others.
    {v
    ┌ m ──────────── new ┐
-   │ "a" → 2             │
-   │ 0x763be65ee878     │
+   │ "a" → 2            │
+   │ 0x763be65ee878     │   ← selected only
    └────────────────────┘
         ⋯ 3 hidden
    v} *)
@@ -335,20 +377,31 @@ let node_box
   =
   let is_new = Set.mem context.new_addresses node.virtual_address in
   let root_structure = Map.find context.by_address node.virtual_address in
-  let is_selected =
-    match root_structure with
-    | Some (structure : Replay.Structure.t) -> structure.is_current
-    | None -> false
+  let selection = context.selection in
+  let is_selected = Selection.selects selection node.virtual_address in
+  let is_cursor = Selection.aims_at selection node.virtual_address in
+  let border =
+    Theme.fg'
+      (match is_cursor, is_selected with
+       | true, _ -> Theme.cursor
+       | false, true -> Theme.highlight
+       | false, false -> Theme.card_border)
   in
-  let border = Theme.fg' Theme.card_border in
   let summary =
     View.hcat
       (List.map (summary_spans node ~mode ~hidden_labels) ~f:span_view)
   in
+  (* both picked-out cards spell their address out: the blue one because it
+     is the chosen one, the orange one because knowing what you are about to
+     choose is the point of aiming *)
   let address =
-    View.text
-      ~attrs:(Theme.fg' Theme.faint)
-      (Snapshot.Address.display node.virtual_address)
+    match is_selected || is_cursor with
+    | false -> None
+    | true ->
+      Some
+        (View.text
+           ~attrs:(Theme.fg' Theme.secondary)
+           (Snapshot.Address.display node.virtual_address))
   in
   (* border riders: the structure's name left, a fresh allocation right *)
   let name_tag =
@@ -356,9 +409,9 @@ let node_box
     | None -> View.none
     | Some structure ->
       (* the name reads as the card's label, not as chrome — white, and bold
-         for the structure this step walked *)
+         where the card is chosen or aimed at *)
       let attrs =
-        match structure.is_current with
+        match is_selected || is_cursor with
         | true -> [ Theme.fg Theme.text; Attr.bold ]
         | false -> Theme.fg' Theme.text
       in
@@ -371,9 +424,11 @@ let node_box
   in
   let riders_width = View.width name_tag + View.width new_tag in
   let inner =
-    Int.max
-      (Int.max (View.width summary) (View.width address))
-      (riders_width - 2)
+    List.reduce_exn
+      ~f:Int.max
+      (View.width summary
+       :: (riders_width - 2)
+       :: List.map (Option.to_list address) ~f:View.width)
   in
   (* every row is exactly [inner + 4] cells, so the wash covers the card and
      nothing else *)
@@ -401,17 +456,21 @@ let node_box
       ; View.text ~attrs:border " │"
       ]
   in
-  let card =
-    Panel.fit
-      (View.vcat [ top; content summary; content address; bottom ])
-      ~width:card_width
-      ~height:4
+  let rows =
+    [ top; content summary ]
+    @ List.map (Option.to_list address) ~f:content
+    @ [ bottom ]
   in
   let card =
-    match is_selected with
-    | true ->
+    Panel.fit (View.vcat rows) ~width:card_width ~height:(List.length rows)
+  in
+  let card =
+    match is_cursor, is_selected with
+    | true, _ ->
+      View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg card
+    | false, true ->
       View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
-    | false -> card
+    | false, false -> card
   in
   (* what a fold hides is said below the card, not squeezed into its border *)
   let card =
@@ -435,10 +494,25 @@ let node_box
   View.zcat [ View.pad ~l:1 card; glyph ]
 ;;
 
+(* An empty slot is still a slot, so it gets a card too — dotted and grayed,
+   the same three rows as a real one. A bare [∅] hanging off a rail read as
+   an annotation on the edge; a box reads as what it is, the thing the
+   pointer does not point at. *)
+let nil_box =
+  let attrs = Theme.fg' Theme.ghost in
+  View.vcat
+    [ View.text ~attrs "┌┄┄┄┐"
+    ; View.text ~attrs "┆ ∅ ┆"
+    ; View.text ~attrs "└┄┄┄┘"
+    ]
+;;
+
 let sibling_gap = 3
 
 (* the ┌──┴──┐ rail between a parent and its children, hooks at each child's
-   center *)
+   center. Light stroke, but a brighter gray than the surrounding chrome: the
+   rails are the diagram's edges — the actual pointers — so they should read
+   ahead of the pane's dividers without turning into bars themselves. *)
 let rail ~parent_center ~centers =
   let leftmost = List.min_elt centers ~compare |> Option.value ~default:0 in
   let rightmost = List.max_elt centers ~compare |> Option.value ~default:0 in
@@ -462,7 +536,7 @@ let rail ~parent_center ~centers =
        | false, false -> "─")
   in
   View.text
-    ~attrs:(Theme.fg' Theme.ghost)
+    ~attrs:(Theme.fg' Theme.rail)
     (String.concat (List.init (rightmost + 1) ~f:glyph))
 ;;
 
@@ -552,8 +626,7 @@ let rec tree
           | None -> label
         in
         match edge with
-        | Edge.Nil ->
-          label, (View.text ~attrs:(Theme.fg' Theme.faint) "∅", 0, [], [])
+        | Edge.Nil -> label, (nil_box, View.width nil_box / 2, [], [])
         | Edge.Shared id ->
           (* the node is on the canvas already — say which one *)
           let stub =
@@ -755,8 +828,10 @@ let structure_header (structure : Replay.Structure.t) ~folded =
    fold hides it), a breathing row. A structure referenced from another one
    is drawn inside its referrer's tree instead of as its own section — the
    registry still decides what is alive, only the placement moves. *)
-let layout ~structures ~nodes ~new_addresses ~folds =
-  let context = Context.create ~structures ~nodes ~new_addresses in
+let layout ~structures ~nodes ~new_addresses ~folds ~selection =
+  let context =
+    Context.create ~structures ~nodes ~new_addresses ~selection
+  in
   let referenced =
     let rec walk (owner : Replay.Structure.t) (node : Snapshot.Node.t) acc =
       let acc =
@@ -843,17 +918,56 @@ let count_nodes structures =
       count structure.snapshot.root_node)
 ;;
 
-let clamp_scroll canvas ~height ~scroll =
-  Int.min
-    scroll
-    (Int.max 0 (View.height canvas - (height - Panel.header_height)))
+(* The wheel and PgUp/PgDn set the scroll, but the cursor overrides it: a
+   card you cannot see is a card you cannot aim at. The adjustment is the
+   smallest one that brings it into the body, so scrolling by hand and then
+   moving the cursor a step does not throw the view somewhere else. *)
+let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
+  match selection.cursor with
+  | None -> scroll
+  | Some address ->
+    (match
+       List.find placed ~f:(fun (card : Placed.t) ->
+         Snapshot.Address.equal card.address address)
+     with
+     | None -> scroll
+     | Some card ->
+       Int.max (card.y + card.height - body_height) (Int.min scroll card.y))
 ;;
 
-let view ~width ~height ~structures ~nodes ~new_addresses ~folds ~scroll =
-  let canvas, (_ : Placed.t list), (_ : Toggle.t list) =
-    layout ~structures ~nodes ~new_addresses ~folds
+let clamp_scroll canvas ~height ~scroll =
+  Int.max
+    0
+    (Int.min
+       scroll
+       (Int.max 0 (View.height canvas - (height - Panel.header_height))))
+;;
+
+(* every entry point scrolls the same way, so hit-testing lands where the eye
+   does *)
+let resolve_scroll canvas placed ~height ~scroll ~selection =
+  follow_cursor
+    placed
+    ~body_height:(height - Panel.header_height)
+    ~scroll
+    ~selection
+  |> fun scroll -> clamp_scroll canvas ~height ~scroll
+;;
+
+let view
+  ~width
+  ~height
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ~scroll
+  ~selection
+  =
+  let canvas, placed, (_ : Toggle.t list) =
+    layout ~structures ~nodes ~new_addresses ~folds ~selection
   in
-  let scroll = clamp_scroll canvas ~height ~scroll in
+  let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   let fresh = Set.length new_addresses in
   let live = List.length structures in
   let nodes = count_nodes structures in
@@ -866,23 +980,107 @@ let view ~width ~height ~structures ~nodes ~new_addresses ~folds ~scroll =
   Panel.view ~title:"heap" ~meta ~width ~height (View.crop ~t:scroll canvas)
 ;;
 
-let toggle_at ~structures ~nodes ~new_addresses ~folds ~scroll ~height ~x ~y =
-  let canvas, (_ : Placed.t list), toggles =
-    layout ~structures ~nodes ~new_addresses ~folds
+let toggle_at
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ~scroll
+  ~selection
+  ~height
+  ~x
+  ~y
+  =
+  let canvas, placed, toggles =
+    layout ~structures ~nodes ~new_addresses ~folds ~selection
   in
-  let scroll = clamp_scroll canvas ~height ~scroll in
+  let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   let y = y + scroll in
   List.find toggles ~f:(fun (toggle : Toggle.t) ->
     x = toggle.x && y = toggle.y)
   |> Option.map ~f:(fun (toggle : Toggle.t) -> toggle.fold)
 ;;
 
-let address_at ~structures ~nodes ~new_addresses ~folds ~scroll ~height ~x ~y
+let address_at
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ~scroll
+  ~selection
+  ~height
+  ~x
+  ~y
   =
   let canvas, placed, (_ : Toggle.t list) =
-    layout ~structures ~nodes ~new_addresses ~folds
+    layout ~structures ~nodes ~new_addresses ~folds ~selection
   in
-  let scroll = clamp_scroll canvas ~height ~scroll in
+  let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   List.find placed ~f:(Placed.contains ~x ~y:(y + scroll))
   |> Option.map ~f:(fun (placed : Placed.t) -> placed.address)
+;;
+
+let cards ~structures ~nodes ~new_addresses ~folds ~selection =
+  let (_ : View.t), placed, (_ : Toggle.t list) =
+    layout ~structures ~nodes ~new_addresses ~folds ~selection
+  in
+  placed
+;;
+
+(* Where a card sits for the purpose of aiming at it: its center. Cards are
+   wide and short, so a plain euclidean nearest-neighbour drifts sideways
+   when you press [w] — the along-axis gap is weighted so the direction you
+   asked for dominates, and the cross-axis gap only breaks ties between
+   candidates the same distance away. *)
+let move_cursor
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ~selection
+  ~(direction : Direction.t)
+  =
+  let placed = cards ~structures ~nodes ~new_addresses ~folds ~selection in
+  let center (card : Placed.t) =
+    card.x + (card.width / 2), card.y + (card.height / 2)
+  in
+  let from =
+    Option.first_some selection.cursor selection.selected
+    |> Option.bind ~f:(fun address ->
+      List.find placed ~f:(fun (card : Placed.t) ->
+        Snapshot.Address.equal card.address address))
+  in
+  match from with
+  | None ->
+    (* nothing aimed at yet: start at the topmost card *)
+    List.min_elt placed ~compare:(fun a b ->
+      [%compare: int * int] (a.y, a.x) (b.y, b.x))
+    |> Option.map ~f:(fun (card : Placed.t) -> card.address)
+  | Some origin ->
+    let ox, oy = center origin in
+    let scored =
+      List.filter_map placed ~f:(fun (card : Placed.t) ->
+        let x, y = center card in
+        let along, across =
+          match direction with
+          | Up -> oy - y, abs (x - ox)
+          | Down -> y - oy, abs (x - ox)
+          | Left -> ox - x, abs (y - oy)
+          | Right -> x - ox, abs (y - oy)
+        in
+        match along > 0 with
+        | false -> None
+        | true -> Some (card.address, (along + (across * 2), along, across)))
+    in
+    List.min_elt scored ~compare:(fun (_, a) (_, b) ->
+      [%compare: int * int * int] a b)
+    |> Option.map ~f:fst
+;;
+
+(* the canvas row a card starts on, so the app can scroll it into view *)
+let row_of ~structures ~nodes ~new_addresses ~folds ~selection address =
+  cards ~structures ~nodes ~new_addresses ~folds ~selection
+  |> List.find ~f:(fun (card : Placed.t) ->
+    Snapshot.Address.equal card.address address)
+  |> Option.map ~f:(fun (card : Placed.t) -> card.y, card.height)
 ;;

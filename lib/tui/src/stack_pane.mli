@@ -26,7 +26,10 @@ module Target : sig
 end
 
 (** [calls] is every event's call in step order; [live] the step indices of
-    the current stack, outermost first; [selected] an index into [live]. *)
+    the current stack, outermost first; [selected] an index into [live];
+    [cursor] the call the keyboard is aiming at, washed orange over whatever
+    the selection's blue is doing, so you can see where [Enter] would go
+    without losing where you are. *)
 val view
   :  width:int
   -> height:int
@@ -34,7 +37,24 @@ val view
   -> live:int list
   -> selected:int
   -> folds:Int.Set.t
+  -> cursor:int option
   -> View.t
+
+(** Where [w]/[s] land from the cursor (or, failing that, the selected
+    frame): the previous or next call a fold has not tucked away. [None] at
+    either end — the cursor stays put. *)
+val move_cursor
+  :  calls:Call.t array
+  -> live:int list
+  -> selected:int
+  -> folds:Int.Set.t
+  -> cursor:int option
+  -> direction:[ `Up | `Down ]
+  -> int option
+
+(** What committing a call means — the same choice a click on its row makes:
+    a live one selects that frame, any other jumps the replay to it. *)
+val target_of : live:int list -> int -> Target.t
 
 (** The row a click on pane-body position [(x, row)] lands on, mirroring
     [view]'s wrapping and scrolling; the fold glyph's cell yields [Toggle],
@@ -46,6 +66,7 @@ val target_at
   -> live:int list
   -> selected:int
   -> folds:Int.Set.t
+  -> cursor:int option
   -> x:int
   -> row:int
   -> Target.t option

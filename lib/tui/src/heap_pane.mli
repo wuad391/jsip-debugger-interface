@@ -23,27 +23,30 @@
     across steps ({!Fold.t}: structure id, or structure id + edge path).
 
     Each node is a card — the structure's name (or [#id]) riding the border's
-    top left, its meaning up top ([{"a" → 2}] for a map binding, the element
-    for a set, [length n] for a queue root, the content for a cell, the
-    joined positions for a walked value block), its full address in small
-    type below — outlined in blue; a card allocated at this step carries a
-    green [new] tag riding the border's top right, a folded card says how
-    many nodes it hides below itself, and the current structure's root card
-    is washed in the highlight background.
+    top left, and its meaning up top ([{"a" → 2}] for a map binding, the
+    element for a set, [length n] for a queue root, the content for a cell,
+    the joined positions for a walked value block). A card allocated at this
+    step carries a green [new] tag riding the border's top right, and a
+    folded card says how many nodes it hides below itself.
+
+    Two of the cards are picked out (see {!Selection}): the selected one is
+    blue and is the only card that spells out its address — twelve hex digits
+    on every card set the whole diagram's width from a string nobody was
+    reading — and the one the keyboard is aiming at is orange. Everything
+    else outlines in the calmer card blue.
 
     {v
     ▾ m · map ⟨string ⇒ int⟩
     ▾┌ m ──────────── new ┐
      │ "a" → 1            │
-     │ 0x763be65ee878     │
+     │ 0x763be65ee878     │  ← selected: blue, and the address shows
      └────────────────────┘
       ┌─────────┴────────┐
       l                  r
-      ∅        ▸┌ ───────── new ┐
-                │ "b" → 2       │
-                │ 0x763be65ee8a8│
-                └───────────────┘
-                    ⋯ 2 hidden
+      ∅        ▸┌ ───── new ┐
+                │ "b" → 2   │  ← orange while the cursor is here
+                └───────────┘
+                  ⋯ 2 hidden
     v} *)
 
 open! Core
@@ -63,6 +66,33 @@ module Fold : sig
   include Comparator.S with type t := t
 end
 
+(** The chosen card and the one the keyboard is aiming at, both keyed by
+    address — what a click yields and what the canvas keys cards by.
+
+    They coexist: [selected] stays blue while [cursor] moves in orange, so
+    you can see where you came from and where [Enter] would take you.
+    Committing makes the cursor the selection and clears it. Geometry depends
+    on [selected] — that card is a row taller and several columns wider,
+    since it is the one showing its address. *)
+module Selection : sig
+  type t =
+    { selected : Snapshot.Address.t option
+    ; cursor : Snapshot.Address.t option
+    }
+  [@@deriving sexp_of, equal]
+
+  val none : t
+end
+
+module Direction : sig
+  type t =
+    | Up
+    | Down
+    | Left
+    | Right
+  [@@deriving sexp_of, equal]
+end
+
 val view
   :  width:int
   -> height:int
@@ -71,7 +101,33 @@ val view
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
+  -> selection:Selection.t
   -> View.t
+
+(** Where [wasd] lands from wherever the cursor is (or, failing that, the
+    selection): the nearest card in that direction, weighting the along-axis
+    gap so a press of [w] cannot drift sideways into a nearer neighbour.
+    [None] when nothing lies that way; with no cursor and no selection, the
+    topmost card, so the first keypress always lands somewhere. *)
+val move_cursor
+  :  structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
+  -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
+  -> selection:Selection.t
+  -> direction:Direction.t
+  -> Snapshot.Address.t option
+
+(** Where a card sits on the canvas — its top row and height, before
+    scrolling — so the app can bring the cursor into view. *)
+val row_of
+  :  structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
+  -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
+  -> selection:Selection.t
+  -> Snapshot.Address.t
+  -> (int * int) option
 
 (** The fold glyph a click at pane-body position [(x, y)] hits, mirroring
     [view]'s layout and scrolling. Checked before {!address_at}: glyph cells
@@ -82,6 +138,7 @@ val toggle_at
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
+  -> selection:Selection.t
   -> height:int
   -> x:int
   -> y:int
@@ -96,6 +153,7 @@ val address_at
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
+  -> selection:Selection.t
   -> height:int
   -> x:int
   -> y:int

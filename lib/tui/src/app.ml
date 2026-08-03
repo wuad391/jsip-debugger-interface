@@ -26,6 +26,17 @@ module Source_fold = struct
   include Comparator.Make (T)
 end
 
+(* which pane the keyboard drives; [Tab] cycles. The source pane has nothing
+   to select, so it is not in the rotation. *)
+module Pane = struct
+  type t =
+    | Stack
+    | Heap
+  [@@deriving sexp_of, equal]
+
+  let other t = match t with Stack -> Heap | Heap -> Stack
+end
+
 module Model = struct
   type t =
     { step : int
@@ -35,6 +46,12 @@ module Model = struct
     ; heap_folds : Set.M(Heap_pane.Fold).t
     ; stack_folds : Int.Set.t
     ; source_folds : Set.M(Source_fold).t
+    ; focus : Pane.t
+    ; heap_selected : Snapshot.Address.t option
+    (** [None] falls back to the structure this step walked, which is what
+        the pane highlighted before selection existed *)
+    ; heap_cursor : Snapshot.Address.t option
+    ; stack_cursor : int option (** a call index *)
     }
   [@@deriving sexp_of, equal]
 
@@ -46,6 +63,10 @@ module Model = struct
     ; heap_folds = Set.empty (module Heap_pane.Fold)
     ; stack_folds = Int.Set.empty
     ; source_folds = Set.empty (module Source_fold)
+    ; focus = Pane.Heap
+    ; heap_selected = None
+    ; heap_cursor = None
+    ; stack_cursor = None
     }
   ;;
 end
@@ -61,6 +82,13 @@ module Action = struct
     | Toggle_heap_fold of Heap_pane.Fold.t
     | Toggle_stack_fold of int
     | Toggle_source_fold of Source_fold.t
+    | Focus_next_pane
+    | Move_cursor of Heap_pane.Direction.t
+    (** [wasd]: aim, without committing *)
+    | Commit_cursor (** [Enter]: the orange becomes the blue *)
+    | Jump_cursor of Heap_pane.Direction.t
+    (** shift + [wasd]: aim and commit in one, skipping the orange *)
+    | Select_heap_node of Snapshot.Address.t (** a click on a card *)
   [@@deriving sexp_of]
 end
 
@@ -68,8 +96,44 @@ let frame_count replay ~step =
   List.length (Replay.step_exn replay ~step).frames
 ;;
 
+(* the blue card: whatever was last chosen, or — until something is — the
+   root of the structure this step walked, which is what the pane highlighted
+   before selection existed. Both the renderer and the cursor arithmetic go
+   through here so they cannot disagree about where the cursor starts. *)
+let heap_selection replay (model : Model.t) =
+  let selected =
+    match model.heap_selected with
+    | Some (_ : Snapshot.Address.t) -> model.heap_selected
+    | None ->
+      List.find
+        (Replay.step_exn replay ~step:model.step).structures
+        ~f:(fun (structure : Replay.Structure.t) -> structure.is_current)
+      |> Option.map ~f:(fun (structure : Replay.Structure.t) ->
+        structure.address)
+  in
+  { Heap_pane.Selection.selected; cursor = model.heap_cursor }
+;;
+
+(* the frame the stack pane treats as selected — the renderer's [selected],
+   recomputed here because cursor movement starts from it *)
+let selected_frame replay (model : Model.t) =
+  let count = frame_count replay ~step:model.step in
+  Int.max
+    0
+    (Int.min
+       (count - 1)
+       (Option.value model.selected_frame ~default:(count - 1)))
+;;
+
+let live_calls replay ~step =
+  List.map (Replay.step_exn replay ~step).frames ~f:(fun (frame : Call.t) ->
+    fst frame.range)
+;;
+
 let apply_action
   replay
+  ~calls
+  ~births
   (_ : _ Bonsai.Apply_action_context.t)
   (model : Model.t)
   action
@@ -79,15 +143,95 @@ let apply_action
   let clamp_frame index =
     Int.max 0 (Int.min (frame_count replay ~step:model.step - 1) index)
   in
-  (* any move re-follows the innermost frame and rewinds the heap pane; folds
-     persist — that is the point of keying them stably *)
+  (* any move re-follows the innermost frame and rewinds the heap pane, and
+     drops both cursors and the chosen card — at another step those addresses
+     name nothing, so blue goes back to following the walked structure. Folds
+     persist; that is the point of keying them stably. *)
   let move ~playing step =
     { model with
       step = clamp_step step
     ; selected_frame = None
     ; playing
     ; heap_scroll = 0
+    ; heap_selected = None
+    ; heap_cursor = None
+    ; stack_cursor = None
     }
+  in
+  (* committing a heap card is exactly what clicking it does — jump to where
+     it was allocated — and additionally pins it as the selection, so the
+     card stays blue and keeps showing its address at the new step *)
+  let select_heap_node model address =
+    let stepped =
+      match Map.find births address with
+      | Some step -> move ~playing:false step
+      | None -> model
+    in
+    { stepped with heap_selected = Some address; heap_cursor = None }
+  in
+  let commit (model : Model.t) =
+    match model.focus with
+    | Pane.Heap ->
+      (match model.heap_cursor with
+       | None -> model
+       | Some address -> select_heap_node model address)
+    | Pane.Stack ->
+      (match model.stack_cursor with
+       | None -> model
+       | Some call ->
+         (match
+            Stack_pane.target_of
+              ~live:(live_calls replay ~step:model.step)
+              call
+          with
+          | Stack_pane.Target.Frame index ->
+            { model with
+              selected_frame = Some (clamp_frame index)
+            ; stack_cursor = None
+            }
+          | Stack_pane.Target.Step step -> move ~playing:false step
+          | Stack_pane.Target.Toggle (_ : int) -> model))
+  in
+  let aim (model : Model.t) ~direction =
+    match model.focus with
+    | Pane.Heap ->
+      let { Replay.Step.structures; nodes; new_addresses; _ } =
+        Replay.step_exn replay ~step:model.step
+      in
+      let moved =
+        Heap_pane.move_cursor
+          ~structures
+          ~nodes
+          ~new_addresses
+          ~folds:model.heap_folds
+          ~selection:(heap_selection replay model)
+          ~direction
+      in
+      (match moved with
+       | None -> model
+       | Some address -> { model with heap_cursor = Some address })
+    | Pane.Stack ->
+      let vertical =
+        match (direction : Heap_pane.Direction.t) with
+        | Up -> Some `Up
+        | Down -> Some `Down
+        | Left | Right -> None
+      in
+      (match vertical with
+       | None -> model
+       | Some direction ->
+         let moved =
+           Stack_pane.move_cursor
+             ~calls
+             ~live:(live_calls replay ~step:model.step)
+             ~selected:(selected_frame replay model)
+             ~folds:model.stack_folds
+             ~cursor:model.stack_cursor
+             ~direction
+         in
+         (match moved with
+          | None -> model
+          | Some call -> { model with stack_cursor = Some call }))
   in
   match (action : Action.t) with
   | Step_to step -> move ~playing:false step
@@ -126,6 +270,11 @@ let apply_action
          | true -> Set.remove model.source_folds fold
          | false -> Set.add model.source_folds fold)
     }
+  | Focus_next_pane -> { model with focus = Pane.other model.focus }
+  | Move_cursor direction -> aim model ~direction
+  | Commit_cursor -> commit model
+  | Jump_cursor direction -> commit (aim model ~direction)
+  | Select_heap_node address -> select_heap_node model address
 ;;
 
 (* where each address was first seen — what a click on a heap node jumps to *)
@@ -148,15 +297,7 @@ module Computed = struct
     }
 end
 
-let render
-  ~replay
-  ~sources
-  ~dump_name
-  ~births
-  ~calls
-  ~(model : Model.t)
-  ~dimensions
-  =
+let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
   let layout = Layout.compute dimensions in
   let { Replay.Step.call
       ; frames
@@ -212,102 +353,179 @@ let render
         | false -> acc)
   in
   let snapshot = call.info.snapshot in
+  let selection = heap_selection replay model in
   let place (region : Region.t) view =
     View.pad ~l:region.x ~t:region.y view
   in
+  (* the focused pane's four seams, redrawn heavy and orange over the light
+     gray ones. Panes have no borders of their own, so focus has to be said
+     with the lines that already bound them; the two ends of the horizontal
+     runs get the junction glyph for whichever light rule they cut across. *)
+  let focus_outline (region : Region.t) ~top ~bottom ~joints =
+    let color = Theme.cursor in
+    (* A seam exists only where a divider does — the screen's own edges are
+       not lines — so a pane flush against one is outlined on three sides.
+       [joints] names every cell where some other rule runs into the outline;
+       they are drawn last, over the runs that cross them, because the tee
+       they need is not the glyph either run would have put there. *)
+    let left = region.x - 1 in
+    let right = region.x + region.width in
+    let start = max 0 left in
+    let stop = min dimensions.Dimensions.width (right + 1) in
+    let on_screen x = x >= 0 && x < dimensions.Dimensions.width in
+    let vertical x =
+      match on_screen x with
+      | false -> []
+      | true ->
+        [ View.pad
+            ~l:x
+            ~t:region.y
+            (Panel.vertical_rule ~height:region.height ~color)
+        ]
+    in
+    [ View.pad
+        ~l:start
+        ~t:top
+        (Panel.horizontal_rule ~width:(stop - start) ~color)
+    ; View.pad
+        ~l:start
+        ~t:bottom
+        (Panel.horizontal_rule ~width:(stop - start) ~color)
+    ]
+    @ vertical left
+    @ vertical right
+    |> List.rev_append
+         (List.filter_map joints ~f:(fun (x, y, glyph) ->
+            match on_screen x with
+            | false -> None
+            | true -> Some (View.pad ~l:x ~t:y (Panel.junction ~color glyph))))
+  in
+  let focus_views =
+    let seam = layout.column_divider.x in
+    match model.focus with
+    | Pane.Heap ->
+      (* the heap runs the full height between the two full-width rules, so
+         its left seam is the column divider — and the stack/source rule dies
+         on that divider, which keeps its tee, in orange *)
+      focus_outline
+        layout.heap
+        ~top:layout.top_divider.y
+        ~bottom:layout.bottom_divider.y
+        ~joints:
+          [ seam, layout.top_divider.y, "┬"
+          ; seam, layout.row_divider.y, "┤"
+          ; seam, layout.bottom_divider.y, "┴"
+          ]
+    | Pane.Stack ->
+      (* the stack is the top half of the left column: its bottom seam is the
+         rule it shares with the source, and the column divider carries on
+         down past the corner where they meet *)
+      focus_outline
+        layout.stack
+        ~top:layout.top_divider.y
+        ~bottom:layout.row_divider.y
+        ~joints:
+          [ seam, layout.top_divider.y, "┬"
+          ; seam, layout.row_divider.y, "┤"
+          ]
+  in
   let view =
     View.zcat
-      [ Transport.view
-          ~width:dimensions.Dimensions.width
-          ~step:model.step
-          ~total:(Replay.length replay)
-          ~playing:model.playing
-      ; place
-          layout.stack
-          (Stack_pane.view
-             ~width:layout.stack.width
-             ~height:layout.stack.height
-             ~calls
-             ~live
-             ~selected
-             ~folds:model.stack_folds)
-      ; place
-          layout.source
-          (Source_pane.view
-             ~width:layout.source.width
-             ~height:layout.source.height
-             ~file_label:(Filename.basename file_path)
-             ~source
-             ~folds:source_folds
-             ~active_line:(Location.line_number location)
-             ~callsite_line
-             ~char_range:(Location.char_range location))
-      ; place
-          layout.heap
-          (Heap_pane.view
-             ~width:layout.heap.width
-             ~height:layout.heap.height
-             ~structures
-             ~nodes
-             ~new_addresses
-             ~folds:model.heap_folds
-             ~scroll:model.heap_scroll)
-      ; (* junctions ride over the rules they interrupt *)
-        View.pad
-          ~l:layout.column_divider.x
-          ~t:layout.top_divider.y
-          (Panel.junction ~color:Theme.border "┬")
-      ; View.pad
-          ~l:layout.column_divider.x
-          ~t:layout.row_divider.y
-          (Panel.junction ~color:Theme.border "┤")
-      ; View.pad
-          ~l:layout.column_divider.x
-          ~t:layout.bottom_divider.y
-          (Panel.junction ~color:Theme.border "┴")
-      ; View.pad
-          ~t:layout.top_divider.y
-          (Panel.horizontal_rule
-             ~width:layout.top_divider.width
-             ~color:Theme.border)
-      ; View.pad
-          ~t:layout.bottom_divider.y
-          (Panel.horizontal_rule
-             ~width:layout.bottom_divider.width
-             ~color:Theme.border)
-      ; View.pad
-          ~t:layout.row_divider.y
-          (Panel.horizontal_rule
-             ~width:layout.row_divider.width
-             ~color:Theme.border)
-      ; View.pad
-          ~l:layout.column_divider.x
-          ~t:layout.column_divider.y
-          (Panel.vertical_rule
-             ~height:layout.column_divider.height
-             ~color:Theme.border)
-      ; View.pad
-          ~t:layout.session.y
-          (Session_bar.view
+      ((* the focus seams sit on top of every rule and junction they cross *)
+       focus_views
+       @ [ Transport.view
+             ~width:dimensions.Dimensions.width
+             ~step:model.step
+             ~total:(Replay.length replay)
+             ~playing:model.playing
+         ; place
+             layout.stack
+             (Stack_pane.view
+                ~width:layout.stack.width
+                ~height:layout.stack.height
+                ~calls
+                ~live
+                ~selected
+                ~folds:model.stack_folds
+                ~cursor:model.stack_cursor)
+         ; place
+             layout.source
+             (Source_pane.view
+                ~width:layout.source.width
+                ~height:layout.source.height
+                ~file_label:(Filename.basename file_path)
+                ~source
+                ~folds:source_folds
+                ~active_line:(Location.line_number location)
+                ~callsite_line
+                ~char_range:(Location.char_range location))
+         ; place
+             layout.heap
+             (Heap_pane.view
+                ~width:layout.heap.width
+                ~height:layout.heap.height
+                ~structures
+                ~nodes
+                ~new_addresses
+                ~folds:model.heap_folds
+                ~scroll:model.heap_scroll
+                ~selection)
+         ; (* junctions ride over the rules they interrupt *)
+           View.pad
+             ~l:layout.column_divider.x
+             ~t:layout.top_divider.y
+             (Panel.junction ~color:Theme.border "┬")
+         ; View.pad
+             ~l:layout.column_divider.x
+             ~t:layout.row_divider.y
+             (Panel.junction ~color:Theme.border "┤")
+         ; View.pad
+             ~l:layout.column_divider.x
+             ~t:layout.bottom_divider.y
+             (Panel.junction ~color:Theme.border "┴")
+         ; View.pad
+             ~t:layout.top_divider.y
+             (Panel.horizontal_rule
+                ~width:layout.top_divider.width
+                ~color:Theme.border)
+         ; View.pad
+             ~t:layout.bottom_divider.y
+             (Panel.horizontal_rule
+                ~width:layout.bottom_divider.width
+                ~color:Theme.border)
+         ; View.pad
+             ~t:layout.row_divider.y
+             (Panel.horizontal_rule
+                ~width:layout.row_divider.width
+                ~color:Theme.border)
+         ; View.pad
+             ~l:layout.column_divider.x
+             ~t:layout.column_divider.y
+             (Panel.vertical_rule
+                ~height:layout.column_divider.height
+                ~color:Theme.border)
+         ; View.pad
+             ~t:layout.session.y
+             (Session_bar.view
+                ~width:dimensions.width
+                ~dump_name
+                ~structure:
+                  ((* the walked structure's kind, typed when the wire says *)
+                   let kind = Snapshot.Ds_type.display snapshot.ds_type in
+                   let current =
+                     List.find structures ~f:(fun (s : Replay.Structure.t) ->
+                       s.is_current)
+                   in
+                   match current with
+                   | Some { ty = Some ty; _ } ->
+                     [%string "%{kind} %{Type_info.display ty}"]
+                   | Some { ty = None; _ } | None -> kind))
+         ; View.rectangle
+             ~attrs:[ Attr.bg Theme.bg ]
              ~width:dimensions.width
-             ~dump_name
-             ~structure:
-               ((* the walked structure's kind, typed when the wire says *)
-                let kind = Snapshot.Ds_type.display snapshot.ds_type in
-                let current =
-                  List.find structures ~f:(fun (s : Replay.Structure.t) ->
-                    s.is_current)
-                in
-                match current with
-                | Some { ty = Some ty; _ } ->
-                  [%string "%{kind} %{Type_info.display ty}"]
-                | Some { ty = None; _ } | None -> kind))
-      ; View.rectangle
-          ~attrs:[ Attr.bg Theme.bg ]
-          ~width:dimensions.width
-          ~height:dimensions.height
-          ()
-      ]
+             ~height:dimensions.height
+             ()
+         ])
   in
   let on_click (position : Position.t) : [ `Act of Action.t | `Quit ] option =
     let act action = `Act action in
@@ -341,6 +559,7 @@ let render
               ~live
               ~selected
               ~folds:model.stack_folds
+              ~cursor:model.stack_cursor
               ~x
               ~row:y
             |> Option.map ~f:(fun target ->
@@ -378,6 +597,7 @@ let render
                        ~new_addresses
                        ~folds:model.heap_folds
                        ~scroll:model.heap_scroll
+                       ~selection
                        ~height:layout.heap.height
                        ~x
                        ~y
@@ -390,11 +610,12 @@ let render
                        ~new_addresses
                        ~folds:model.heap_folds
                        ~scroll:model.heap_scroll
+                       ~selection
                        ~height:layout.heap.height
                        ~x
                        ~y
-                     |> Option.bind ~f:(Map.find births)
-                     |> Option.map ~f:(fun step -> act (Action.Step_to step)))
+                     |> Option.map ~f:(fun address ->
+                       act (Action.Select_heap_node address)))
                 | None -> None))))
   in
   let on_scroll (position : Position.t) direction : Action.t option =
@@ -420,7 +641,7 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
       ~sexp_of_action:Action.sexp_of_t
       ~equal:Model.equal
       ~default_model:Model.initial
-      ~apply_action:(apply_action replay)
+      ~apply_action:(apply_action replay ~calls ~births)
       graph
   in
   let tick =
@@ -436,7 +657,7 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
     graph;
   let computed =
     let%arr model and dimensions in
-    render ~replay ~sources ~dump_name ~births ~calls ~model ~dimensions
+    render ~replay ~sources ~dump_name ~calls ~model ~dimensions
   in
   let view =
     let%arr { Computed.view; _ } = computed in
@@ -473,6 +694,18 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
          | (End | ASCII 'G'), [] -> inject (Step_to Int.max_value)
          | Page `Up, [] -> inject (Scroll_heap (-3))
          | Page `Down, [] -> inject (Scroll_heap 3)
+         | Tab, [] -> inject Focus_next_pane
+         | Enter, [] -> inject Commit_cursor
+         (* lowercase aims, uppercase commits on the way — a terminal reports
+            shift as the capital, not as a modifier *)
+         | ASCII 'w', [] -> inject (Move_cursor Up)
+         | ASCII 's', [] -> inject (Move_cursor Down)
+         | ASCII 'a', [] -> inject (Move_cursor Left)
+         | ASCII 'd', [] -> inject (Move_cursor Right)
+         | ASCII 'W', [] -> inject (Jump_cursor Up)
+         | ASCII 'S', [] -> inject (Jump_cursor Down)
+         | ASCII 'A', [] -> inject (Jump_cursor Left)
+         | ASCII 'D', [] -> inject (Jump_cursor Right)
          | _ -> Effect.Ignore)
       | Mouse { kind = Left; position; mods = _ } ->
         click_or_ignore (on_click position)

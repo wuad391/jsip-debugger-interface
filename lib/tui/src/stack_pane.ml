@@ -37,7 +37,7 @@ let is_hidden ~folds ~calls index =
 (* the whole run, one row per visible call: the live chain bright, everything
    else dimmed; a call with descendants gets a fold glyph, and folding tucks
    its range away behind a [⋯ n] count *)
-let rows ~width ~calls ~live ~selected ~folds =
+let rows ~width ~calls ~live ~selected ~folds ~cursor =
   Array.to_list calls
   |> List.filter_mapi ~f:(fun step (call : Call.t) ->
     match is_hidden ~folds ~calls step with
@@ -60,20 +60,31 @@ let rows ~width ~calls ~live ~selected ~folds =
              && selected_step <= hi
            | None -> false)
       in
+      (* the row the keyboard is aiming at wins the wash: it is the transient
+         one, and the selection it is drawn over is where you came from *)
+      let is_cursor =
+        match cursor with Some cursor -> cursor = step | None -> false
+      in
       let bg =
-        match is_selected with
-        | true -> Some Theme.highlight_bg
-        | false -> None
+        match is_cursor, is_selected with
+        | true, _ -> Some Theme.cursor_bg
+        | false, true -> Some Theme.highlight_bg
+        | false, false -> None
       in
       let fn_attrs, args_color, loc_color =
-        match live_index, is_selected with
-        | Some _, true | None, true ->
+        match is_cursor, live_index, is_selected with
+        | true, _, _ ->
+          ( [ Theme.fg Theme.cursor_deep; Attr.bold ]
+          , Theme.secondary
+          , Theme.faint )
+        | false, (Some _ | None), true ->
           ( [ Theme.fg Theme.highlight_deep; Attr.bold ]
           , Theme.secondary
           , Theme.faint )
-        | Some _, false ->
+        | false, Some _, false ->
           [ Theme.fg Theme.text; Attr.bold ], Theme.secondary, Theme.faint
-        | None, false -> [ Theme.fg Theme.ghost ], Theme.ghost, Theme.ghost
+        | false, None, false ->
+          [ Theme.fg Theme.ghost ], Theme.ghost, Theme.ghost
       in
       let indent = 2 * (call.info.depth - 1) in
       let folded = Set.mem folds step in
@@ -105,9 +116,10 @@ let rows ~width ~calls ~live ~selected ~folds =
           ~width:(max 8 (available - 2))
       in
       let bar =
-        match is_selected with
-        | true -> View.text ~attrs:(Theme.fg' Theme.highlight) "▎"
-        | false -> View.text " "
+        match is_cursor, is_selected with
+        | true, _ -> View.text ~attrs:(Theme.fg' Theme.cursor) "▎"
+        | false, true -> View.text ~attrs:(Theme.fg' Theme.highlight) "▎"
+        | false, false -> View.text " "
       in
       let render_span (tag, text) =
         match tag with
@@ -162,21 +174,24 @@ let rows ~width ~calls ~live ~selected ~folds =
         })
 ;;
 
-(* keep the selected call's row centered among the wrapped rows — or the fold
-   that hides it *)
-let scroll_offset rows ~height ~calls ~live ~selected ~folds =
+(* keep the row the eye is on centered among the wrapped rows: the cursor
+   while one is aimed, otherwise the selected call — or the fold hiding it *)
+let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
   let target_step =
-    match List.nth live selected with
-    | None -> None
-    | Some step ->
-      (match is_hidden ~folds ~calls step with
-       | false -> Some step
-       | true ->
-         (* the innermost visible fold covering it *)
-         Set.filter folds ~f:(fun folded ->
-           let (_ : int), hi = calls.(folded).Call.range in
-           folded < step && step <= hi)
-         |> Set.max_elt)
+    match cursor with
+    | Some (_ : int) -> cursor
+    | None ->
+      (match List.nth live selected with
+       | None -> None
+       | Some step ->
+         (match is_hidden ~folds ~calls step with
+          | false -> Some step
+          | true ->
+            (* the innermost visible fold covering it *)
+            Set.filter folds ~f:(fun folded ->
+              let (_ : int), hi = calls.(folded).Call.range in
+              folded < step && step <= hi)
+            |> Set.max_elt))
   in
   let target_start, target_height, total =
     List.fold
@@ -196,12 +211,19 @@ let scroll_offset rows ~height ~calls ~live ~selected ~folds =
     (Int.max 0 (total - height))
 ;;
 
-let view ~width ~height ~calls ~live ~selected ~folds =
+let view ~width ~height ~calls ~live ~selected ~folds ~cursor =
   let inner_width = Panel.inner_width ~width in
   let inner_height = height - Panel.header_height in
-  let rows = rows ~width:inner_width ~calls ~live ~selected ~folds in
+  let rows = rows ~width:inner_width ~calls ~live ~selected ~folds ~cursor in
   let offset =
-    scroll_offset rows ~height:inner_height ~calls ~live ~selected ~folds
+    scroll_offset
+      rows
+      ~height:inner_height
+      ~calls
+      ~live
+      ~selected
+      ~folds
+      ~cursor
   in
   let body =
     List.concat_map rows ~f:(fun (row : Row.t) -> row.lines)
@@ -217,12 +239,19 @@ let view ~width ~height ~calls ~live ~selected ~folds =
     (View.vcat body)
 ;;
 
-let target_at ~width ~height ~calls ~live ~selected ~folds ~x ~row =
+let target_at ~width ~height ~calls ~live ~selected ~folds ~cursor ~x ~row =
   let inner_width = Panel.inner_width ~width in
   let inner_height = height - Panel.header_height in
-  let rows = rows ~width:inner_width ~calls ~live ~selected ~folds in
+  let rows = rows ~width:inner_width ~calls ~live ~selected ~folds ~cursor in
   let offset =
-    scroll_offset rows ~height:inner_height ~calls ~live ~selected ~folds
+    scroll_offset
+      rows
+      ~height:inner_height
+      ~calls
+      ~live
+      ~selected
+      ~folds
+      ~cursor
   in
   let target_line = row + offset in
   let rec find rows ~line =
@@ -238,4 +267,37 @@ let target_at ~width ~height ~calls ~live ~selected ~folds ~x ~row =
        | false -> find rest ~line:(line - height))
   in
   find rows ~line:target_line
+;;
+
+(* the calls a fold has not tucked away, in run order — the rows [w]/[s] walk *)
+let visible_calls ~calls ~folds =
+  List.init (Array.length calls) ~f:Fn.id
+  |> List.filter ~f:(fun index -> not (is_hidden ~folds ~calls index))
+;;
+
+let move_cursor ~calls ~live ~selected ~folds ~cursor ~direction =
+  let visible = visible_calls ~calls ~folds in
+  let anchor =
+    match cursor with
+    | Some (_ : int) -> cursor
+    | None -> List.nth live selected
+  in
+  let index =
+    Option.bind anchor ~f:(fun step ->
+      List.findi visible ~f:(fun (_ : int) call -> call = step)
+      |> Option.map ~f:fst)
+  in
+  match index with
+  (* nothing aimed at, or the anchor is folded away: start at the top *)
+  | None -> List.hd visible
+  | Some index ->
+    List.nth
+      visible
+      (match direction with `Up -> index - 1 | `Down -> index + 1)
+;;
+
+let target_of ~live call =
+  match List.findi live ~f:(fun (_ : int) index -> index = call) with
+  | Some (frame, (_ : int)) -> Target.Frame frame
+  | None -> Target.Step call
 ;;

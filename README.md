@@ -20,22 +20,22 @@ divider line along each seam:
 ────────────────────────────────────────────┬──────────────────────────────────────────────
  CALL STACK                5 calls · 1 live │ HEAP                2 live · 3 nodes · 2 new
       M.add "b" 2 M.empty     map_fold.ml:8 │ ▾ #1 · map ⟨string ⇒ int⟩
- ▎▾ M.add "a" 1 (M.add "b" 2  map_fold.ml:8 │  ┌ #1 ────────────┐
- ▎    M.empty)                              │  │ "b" → 2        │
-      M.add k (v * 2) acc    map_fold.ml:12 │  │ 0x75101a3f23a0 │
-      M.add k (v * 2) acc    map_fold.ml:12 │  └────────────────┘
-    M.fold (fun k v acc ->   map_fold.ml:10 │
-      M.add k (v * 2) acc) m M.empty        │ ▾ m · map ⟨string ⇒ int⟩
-                                            │       ▾┌ m ──────── new ┐
-                                            │        │ "b" → 2        │
-────────────────────────────────────────────┤        │ 0x75101a3ee970 │
- SOURCE              map_fold.ml · 15 lines │        └────────────────┘
-  ▾  5 module M = Map.Make (String)         │          ┌─────┴──────┐
-     6                                      │          l            r
-  ▾  7 let () =                             │  ┌─────────── new ┐   ∅
- ▎   8   let m = M.add "a" 1 (M.add "b" 2   │  │ "a" → 1        │
- ▎         M.empty) in                      │  │ 0x75101a3ee9a0 │
-     9   let doubled =                      │  └────────────────┘
+ ▎▾ M.add "a" 1 (M.add "b" 2  map_fold.ml:8 │  ┌ #1 ─────┐
+ ▎    M.empty)                              │  │ "b" → 2 │
+      M.add k (v * 2) acc    map_fold.ml:12 │  └─────────┘
+      M.add k (v * 2) acc    map_fold.ml:12 │
+    M.fold (fun k v acc ->   map_fold.ml:10 │ ▾ m · map ⟨string ⇒ int⟩
+      M.add k (v * 2) acc) m M.empty        │   ▾┌ m ──────── new ┐
+                                            │    │ "b" → 2        │
+                                            │    │ 0x75101a3ee970 │
+────────────────────────────────────────────┤    └────────────────┘
+ SOURCE              map_fold.ml · 15 lines │       ┌────┴─────┐
+  ▾  5 module M = Map.Make (String)         │       l          r
+     6                                      │  ┌──── new ┐   ┌┄┄┄┐
+  ▾  7 let () =                             │  │ "a" → 1 │   ┆ ∅ ┆
+ ▎   8   let m = M.add "a" 1 (M.add "b" 2   │  └─────────┘   └┄┄┄┘
+ ▎         M.empty) in                      │
+     9   let doubled =                      │
     10     M.fold                           │
 ────────────────────────────────────────────┴──────────────────────────────────────────────
  ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay
@@ -65,7 +65,7 @@ divider line along each seam:
   `#id` when anonymous), root addresses re-stamp from the registry on
   every redraw, and only unreferenced structures get their own section
   header — name · kind · static type, the one this event walked marked
-  in blue, its root card washed in the highlight background. Everything
+  in blue. Everything
   folds: the `▾`/`▸` glyph beside a card tucks its subtree away — the
   card stays, and a `⋯ n hidden` note appears beneath it — and the glyph
   on a section
@@ -76,12 +76,13 @@ divider line along each seam:
   hashtbl's record → bucket array → chains included; closures and other
   undecoded blocks print as `⟨0x…⟩`. Each structure is drawn like a CS
   tree diagram:
-  blue-outlined node cards (the structure's name in white riding the
-  border's top left, the node's meaning over its full address), a
-  parent centered above its children, siblings sharing a level under a
-  labeled rail, `∅` where an interior slot is empty. Cards allocated *at
-  this step* carry a green `new` tag in the border's top right. Clicking
-  a card jumps the replay to the step that allocated it; the wheel
+  node cards (the structure's name in white riding the border's top
+  left, the node's meaning underneath), a parent centered above its
+  children, siblings sharing a level under a labeled rail, and a dotted
+  gray card where an interior slot is empty — a nil pointer is still a
+  slot, so it gets a box like everything else. Cards allocated *at this
+  step* carry a green `new` tag in the border's top right. Clicking a
+  card jumps the replay to the step that allocated it; the wheel
   scrolls.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —
@@ -107,9 +108,23 @@ dune exec app/bin/main.exe -- -dump-file testing/expected/map_spine_sharing.dump
 
 `-source-root DIR` says where the dump's relative source paths
 live (default: the current directory; the golden dumps' paths resolve
-from the repo root). The controls row up top is the key legend; beyond
-it, `h`/`l`/`p`/`n` also step, `g`/`G` jump to the ends, and
-`PgUp`/`PgDn` scroll the heap.
+from the repo root).
+
+### Selecting
+
+`Tab` moves focus between the call stack and the heap; the focused
+pane's seams turn orange. Inside it, `wasd` aims — the card or row you
+are aiming at goes orange while the one you chose stays blue, so both
+"where I am" and "where I would land" are on screen at once — and
+`Enter` commits, which does exactly what clicking there does: a heap
+card jumps the replay to the step that allocated it, a live stack row
+selects that frame, a dimmed one jumps to its call. `WASD` skips the
+aiming step and commits in one keystroke. The chosen and aimed cards
+are the only ones that spell out an address; the rest go without, which
+is what lets a five-node tree fit across the pane.
+
+Beyond the controls row up top, `h`/`l`/`p`/`n` also step, `g`/`G` jump
+to the ends, and `PgUp`/`PgDn` scroll the heap.
 
 ## Toolchain
 
