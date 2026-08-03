@@ -16,31 +16,31 @@ screen into panes:
 
 ```
  █████████████████ █████████████████ █████████████████ █████████████████ █████████████████
- █████████████████ █████████████████ █████████████████ █████████████████ █████████████████
                                               ◂ back  ·  step ▸  ·  [space] play  ·  q quit
 
 
- CALL STACK                 5 calls · 2 live │ HEAP                3 live · 4 nodes · 1 new
-      M.add "b" 2 M.empty      map_fold.ml:8 │ ▾ #1 · map ⟨string ⇒ int⟩
-  ▾ M.add "a" 1 (M.add "b" 2   map_fold.ml:8 │  ┌ #1 ────────────┐
-      M.empty)                               │  │ "b" ↦ 2        │
- ▎    M.add k (v * 2) acc     map_fold.ml:12 │  │ 0x7235beff24c8 │
-      M.add k (v * 2) acc     map_fold.ml:12 │  └────────────────┘
-    M.fold (fun k v acc ->    map_fold.ml:10 │
-      M.add k (v * 2) acc) m M.empty         │ ▾ m · map ⟨string ⇒ int⟩
-                                             │       ▾┌ m ─────────────┐
-                                             │        │ "b" ↦ 2        │
-                                             │        │ 0x7235befeec78 │
-─────────────────────────────────────────────┤        └────────────────┘
- SOURCE               map_fold.ml · 15 lines │          ┌─────┴──────┐
-     9   let doubled =                       │          l            r
-    10     M.fold                            │  ┌────────────────┐   ∅
-    11       (fun k v acc ->                 │  │ "a" ↦ 1        │
- ▎  12         M.add k (v * 2) acc)          │  │ 0x7235befeeca8 │
-    13       m M.empty                       │  └────────────────┘
-    14   in                                  │
-    15   ignore (M.find "a" doubled)         │ ▾ #3 · map ⟨string ⇒ int⟩
- ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay
+ CALL STACK                 5 calls · 1 live │ HEAP                2 live · 8 nodes · 4 new
+      M.add "a" 1         map_versions.ml:10 │ ▾ #7 · map ⟨string ⇒ int⟩
+        M.empty                              │            ▾┌ #7 ────────────┐
+    M.add "b" 2 (M.add    map_versions.ml:10 │             │ "b" ↦ 2        │
+      "a" 1 M.empty)                         │             │ 0x7b7f1dc87708 │
+    M.add "c" 3 m1        map_versions.ml:11 │             └────────────────┘
+    M.add "d" 4 m2        map_versions.ml:12 │          ┌──────────┴──────────┐
+ ▎  M.add "e" 5 m         map_versions.ml:17 │          l                     r
+                                             │  ┌────────────────┐   ▾┌────────────────┐
+                                             │  │ "a" ↦ 1        │    │ "c" ↦ 3        │
+                                             │  │ 0x7b7f0dbe2080 │    │ 0x7b7f0dbe20e0 │
+─────────────────────────────────────────────┤  └────────────────┘    └────────────────┘
+ SOURCE           map_versions.ml · 17 lines │                          ┌─────┴──────┐
+           M.empty) in                       │                          l            r
+    11   let m2 = M.add "c" 3 m1 in          │                          ∅    ┌─────────────
+    12   M.add "d" 4 m2                      │                               │ "d" ↦ 4
+    13                                       │                               │ 0x7b7f0dbe21
+  ▾ 14 let () =                              │                               └─────────────
+    15   let m = grow () in                  │
+    16   Gc.full_major ();                   │ ▾ #11 · map ⟨string ⇒ int⟩
+ ▎  17   ignore (M.add "e" 5 m)              │ ▾┌ #11 ────── new ┐
+ ● ocaml-debug │ map_versions.dump │ map ⟨string ⇒ int⟩ · replay
 ```
 
 - **Call stack** — every call in the run, indented by depth: the current
