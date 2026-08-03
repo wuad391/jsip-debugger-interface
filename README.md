@@ -98,7 +98,16 @@ dune exec app/bin/main.exe -- -dump-file testing/expected/map_nested.dump
 
 `testing/` holds golden dumps of real `-visual-replay` runs, vendored
 verbatim from the compiler repo (see `testing/README.md`) — any of them
-replays. `-source-root DIR` says where the dump's relative source paths
+replays. For **structure sharing**, replay `map_spine_sharing` and step
+to the end: a five-node map sits above the version one more `add`
+returned, and the two `↗ #n` arrows in the lower tree are the subtrees
+that `add` did not rebuild — the same allocation, drawn once.
+
+```sh
+dune exec app/bin/main.exe -- -dump-file testing/expected/map_spine_sharing.dump
+```
+
+`-source-root DIR` says where the dump's relative source paths
 live (default: the current directory; the golden dumps' paths resolve
 from the repo root). The controls row up top is the key legend; beyond
 it, `h`/`l`/`p`/`n` also step, `g`/`G` jump to the ends, and

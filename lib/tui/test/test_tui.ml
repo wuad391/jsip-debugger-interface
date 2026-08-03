@@ -846,6 +846,52 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
     |}]
 ;;
 
+(* the demo fixture: a five-node tree next to the version derived from it, so
+   the two arrows stand for whole subtrees that were not rebuilt *)
+let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
+  let replay = replay_of_fixture "map_spine_sharing" in
+  heap_view ~width:64 ~height:36 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                                  2 live · 6 nodes · 3 new
+    ▾ m · map ⟨string ⇒ int⟩
+                     ▾┌ m ─────────────┐
+                      │ "f" ↦ 6        │
+                      │ 0x7ce0fc0996a8 │
+                      └────────────────┘
+                   ┌──────────┴──────────┐
+                   l                     r
+          ▾┌────────────────┐   ▾┌────────────────┐
+           │ "d" ↦ 4        │    │ "h" ↦ 8        │
+           │ 0x7ce0ebfe28a8 │    │ 0x7ce0ebfdbe60 │
+           └────────────────┘    └────────────────┘
+             ┌─────┴──────┐        ┌─────┴──────┐
+             l            r        l            r
+     ┌────────────────┐   ∅        ∅    ┌────────────────┐
+     │ "b" ↦ 2        │                 │ "j" ↦ 10       │
+     │ 0x7ce0ebfe28d8 │                 │ 0x7ce0ebfdbe90 │
+     └────────────────┘                 └────────────────┘
+
+    ▾ bigger · map ⟨string ⇒ int⟩
+       ▾┌ bigger ─── new ┐
+        │ "f" ↦ 6        │
+        │ 0x7ce0ebffff78 │
+        └────────────────┘
+      ┌─────────┴──────────┐
+      l                    r
+    ↗ #7          ▾┌─────────── new ┐
+                   │ "h" ↦ 8        │
+                   │ 0x7ce0ebffffa8 │
+                   └────────────────┘
+                    ┌──────┴───────┐
+                    l              r
+            ┌─────────── new ┐   ↗ #11
+            │ "g" ↦ 7        │
+            │ 0x7ce0ebffffd8 │
+            └────────────────┘
+    |}]
+;;
+
 let%expect_test "delta wire: a payload cycle terminates" =
   let replay = replay_of_fixture "queue_cycle" in
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
