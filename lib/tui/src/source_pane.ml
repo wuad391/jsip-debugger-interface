@@ -7,9 +7,34 @@ module Loaded = struct
   type t =
     { file : Source_file.t
     ; spans : (Syntax.Token.t * string) list Array.t
+    ; regions : (int * int) list
     }
 
-  let of_source_file file = { file; spans = Syntax.file file }
+  (* a foldable region: a top-level definition — a line starting at column 0
+     — and everything under it until the next one. Only regions with
+     something to hide (two lines or more) fold. *)
+  let regions file =
+    let length = Source_file.length file in
+    let is_start number =
+      match Source_file.line file ~number with
+      | None | Some "" -> false
+      | Some line -> not (Char.is_whitespace line.[0])
+    in
+    let starts =
+      List.filter (List.init length ~f:(fun i -> i + 1)) ~f:is_start
+    in
+    let rec pair starts =
+      match starts with
+      | [] -> []
+      | [ last ] -> [ last, length ]
+      | start :: (next :: _ as rest) -> (start, next - 1) :: pair rest
+    in
+    pair starts |> List.filter ~f:(fun (start, stop) -> stop > start)
+  ;;
+
+  let of_source_file file =
+    { file; spans = Syntax.file file; regions = regions file }
+  ;;
 end
 
 let token_attrs (token : Syntax.Token.t) =
@@ -49,15 +74,16 @@ let underline_range spans ~char_range:(range_start, range_stop) =
 
 let gutter_width = 5
 
-(* one file line as one or more visual lines: the gutter number and the
-   callsite marker sit on the first, the active wash and bar span all of
-   them, and long lines wrap instead of cropping *)
+(* one file line as one or more visual lines: the gutter number, the fold
+   glyph, and the callsite marker sit on the first; the active wash and bar
+   span all of them, and long lines wrap instead of cropping *)
 let code_lines
   ~width
   (loaded : Loaded.t)
   ~number
   ~active
   ~callsite
+  ~region
   ~char_range
   =
   let bg =
@@ -73,7 +99,7 @@ let code_lines
     List.map spans ~f:(fun (token, text, underlined) ->
       (token, underlined), text)
   in
-  let text_width = max 8 (width - gutter_width - 1) in
+  let text_width = max 8 (width - gutter_width - 2) in
   (* continuations tuck under the line's own indentation *)
   let continuation_indent =
     let raw =
@@ -96,6 +122,12 @@ let code_lines
       | false, true -> View.text ~attrs:(Theme.fg' Theme.highlight) "▸"
       | false, false -> View.text " "
     in
+    let fold_glyph =
+      match line_index, region with
+      | 0, Some (_ : int * int) ->
+        View.text ~attrs:(Theme.fg' Theme.secondary) "▾"
+      | _ -> View.text " "
+    in
     let gutter =
       match line_index with
       | 0 ->
@@ -116,14 +148,142 @@ let code_lines
         View.text ~attrs text)
     in
     let line =
-      Panel.fit (View.hcat (marker :: gutter :: code)) ~width ~height:1
+      Panel.fit
+        (View.hcat (marker :: fold_glyph :: gutter :: code))
+        ~width
+        ~height:1
     in
     match bg with
     | Some bg -> View.with_colors' ~fill_backdrop:true ~bg line
     | None -> line)
 ;;
 
-let body ~width ~height ~source ~active_line ~callsite_line ~char_range =
+(* a folded region as its single stand-in row: the first line, then how much
+   is tucked away; washed when it hides the active line *)
+let folded_line ~width (loaded : Loaded.t) ~start ~stop ~hides_active =
+  let bg =
+    match hides_active with true -> Some Theme.highlight_bg | false -> None
+  in
+  let marker =
+    match hides_active with
+    | true -> View.text ~attrs:(Theme.fg' Theme.highlight) "▎"
+    | false -> View.text " "
+  in
+  let fold_glyph = View.text ~attrs:(Theme.fg' Theme.secondary) "▸" in
+  let gutter =
+    View.text
+      ~attrs:(Theme.fg' Theme.ghost)
+      (Printf.sprintf "%*d " (gutter_width - 2) start)
+  in
+  let code =
+    List.map
+      loaded.spans.(start - 1)
+      ~f:(fun (token, text) -> View.text ~attrs:(token_attrs token) text)
+  in
+  let suffix =
+    View.text
+      ~attrs:[ Theme.fg Theme.muted; Attr.italic ]
+      [%string " ⋯ %{stop - start#Int} lines"]
+  in
+  let line =
+    Panel.fit
+      (View.hcat ((marker :: fold_glyph :: gutter :: code) @ [ suffix ]))
+      ~width
+      ~height:1
+  in
+  match bg with
+  | Some bg -> View.with_colors' ~fill_backdrop:true ~bg line
+  | None -> line
+;;
+
+(* every visible visual line, tagged with the file lines it accounts for (a
+   folded row accounts for its whole region) and whether its fold column
+   toggles a region *)
+module Visual = struct
+  type t =
+    { line : int
+    ; last : int
+    ; toggle : int option
+    ; view : View.t
+    }
+end
+
+let visual_lines
+  ~width
+  (loaded : Loaded.t)
+  ~folds
+  ~active_line
+  ~callsite_line
+  ~char_range
+  =
+  let region_at number =
+    List.find loaded.regions ~f:(fun (start, (_ : int)) -> start = number)
+  in
+  let rec walk number acc =
+    match number > Source_file.length loaded.file with
+    | true -> List.rev acc
+    | false ->
+      (match region_at number with
+       | Some (start, stop) when Set.mem folds start ->
+         let hides_active = active_line > start && active_line <= stop in
+         let view = folded_line ~width loaded ~start ~stop ~hides_active in
+         walk
+           (stop + 1)
+           ({ Visual.line = number; last = stop; toggle = Some start; view }
+            :: acc)
+       | region ->
+         let views =
+           code_lines
+             ~width
+             loaded
+             ~number
+             ~active:(number = active_line)
+             ~callsite:
+               (match callsite_line with
+                | Some line -> line = number
+                | None -> false)
+             ~region
+             ~char_range
+         in
+         let toggle = Option.map region ~f:fst in
+         let acc =
+           List.rev_mapi views ~f:(fun i view ->
+             { Visual.line = number
+             ; last = number
+             ; toggle = (match i with 0 -> toggle | _ -> None)
+             ; view
+             })
+           @ acc
+         in
+         walk (number + 1) acc)
+  in
+  walk 1 []
+;;
+
+let scroll_offset visual ~height ~active_line =
+  (* the row that accounts for the active line — its own first wrap row, or
+     the folded row hiding it *)
+  let target =
+    List.findi
+      visual
+      ~f:(fun (_ : int) { Visual.last; line = _; toggle = _; view = _ } ->
+        last >= active_line)
+    |> Option.value_map ~default:0 ~f:fst
+  in
+  Int.min
+    (Int.max 0 (target - (height / 2)))
+    (Int.max 0 (List.length visual - height))
+;;
+
+let body
+  ~width
+  ~height
+  ~source
+  ~folds
+  ~active_line
+  ~callsite_line
+  ~char_range
+  =
   match (source : Loaded.t Or_error.t) with
   | Error error ->
     View.pad
@@ -133,38 +293,20 @@ let body ~width ~height ~source ~active_line ~callsite_line ~char_range =
          ~attrs:[ Theme.fg Theme.faint; Attr.italic ]
          (Error.to_string_hum error))
   | Ok loaded ->
-    let visual_lines =
-      List.init (Source_file.length loaded.file) ~f:(fun index ->
-        let number = index + 1 in
-        code_lines
-          ~width
-          loaded
-          ~number
-          ~active:(number = active_line)
-          ~callsite:
-            (match callsite_line with
-             | Some line -> line = number
-             | None -> false)
-          ~char_range
-        |> List.map ~f:(fun view -> number, view))
-      |> List.concat
+    let visual =
+      visual_lines
+        ~width
+        loaded
+        ~folds
+        ~active_line
+        ~callsite_line
+        ~char_range
     in
-    (* a location past EOF (a fixture newer than its source, say) still lands
-       the view near the end instead of snapping to the top *)
-    let target_line = Int.min active_line (Source_file.length loaded.file) in
-    let active_start =
-      List.findi visual_lines ~f:(fun (_ : int) (number, (_ : View.t)) ->
-        number = target_line)
-      |> Option.value_map ~default:0 ~f:fst
-    in
-    let offset =
-      Int.min
-        (Int.max 0 (active_start - (height / 2)))
-        (Int.max 0 (List.length visual_lines - height))
-    in
+    let offset = scroll_offset visual ~height ~active_line in
     View.vcat
-      (List.drop visual_lines offset
-       |> List.map ~f:(fun ((_ : int), view) -> view))
+      (List.drop visual offset
+       |> List.map ~f:(fun { Visual.view; line = _; last = _; toggle = _ } ->
+         view))
 ;;
 
 let view
@@ -172,6 +314,7 @@ let view
   ~height
   ~file_label
   ~source
+  ~folds
   ~active_line
   ~callsite_line
   ~char_range
@@ -191,7 +334,43 @@ let view
        ~width:(Panel.inner_width ~width)
        ~height:(height - 2)
        ~source
+       ~folds
        ~active_line
        ~callsite_line
        ~char_range)
+;;
+
+let toggle_at
+  ~width
+  ~height
+  ~source
+  ~folds
+  ~active_line
+  ~callsite_line
+  ~char_range
+  ~x
+  ~y
+  =
+  match (source : Loaded.t Or_error.t) with
+  | Error (_ : Error.t) -> None
+  | Ok loaded ->
+    let width = Panel.inner_width ~width in
+    let height = height - 2 in
+    let visual =
+      visual_lines
+        ~width
+        loaded
+        ~folds
+        ~active_line
+        ~callsite_line
+        ~char_range
+    in
+    let offset = scroll_offset visual ~height ~active_line in
+    (match x with
+     | 1 ->
+       List.nth visual (y + offset)
+       |> Option.bind
+            ~f:(fun { Visual.toggle; line = _; last = _; view = _ } ->
+              toggle)
+     | _ -> None)
 ;;

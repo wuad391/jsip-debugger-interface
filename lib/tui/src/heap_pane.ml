@@ -242,21 +242,51 @@ let span_view (tag, text) =
   View.text ~attrs text
 ;;
 
-(* the node card — blue outline, the full address in small type, a green
-   [new] tag in the border for this step's allocations, the current
-   structure's root washed in the highlight background. A card that is some
-   tracked structure's root carries its name (or [#id]) as a tag:
+(* What a click can fold: a whole structure behind its section header (the
+   name · kind summary), or any node's children behind its card. Node paths
+   are edge positions from the owning structure's root, so a fold survives
+   re-walks and re-parenting of the drawn tree. *)
+module Fold = struct
+  module T = struct
+    type t =
+      | Structure of int
+      | Node of int * int list
+    [@@deriving sexp_of, compare, equal]
+  end
+
+  include T
+  include Comparator.Make (T)
+end
+
+module Toggle = struct
+  type t =
+    { x : int
+    ; y : int
+    ; fold : Fold.t
+    }
+
+  let shift t ~dx ~dy = { t with x = t.x + dx; y = t.y + dy }
+end
+
+let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
+
+(* the node card — blue outline, the full address in small type, border tags
+   for a fresh allocation (green [new]) and folded children ([⋯ n hidden]),
+   the current structure's root washed in the highlight background, and a
+   fold glyph in the column before the card when there is anything to fold:
    {v
-   ┌─────────────── new ┐
-   │ m · "a" ↦ 2        │
-   │ 0x763be65ee878     │
-   └────────────────────┘
+   ▾┌─────────────── new ┐    ▸┌───────── ⋯ 3 hidden ┐
+    │ m · "a" ↦ 2        │     │ "b" ↦ 2             │
+    │ 0x763be65ee878     │     │ 0x763be65ee6b0      │
+    └────────────────────┘     └─────────────────────┘
    v} *)
 let node_box
   (node : Snapshot.Node.t)
   ~mode
   ~hidden_labels
   ~(context : Context.t)
+  ~fold_glyph
+  ~hidden_count
   =
   let is_new = Set.mem context.new_addresses node.virtual_address in
   let root_structure = Map.find context.by_address node.virtual_address in
@@ -290,22 +320,35 @@ let node_box
       ~attrs:(Theme.fg' Theme.faint)
       (Snapshot.Address.display node.virtual_address)
   in
-  let inner = max (View.width summary) (View.width address) in
-  (* a fresh allocation announces itself in the border's top right *)
+  (* border tags announce themselves in the top border's right corner *)
+  let tags =
+    List.concat
+      [ (match is_new with
+         | true -> [ View.text ~attrs:(Theme.fg' Theme.fresh) " new " ]
+         | false -> [])
+      ; (match hidden_count with
+         | 0 -> []
+         | n ->
+           [ View.text
+               ~attrs:(Theme.fg' Theme.muted)
+               [%string " ⋯ %{n#Int} hidden "]
+           ])
+      ]
+  in
+  let tags_width =
+    List.sum (module Int) tags ~f:(fun tag -> View.width tag)
+  in
+  let inner =
+    max (max (View.width summary) (View.width address)) (tags_width - 1)
+  in
   let top =
-    match is_new with
-    | false ->
-      View.text
-        ~attrs:border
-        [%string "┌%{Panel.repeat \"─\" ~width:(inner + 2)}┐"]
-    | true ->
-      View.hcat
-        [ View.text
-            ~attrs:border
-            ("┌" ^ Panel.repeat "─" ~width:(max 0 (inner - 3)))
-        ; View.text ~attrs:(Theme.fg' Theme.fresh) " new "
-        ; View.text ~attrs:border "┐"
-        ]
+    View.hcat
+      ([ View.text
+           ~attrs:border
+           ("┌" ^ Panel.repeat "─" ~width:(inner + 2 - tags_width))
+       ]
+       @ tags
+       @ [ View.text ~attrs:border "┐" ])
   in
   let bottom =
     View.text
@@ -320,9 +363,21 @@ let node_box
       ]
   in
   let card = View.vcat [ top; content summary; content address; bottom ] in
-  match is_selected with
-  | true -> View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
-  | false -> card
+  let card =
+    match is_selected with
+    | true ->
+      View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
+    | false -> card
+  in
+  (* the fold glyph sits in a reserved column left of every card, so sibling
+     math stays uniform whether or not a card can fold *)
+  let glyph =
+    match fold_glyph with
+    | None -> View.text " "
+    | Some folded ->
+      View.text ~attrs:(Theme.fg' Theme.secondary) (glyph_of ~folded)
+  in
+  View.zcat [ View.pad ~l:1 card; glyph ]
 ;;
 
 let sibling_gap = 3
@@ -373,19 +428,42 @@ let rail_labels ~labeled_centers =
     (Bytes.to_string buffer |> String.rstrip)
 ;;
 
+(* Walk a subtree that a fold hides: count the nodes that would have been
+   drawn, and keep claiming the structures it references so a folded queue
+   cell does not spill its map back out as a top-level section. [node_edges]
+   performs the claims as a side effect. *)
+let rec claim_hidden (node : Snapshot.Node.t) ~mode ~(context : Context.t) =
+  let edges, (_ : string list) = node_edges node ~mode ~context in
+  List.sum (module Int) edges ~f:(fun ((_ : string), edge) ->
+    match edge with
+    | Edge.Nil -> 0
+    | Edge.Child (child, mode) -> 1 + claim_hidden child ~mode ~context
+    | Edge.Ref (structure : Replay.Structure.t) ->
+      1
+      + claim_hidden
+          structure.snapshot.root_node
+          ~mode:
+            (Mode.Ds (Snapshot.Ds_type.layers structure.snapshot.ds_type))
+          ~context)
+;;
+
 (* Lay the subtree out the way a CS diagram draws it: the node's card
    centered over its children, siblings side by side on one level, a rail
    connecting the card to each child's center. A payload field holding an
    [Id] into the registry links that structure's whole tree in as a child —
    each structure is drawn once, so a second reference (or a cycle) stays an
-   inline [#id]. Returns the canvas, the card's center column, and every
-   card's position for hit-testing. *)
+   inline [#id]. A folded card keeps itself and hides everything below.
+   Returns the canvas, the card's center column, every card's position, and
+   every fold glyph's position. *)
 let rec tree
   (node : Snapshot.Node.t)
   ~ds_type
   ~(mode : Mode.t)
   ~(context : Context.t)
-  : View.t * int * Placed.t list
+  ~folds
+  ~structure_id
+  ~path
+  : View.t * int * Placed.t list * Toggle.t list
   =
   let edges, hidden_labels = node_edges node ~mode ~context in
   let edges =
@@ -399,7 +477,31 @@ let rec tree
     | true -> []
     | false -> edges
   in
-  let box = node_box node ~mode ~hidden_labels ~context in
+  let fold = Fold.Node (structure_id, List.rev path) in
+  let collapsible = not (List.is_empty edges) in
+  let folded = collapsible && Set.mem folds fold in
+  let hidden_count =
+    match folded with
+    | false -> 0
+    | true ->
+      List.sum (module Int) edges ~f:(fun ((_ : string), edge) ->
+        match edge with
+        | Edge.Nil -> 0
+        | Edge.Child (child, mode) -> 1 + claim_hidden child ~mode ~context
+        | Edge.Ref (structure : Replay.Structure.t) ->
+          1
+          + claim_hidden
+              structure.snapshot.root_node
+              ~mode:
+                (Mode.Ds (Snapshot.Ds_type.layers structure.snapshot.ds_type))
+              ~context)
+  in
+  let fold_glyph =
+    match collapsible with true -> Some folded | false -> None
+  in
+  let box =
+    node_box node ~mode ~hidden_labels ~context ~fold_glyph ~hidden_count
+  in
   let box_width = View.width box in
   let box_height = View.height box in
   let box_placed =
@@ -410,16 +512,21 @@ let rec tree
     ; address = node.virtual_address
     }
   in
-  match edges with
-  | [] -> box, box_width / 2, [ box_placed ]
-  | edges ->
+  let box_toggles =
+    match collapsible with
+    | true -> [ { Toggle.x = 0; y = 0; fold } ]
+    | false -> []
+  in
+  match folded, edges with
+  | true, _ | false, [] -> box, box_width / 2, [ box_placed ], box_toggles
+  | false, edges ->
     let current_layer =
       match mode with
       | Ds (layer :: _) -> Some layer
       | Ds [] | Payload -> None
     in
     let rendered =
-      List.map edges ~f:(fun (label, edge) ->
+      List.mapi edges ~f:(fun index (label, edge) ->
         let label =
           match current_layer with
           | Some layer -> pretty_label ~ds_type ~layer label
@@ -427,26 +534,37 @@ let rec tree
         in
         match edge with
         | Edge.Nil ->
-          label, (View.text ~attrs:(Theme.fg' Theme.faint) "∅", 0, [])
+          label, (View.text ~attrs:(Theme.fg' Theme.faint) "∅", 0, [], [])
         | Edge.Child (child, mode) ->
-          label, tree child ~ds_type ~mode ~context
+          ( label
+          , tree
+              child
+              ~ds_type
+              ~mode
+              ~context
+              ~folds
+              ~structure_id
+              ~path:(index :: path) )
         | Edge.Ref (structure : Replay.Structure.t) ->
           ( label
           , tree
-              (Replay.Structure.current_root structure)
+              structure.snapshot.root_node
               ~ds_type:structure.snapshot.ds_type
               ~mode:
                 (Mode.Ds (Snapshot.Ds_type.layers structure.snapshot.ds_type))
-              ~context ))
+              ~context
+              ~folds
+              ~structure_id:structure.id
+              ~path:[] ))
     in
     (* children row, left to right *)
     let (_ : int), placed_children =
       List.fold_map
         rendered
         ~init:0
-        ~f:(fun x (label, (view, center, placed)) ->
+        ~f:(fun x (label, (view, center, placed, toggles)) ->
           ( x + View.width view + sibling_gap
-          , (label, view, x, x + center, placed) ))
+          , (label, view, x, x + center, placed, toggles) ))
     in
     let centers =
       List.map
@@ -457,7 +575,8 @@ let rec tree
             , (_ : View.t)
             , (_ : int)
             , center
-            , (_ : Placed.t list) )
+            , (_ : Placed.t list)
+            , (_ : Toggle.t list) )
           -> center)
     in
     let leftmost = List.hd_exn centers in
@@ -480,7 +599,8 @@ let rec tree
                , (_ : View.t)
                , (_ : int)
                , (_ : int)
-               , (_ : Placed.t list) )
+               , (_ : Placed.t list)
+               , (_ : Toggle.t list) )
              -> label))
       |> List.filter_map ~f:(fun (center, label) ->
         match String.is_empty label with
@@ -495,17 +615,21 @@ let rec tree
       | false -> [ rail_labels ~labeled_centers ]
     in
     let children_y = box_height + List.length rail_rows in
-    let children_views, children_placed =
+    let children_views, children_placed, children_toggles =
       List.fold
         placed_children
-        ~init:([], [])
+        ~init:([], [], [])
         ~f:
           (fun
-            (views, all_placed) ((_ : string), view, x, (_ : int), placed) ->
+            (views, all_placed, all_toggles)
+            ((_ : string), view, x, (_ : int), placed, toggles)
+          ->
           let x = x + child_shift in
           ( View.pad ~l:x ~t:children_y view :: views
           , List.map placed ~f:(Placed.shift ~dx:x ~dy:children_y)
-            @ all_placed ))
+            @ all_placed
+          , List.map toggles ~f:(Toggle.shift ~dx:x ~dy:children_y)
+            @ all_toggles ))
     in
     let canvas =
       View.zcat
@@ -516,13 +640,16 @@ let rec tree
     in
     ( canvas
     , parent_center
-    , Placed.shift box_placed ~dx:parent_x ~dy:0 :: children_placed )
+    , Placed.shift box_placed ~dx:parent_x ~dy:0 :: children_placed
+    , List.map box_toggles ~f:(Toggle.shift ~dx:parent_x ~dy:0)
+      @ children_toggles )
 ;;
 
-(* the section header over one structure's tree: its name (or [#id]), kind
-   and static type, the one this step's event walked marked in the highlight
-   blue *)
-let structure_header (structure : Replay.Structure.t) =
+(* the section header over one structure's tree: a fold glyph, then its name
+   (or [#id]) and kind — which is exactly the summary a folded structure
+   collapses to. The one this step's event walked reads in the highlight
+   blue. *)
+let structure_header (structure : Replay.Structure.t) ~folded =
   let label =
     [%string
       "%{Replay.Structure.display structure} · %{Snapshot.Ds_type.display \
@@ -533,22 +660,23 @@ let structure_header (structure : Replay.Structure.t) =
     | None -> label
     | Some ty -> [%string "%{label} %{Type_info.display ty}"]
   in
-  match structure.is_current with
-  | true ->
-    View.hcat
-      [ View.text ~attrs:(Theme.fg' Theme.highlight) "▸ "
-      ; View.text ~attrs:[ Theme.fg Theme.highlight_deep; Attr.bold ] label
-      ]
-  | false ->
-    View.hcat
-      [ View.text "  "; View.text ~attrs:(Theme.fg' Theme.muted) label ]
+  let label_attrs =
+    match structure.is_current with
+    | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
+    | false -> Theme.fg' Theme.muted
+  in
+  View.hcat
+    [ View.text ~attrs:(Theme.fg' Theme.secondary) (glyph_of ~folded)
+    ; View.text " "
+    ; View.text ~attrs:label_attrs label
+    ]
 ;;
 
-(* Every live structure, stacked: a header, its tree, a breathing row. A
-   structure referenced from another one is drawn inside its referrer's tree
-   instead of as its own section — the registry still decides what is alive,
-   only the placement moves. *)
-let layout ~structures ~new_addresses =
+(* Every live structure, stacked: a header, its tree (unless the header's
+   fold hides it), a breathing row. A structure referenced from another one
+   is drawn inside its referrer's tree instead of as its own section — the
+   registry still decides what is alive, only the placement moves. *)
+let layout ~structures ~new_addresses ~folds =
   let context = Context.create ~structures ~new_addresses in
   let referenced =
     let rec walk (owner : Replay.Structure.t) (node : Snapshot.Node.t) acc =
@@ -565,38 +693,70 @@ let layout ~structures ~new_addresses =
     List.fold structures ~init:Int.Set.empty ~f:(fun acc structure ->
       walk structure structure.Replay.Structure.snapshot.root_node acc)
   in
-  let section (views, all_placed, y) (structure : Replay.Structure.t) =
+  let section
+    (views, all_placed, all_toggles, y)
+    (structure : Replay.Structure.t)
+    =
     match Hash_set.mem context.drawn structure.id with
-    | true -> views, all_placed, y
+    | true -> views, all_placed, all_toggles, y
     | false ->
       Hash_set.add context.drawn structure.id;
-      let canvas, (_ : int), placed =
-        tree
-          (Replay.Structure.current_root structure)
-          ~ds_type:structure.snapshot.ds_type
-          ~mode:
-            (Mode.Ds (Snapshot.Ds_type.layers structure.snapshot.ds_type))
-          ~context
+      let folded = Set.mem folds (Fold.Structure structure.id) in
+      let header = structure_header structure ~folded in
+      let header_toggle =
+        { Toggle.x = 0; y; fold = Fold.Structure structure.id }
       in
-      let views =
-        View.pad ~t:(y + 1) canvas
-        :: View.pad ~t:y (structure_header structure)
-        :: views
-      in
-      let placed =
-        List.map placed ~f:(Placed.shift ~dx:0 ~dy:(y + 1)) @ all_placed
-      in
-      views, placed, y + 1 + View.height canvas + 1
+      (match folded with
+       | true ->
+         (* the header is the whole summary; the tree stays hidden, its
+            references claimed so they stay hidden with it *)
+         let (_ : int) =
+           claim_hidden
+             structure.snapshot.root_node
+             ~mode:
+               (Mode.Ds (Snapshot.Ds_type.layers structure.snapshot.ds_type))
+             ~context
+         in
+         ( View.pad ~t:y header :: views
+         , all_placed
+         , header_toggle :: all_toggles
+         , y + 2 )
+       | false ->
+         let canvas, (_ : int), placed, toggles =
+           tree
+             (Replay.Structure.current_root structure)
+             ~ds_type:structure.snapshot.ds_type
+             ~mode:
+               (Mode.Ds (Snapshot.Ds_type.layers structure.snapshot.ds_type))
+             ~context
+             ~folds
+             ~structure_id:structure.id
+             ~path:[]
+         in
+         let views =
+           View.pad ~t:(y + 1) canvas :: View.pad ~t:y header :: views
+         in
+         let placed =
+           List.map placed ~f:(Placed.shift ~dx:0 ~dy:(y + 1)) @ all_placed
+         in
+         let toggles =
+           header_toggle
+           :: (List.map toggles ~f:(Toggle.shift ~dx:0 ~dy:(y + 1))
+               @ all_toggles)
+         in
+         views, placed, toggles, y + 1 + View.height canvas + 1)
   in
   let top_level =
     List.filter structures ~f:(fun (structure : Replay.Structure.t) ->
       not (Set.mem referenced structure.id))
   in
-  let acc = List.fold top_level ~init:([], [], 0) ~f:section in
+  let acc = List.fold top_level ~init:([], [], [], 0) ~f:section in
   (* mutually-referencing structures have no unreferenced root; anything
      still undrawn gets its own section after all *)
-  let views, placed, (_ : int) = List.fold structures ~init:acc ~f:section in
-  View.zcat views, placed
+  let views, placed, toggles, (_ : int) =
+    List.fold structures ~init:acc ~f:section
+  in
+  View.zcat views, placed, toggles
 ;;
 
 let count_nodes structures =
@@ -614,8 +774,10 @@ let clamp_scroll canvas ~height ~scroll =
   Int.min scroll (Int.max 0 (View.height canvas - (height - 2)))
 ;;
 
-let view ~width ~height ~structures ~new_addresses ~scroll =
-  let canvas, (_ : Placed.t list) = layout ~structures ~new_addresses in
+let view ~width ~height ~structures ~new_addresses ~folds ~scroll =
+  let canvas, (_ : Placed.t list), (_ : Toggle.t list) =
+    layout ~structures ~new_addresses ~folds
+  in
   let scroll = clamp_scroll canvas ~height ~scroll in
   let fresh = Set.length new_addresses in
   let live = List.length structures in
@@ -629,8 +791,21 @@ let view ~width ~height ~structures ~new_addresses ~scroll =
   Panel.view ~title:"heap" ~meta ~width ~height (View.crop ~t:scroll canvas)
 ;;
 
-let address_at ~structures ~new_addresses ~scroll ~height ~x ~y =
-  let canvas, placed = layout ~structures ~new_addresses in
+let toggle_at ~structures ~new_addresses ~folds ~scroll ~height ~x ~y =
+  let canvas, (_ : Placed.t list), toggles =
+    layout ~structures ~new_addresses ~folds
+  in
+  let scroll = clamp_scroll canvas ~height ~scroll in
+  let y = y + scroll in
+  List.find toggles ~f:(fun (toggle : Toggle.t) ->
+    x = toggle.x && y = toggle.y)
+  |> Option.map ~f:(fun (toggle : Toggle.t) -> toggle.fold)
+;;
+
+let address_at ~structures ~new_addresses ~folds ~scroll ~height ~x ~y =
+  let canvas, placed, (_ : Toggle.t list) =
+    layout ~structures ~new_addresses ~folds
+  in
   let scroll = clamp_scroll canvas ~height ~scroll in
   List.find placed ~f:(Placed.contains ~x ~y:(y + scroll))
   |> Option.map ~f:(fun (placed : Placed.t) -> placed.address)

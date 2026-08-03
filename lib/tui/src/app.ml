@@ -12,17 +12,41 @@ module View = Bonsai_term.View
 
 let play_interval = Time_ns.Span.of_int_ms 850
 
+(* a source fold is per file: the dump may span several *)
+module Source_fold = struct
+  module T = struct
+    type t =
+      { file : string
+      ; line : int
+      }
+    [@@deriving sexp_of, compare, equal]
+  end
+
+  include T
+  include Comparator.Make (T)
+end
+
 module Model = struct
   type t =
     { step : int
     ; selected_frame : int option (** [None] = innermost frame *)
     ; playing : bool
     ; heap_scroll : int
+    ; heap_folds : Set.M(Heap_pane.Fold).t
+    ; stack_folds : Int.Set.t
+    ; source_folds : Set.M(Source_fold).t
     }
   [@@deriving sexp_of, equal]
 
   let initial =
-    { step = 0; selected_frame = None; playing = false; heap_scroll = 0 }
+    { step = 0
+    ; selected_frame = None
+    ; playing = false
+    ; heap_scroll = 0
+    ; heap_folds = Set.empty (module Heap_pane.Fold)
+    ; stack_folds = Int.Set.empty
+    ; source_folds = Set.empty (module Source_fold)
+    }
   ;;
 end
 
@@ -34,6 +58,9 @@ module Action = struct
     | Toggle_play
     | Select_frame of int
     | Scroll_heap of int
+    | Toggle_heap_fold of Heap_pane.Fold.t
+    | Toggle_stack_fold of int
+    | Toggle_source_fold of Source_fold.t
   [@@deriving sexp_of]
 end
 
@@ -52,9 +79,11 @@ let apply_action
   let clamp_frame index =
     Int.max 0 (Int.min (frame_count replay ~step:model.step - 1) index)
   in
-  (* any move re-follows the innermost frame and rewinds the heap pane *)
+  (* any move re-follows the innermost frame and rewinds the heap pane; folds
+     persist — that is the point of keying them stably *)
   let move ~playing step =
-    { Model.step = clamp_step step
+    { model with
+      step = clamp_step step
     ; selected_frame = None
     ; playing
     ; heap_scroll = 0
@@ -76,6 +105,27 @@ let apply_action
     { model with selected_frame = Some (clamp_frame index) }
   | Scroll_heap delta ->
     { model with heap_scroll = Int.max 0 (model.heap_scroll + delta) }
+  | Toggle_heap_fold fold ->
+    { model with
+      heap_folds =
+        (match Set.mem model.heap_folds fold with
+         | true -> Set.remove model.heap_folds fold
+         | false -> Set.add model.heap_folds fold)
+    }
+  | Toggle_stack_fold call ->
+    { model with
+      stack_folds =
+        (match Set.mem model.stack_folds call with
+         | true -> Set.remove model.stack_folds call
+         | false -> Set.add model.stack_folds call)
+    }
+  | Toggle_source_fold fold ->
+    { model with
+      source_folds =
+        (match Set.mem model.source_folds fold with
+         | true -> Set.remove model.source_folds fold
+         | false -> Set.add model.source_folds fold)
+    }
 ;;
 
 (* where each address was first seen — what a click on a heap node jumps to *)
@@ -150,6 +200,16 @@ let render
         [%message
           "no source loaded for" ~file:(Location.file_path location : string)]
   in
+  let file_path = Location.file_path location in
+  let source_folds =
+    Set.fold
+      model.source_folds
+      ~init:Int.Set.empty
+      ~f:(fun acc { Source_fold.file; line } ->
+        match String.equal file file_path with
+        | true -> Set.add acc line
+        | false -> acc)
+  in
   let snapshot = call.info.snapshot in
   let place (region : Region.t) view =
     View.pad ~l:region.x ~t:region.y view
@@ -168,14 +228,16 @@ let render
              ~height:layout.stack.height
              ~calls
              ~live
-             ~selected)
+             ~selected
+             ~folds:model.stack_folds)
       ; place
           layout.source
           (Source_pane.view
              ~width:layout.source.width
              ~height:layout.source.height
-             ~file_label:(Filename.basename (Location.file_path location))
+             ~file_label:(Filename.basename file_path)
              ~source
+             ~folds:source_folds
              ~active_line:(Location.line_number location)
              ~callsite_line
              ~char_range:(Location.char_range location))
@@ -186,6 +248,7 @@ let render
              ~height:layout.heap.height
              ~structures
              ~new_addresses
+             ~folds:model.heap_folds
              ~scroll:model.heap_scroll)
       ; View.pad
           ~t:layout.session.y
@@ -234,32 +297,67 @@ let render
          |> Option.map ~f:(fun step -> act (Action.Step_to step))
        | false ->
          (match Layout.inner_position layout.stack position with
-          | Some { x = _; y } ->
+          | Some { x; y } ->
             Stack_pane.target_at
               ~width:layout.stack.width
               ~height:layout.stack.height
               ~calls
               ~live
               ~selected
+              ~folds:model.stack_folds
+              ~x:(max 0 (x - 1))
               ~row:y
             |> Option.map ~f:(fun target ->
               match (target : Stack_pane.Target.t) with
               | Frame index -> act (Action.Select_frame index)
-              | Step step -> act (Action.Step_to step))
+              | Step step -> act (Action.Step_to step)
+              | Toggle call -> act (Action.Toggle_stack_fold call))
           | None ->
-            (match Layout.inner_position layout.heap position with
+            (match Layout.inner_position layout.source position with
              | Some { x; y } ->
-               (* the panel pads the body one column right of the border *)
-               Heap_pane.address_at
-                 ~structures
-                 ~new_addresses
-                 ~scroll:model.heap_scroll
-                 ~height:layout.heap.height
+               Source_pane.toggle_at
+                 ~width:layout.source.width
+                 ~height:layout.source.height
+                 ~source
+                 ~folds:source_folds
+                 ~active_line:(Location.line_number location)
+                 ~callsite_line
+                 ~char_range:(Location.char_range location)
                  ~x:(max 0 (x - 1))
                  ~y
-               |> Option.bind ~f:(Map.find births)
-               |> Option.map ~f:(fun step -> act (Action.Step_to step))
-             | None -> None)))
+               |> Option.map ~f:(fun line ->
+                 act
+                   (Action.Toggle_source_fold
+                      { Source_fold.file = file_path; line }))
+             | None ->
+               (match Layout.inner_position layout.heap position with
+                | Some { x; y } ->
+                  (* the panel pads the body one column right of the border;
+                     fold glyphs win over the card under them *)
+                  let x = max 0 (x - 1) in
+                  (match
+                     Heap_pane.toggle_at
+                       ~structures
+                       ~new_addresses
+                       ~folds:model.heap_folds
+                       ~scroll:model.heap_scroll
+                       ~height:layout.heap.height
+                       ~x
+                       ~y
+                   with
+                   | Some fold -> Some (act (Action.Toggle_heap_fold fold))
+                   | None ->
+                     Heap_pane.address_at
+                       ~structures
+                       ~new_addresses
+                       ~folds:model.heap_folds
+                       ~scroll:model.heap_scroll
+                       ~height:layout.heap.height
+                       ~x
+                       ~y
+                     |> Option.bind ~f:(Map.find births)
+                     |> Option.map ~f:(fun step -> act (Action.Step_to step)))
+                | None -> None))))
   in
   let on_scroll (position : Position.t) direction : Action.t option =
     match Region.contains layout.heap position with

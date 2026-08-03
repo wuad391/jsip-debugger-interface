@@ -4,19 +4,25 @@
     in the accent background with a [▎] bar, the caller's line marked [▸]
     when it is in the same file, and the event's [char_range] underlined on
     the active line. Long lines wrap onto continuation rows (blank gutter)
-    rather than cropping, and the pane scrolls to keep the active line
-    centered. *)
+    rather than cropping, top-level definitions fold behind their first line
+    plus a [⋯ n lines] marker (a fold hiding the active line takes the wash
+    in its place), and the pane scrolls to keep the active line centered.
+    [folds] holds region start lines for the displayed file. *)
 
 open! Core
 open Jsip_types
 module View := Bonsai_term.View
 
-(** A source file with its highlighting precomputed — do this once per file
-    at startup, not per frame. *)
+(** A source file with its highlighting and fold regions precomputed — do
+    this once per file at startup, not per frame. A region is a top-level
+    definition: a column-0 line and everything under it until the next one,
+    foldable when there is anything to hide. *)
 module Loaded : sig
   type t =
     { file : Source_file.t
     ; spans : (Syntax.Token.t * string) list Array.t
+    ; regions : (int * int) list
+    (** [(start, stop)] line spans, 1-based inclusive *)
     }
 
   val of_source_file : Source_file.t -> t
@@ -30,7 +36,23 @@ val view
   -> height:int
   -> file_label:string
   -> source:Loaded.t Or_error.t
+  -> folds:Int.Set.t
   -> active_line:int
   -> callsite_line:int option
   -> char_range:int * int
   -> View.t
+
+(** The fold-region start a click at pane-body position [(x, y)] toggles —
+    the [▾]/[▸] gutter cell of a region's first line — or [None] anywhere
+    else, mirroring [view]'s wrapping, folding, and scrolling. *)
+val toggle_at
+  :  width:int
+  -> height:int
+  -> source:Loaded.t Or_error.t
+  -> folds:Int.Set.t
+  -> active_line:int
+  -> callsite_line:int option
+  -> char_range:int * int
+  -> x:int
+  -> y:int
+  -> int option

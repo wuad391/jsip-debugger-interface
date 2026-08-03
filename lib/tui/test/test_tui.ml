@@ -36,7 +36,13 @@ let heap_view ?(width = 56) ?(height = 15) replay ~step =
   print_view
     ~width
     ~height
-    (Heap_pane.view ~width ~height ~structures ~new_addresses ~scroll:0)
+    (Heap_pane.view
+       ~width
+       ~height
+       ~structures
+       ~new_addresses
+       ~folds:(Set.empty (module Heap_pane.Fold))
+       ~scroll:0)
 ;;
 
 let calls_of replay =
@@ -61,16 +67,17 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
        ~height:10
        ~calls:(calls_of replay)
        ~live:(live_of replay ~step:2)
-       ~selected:1);
+       ~selected:1
+       ~folds:Int.Set.empty);
   [%expect
     {|
     ┌ CALL STACK ──────────────────────── 5 calls · 2 live ┐
-    │    M.add "b" 2 M.empty                 map_fold.ml:8 │
-    │  M.add "a" 1 (M.add "b" 2 M.empty)     map_fold.ml:8 │
-    │ ▎  M.add k (v * 2) acc                map_fold.ml:12 │
-    │    M.add k (v * 2) acc                map_fold.ml:12 │
-    │  M.fold (fun k v acc -> M.add k (v *  map_fold.ml:10 │
-    │    2) acc) m M.empty                                 │
+    │      M.add "b" 2 M.empty               map_fold.ml:8 │
+    │  ▾ M.add "a" 1 (M.add "b" 2 M.empty)   map_fold.ml:8 │
+    │ ▎    M.add k (v * 2) acc              map_fold.ml:12 │
+    │      M.add k (v * 2) acc              map_fold.ml:12 │
+    │    M.fold (fun k v acc -> M.add k (v  map_fold.ml:10 │
+    │      * 2) acc) m M.empty                             │
     │                                                      │
     │                                                      │
     └──────────────────────────────────────────────────────┘
@@ -83,17 +90,17 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   [%expect
     {|
     ┌ HEAP ────────────────────── 2 live · 3 nodes · 2 new ┐
-    │   m · map ⟨string ⇒ int⟩                             │
-    │ ┌────────────────┐                                   │
-    │ │ m · "a" ↦ 1    │                                   │
-    │ │ 0x79c43b7f24c8 │                                   │
-    │ └────────────────┘                                   │
+    │ ▾ m · map                                            │
+    │  ┌────────────────┐                                  │
+    │  │ m · "a" ↦ 1    │                                  │
+    │  │ 0x70f32cff19c0 │                                  │
+    │  └────────────────┘                                  │
     │                                                      │
-    │ ▸ m · map ⟨string ⇒ int⟩                             │
-    │ ┌─────────── new ┐                                   │
-    │ │ m · "a" ↦ 1    │                                   │
-    │ │ 0x79c43b7eebe8 │                                   │
-    │ └────────────────┘                                   │
+    │ ▾ m · map                                            │
+    │ ▾┌─────────── new ┐                                  │
+    │  │ m · "a" ↦ 1    │                                  │
+    │  │ 0x70f32cfee710 │                                  │
+    │  └────────────────┘                                  │
     │    ┌─────┴──────┐                                    │
     │    l            r                                    │
     └──────────────────────────────────────────────────────┘
@@ -106,17 +113,17 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
   [%expect
     {|
     ┌ HEAP ────────────────────── 1 live · 3 nodes · 1 new ┐
-    │ ▸ q · queue ⟨string⟩                                 │
-    │ ┌────────────────┐                                   │
-    │ │ q · length 2   │                                   │
-    │ │ 0x7419b87f2ce0 │                                   │
-    │ └────────────────┘                                   │
+    │ ▾ q · queue                                          │
+    │ ▾┌────────────────┐                                  │
+    │  │ q · length 2   │                                  │
+    │  │ 0x7ec2e43f2200 │                                  │
+    │  └────────────────┘                                  │
     │          │                                           │
     │        first                                         │
-    │ ┌────────────────┐                                   │
-    │ │ "x"            │                                   │
-    │ │ 0x7419b87eff50 │                                   │
-    │ └────────────────┘                                   │
+    │ ▾┌────────────────┐                                  │
+    │  │ "x"            │                                  │
+    │  │ 0x7ec2e43ef970 │                                  │
+    │  └────────────────┘                                  │
     │          │                                           │
     │        next                                          │
     └──────────────────────────────────────────────────────┘
@@ -129,19 +136,19 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
   [%expect
     {|
     ┌ HEAP ────────────────────── 3 live · 5 nodes · 2 new ┐
-    │   m · map ⟨string ⇒ float⟩                           │
-    │ ┌─────────────────┐                                  │
-    │ │ m · "pi" ↦ 3.14 │                                  │
-    │ │ 0x76b1385f24c8  │                                  │
-    │ └─────────────────┘                                  │
+    │ ▾ m · map                                            │
+    │  ┌─────────────────┐                                 │
+    │  │ m · "pi" ↦ 3.14 │                                 │
+    │  │ 0x702d533f19c0  │                                 │
+    │  └─────────────────┘                                 │
     │                                                      │
-    │   #2 · map ⟨string ⇒ float⟩                          │
-    │      ┌──────────────────┐                            │
-    │      │ #2 · "pi" ↦ 3.14 │                            │
-    │      │ 0x76b1385ee568   │                            │
-    │      └──────────────────┘                            │
-    │          ┌─────┴─────┐                               │
-    │          l           r                               │
+    │ ▾ #2 · map                                           │
+    │      ▾┌──────────────────┐                           │
+    │       │ #2 · "pi" ↦ 3.14 │                           │
+    │       │ 0x702d533ee4d0   │                           │
+    │       └──────────────────┘                           │
+    │          ┌─────┴──────┐                              │
+    │          l            r                              │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -156,19 +163,19 @@ let%expect_test "heap pane: a collected structure is simply gone" =
   [%expect
     {|
     ┌ HEAP ────────────────────── 1 live · 1 nodes · 1 new ┐
-    │ ▸ #1 · map ⟨string ⇒ int⟩                            │
-    │ ┌──────────── new ┐                                  │
-    │ │ #1 · "dead" ↦ 0 │                                  │
-    │ │ 0x74ad355f1370  │                                  │
-    │ └─────────────────┘                                  │
+    │ ▾ #1 · map                                           │
+    │  ┌──────────── new ┐                                 │
+    │  │ #1 · "dead" ↦ 0 │                                 │
+    │  │ 0x7647edff0770  │                                 │
+    │  └─────────────────┘                                 │
     │                                                      │
     └──────────────────────────────────────────────────────┘
     ┌ HEAP ────────────────────── 1 live · 1 nodes · 1 new ┐
-    │ ▸ #2 · map ⟨string ⇒ int⟩                            │
-    │ ┌──────────── new ┐                                  │
-    │ │ #2 · "live" ↦ 1 │                                  │
-    │ │ 0x74ad355fffd8  │                                  │
-    │ └─────────────────┘                                  │
+    │ ▾ #2 · map                                           │
+    │  ┌──────────── new ┐                                 │
+    │  │ #2 · "live" ↦ 1 │                                 │
+    │  │ 0x7647edffffd8  │                                 │
+    │  └─────────────────┘                                 │
     │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
@@ -186,21 +193,22 @@ let%expect_test "source pane: gutter, active line wash, callsite marker" =
        ~height:11
        ~file_label:"map_basic.ml"
        ~source
+       ~folds:Int.Set.empty
        ~active_line:8
        ~callsite_line:(Some 7)
        ~char_range:(10, 23));
   [%expect
     {|
     ┌ SOURCE ───────────────────── map_basic.ml · 10 lines ┐
-    │           value) and [ignore] don't. *)              │
-    │    3 module M = Map.Make (String)                    │
-    │    4                                                 │
-    │    5 let () =                                        │
-    │    6   let m = M.empty in                            │
-    │ ▸  7   let m = M.add "a" 1 m in                      │
-    │ ▎  8   let m = M.add "b" 2 m in                      │
-    │    9   let m = M.remove "a" m in                     │
-    │   10   ignore (M.find "b" m)                         │
+    │            value) and [ignore] don't. *)             │
+    │  ▾  3 module M = Map.Make (String)                   │
+    │     4                                                │
+    │  ▾  5 let () =                                       │
+    │     6   let m = M.empty in                           │
+    │ ▸   7   let m = M.add "a" 1 m in                     │
+    │ ▎   8   let m = M.add "b" 2 m in                     │
+    │     9   let m = M.remove "a" m in                    │
+    │    10   ignore (M.find "b" m)                        │
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -213,6 +221,7 @@ let%expect_test "source pane: a missing file renders its error" =
        ~height:5
        ~file_label:"gone.ml"
        ~source:(Or_error.error_string "no source loaded for gone.ml")
+       ~folds:Int.Set.empty
        ~active_line:1
        ~callsite_line:None
        ~char_range:(0, 0));
@@ -289,20 +298,21 @@ let%expect_test "source pane: long lines wrap under a blank gutter" =
        ~height:10
        ~file_label:"map_fold.ml"
        ~source
+       ~folds:Int.Set.empty
        ~active_line:9
        ~callsite_line:None
        ~char_range:(16, 60));
   [%expect
     {|
     ┌ SOURCE ────────── map_fold.ml · 15 lines ┐
-    │    6                                     │
-    │    7 let () =                            │
-    │    8   let m = M.add "a" 1 (M.add "b" 2  │
-    │          M.empty) in                     │
-    │ ▎  9   let doubled =                     │
-    │   10     M.fold                          │
-    │   11       (fun k v acc ->               │
-    │   12         M.add k (v * 2) acc)        │
+    │     6                                    │
+    │  ▾  7 let () =                           │
+    │     8   let m = M.add "a" 1 (M.add "b"   │
+    │           2 M.empty) in                  │
+    │ ▎   9   let doubled =                    │
+    │    10     M.fold                         │
+    │    11       (fun k v acc ->              │
+    │    12         M.add k (v * 2) acc)       │
     └──────────────────────────────────────────┘
     |}]
 ;;
@@ -313,17 +323,17 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
   [%expect
     {|
     ┌ HEAP ────────────────────────── 3 live · 9 nodes · 4 new ┐
-    │   a · set ⟨int⟩                                          │
-    │ ┌────────────────┐                                       │
-    │ │ a · 1          │                                       │
-    │ │ 0x7fa2171f22c8 │                                       │
-    │ └────────────────┘                                       │
+    │ ▾ a · set                                                │
+    │ ▾┌────────────────┐                                      │
+    │  │ a · 1          │                                      │
+    │  │ 0x7c08425f17c0 │                                      │
+    │  └────────────────┘                                      │
     │    ┌─────┴──────┐                                        │
     │    l            r                                        │
-    │    ∅   ┌────────────────┐                                │
-    │        │ 2              │                                │
-    │        │ 0x7fa2171f22f0 │                                │
-    │        └────────────────┘                                │
+    │    ∅   ▾┌────────────────┐                               │
+    │         │ 2              │                               │
+    │         │ 0x7c08425f17e8 │                               │
+    │         └────────────────┘                               │
     │           ┌─────┴──────┐                                 │
     │           l            r                                 │
     └──────────────────────────────────────────────────────────┘
@@ -339,6 +349,7 @@ let%expect_test "heap clicks land on cards, not the space between" =
     Heap_pane.address_at
       ~structures
       ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
       ~height:15
       ~x
@@ -350,8 +361,8 @@ let%expect_test "heap clicks land on cards, not the space between" =
   print_endline (at ~x:10 ~y:8);
   print_endline (at ~x:30 ~y:5);
   [%expect {|
-    0x79c43b7f24c8
-    0x79c43b7eebe8
+    0x70f32cff19c0
+    0x70f32cfee710
     ·
     |}]
 ;;
@@ -364,17 +375,17 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
   [%expect
     {|
     ┌ HEAP ────────────────────── 2 live · 2 nodes · 1 new ┐
-    │   m · map ⟨string ⇒ int⟩                             │
-    │ ┌────────────────┐                                   │
-    │ │ m · "k" ↦ 1    │                                   │
-    │ │ 0x773286ff21b8 │                                   │
-    │ └────────────────┘                                   │
+    │ ▾ m · map                                            │
+    │  ┌────────────────┐                                  │
+    │  │ m · "k" ↦ 1    │                                  │
+    │  │ 0x7be786ff16b0 │                                  │
+    │  └────────────────┘                                  │
     │                                                      │
-    │ ▸ q · queue ⟨int M.t⟩                                │
-    │ ┌─────────── new ┐                                   │
-    │ │ q · length 0   │                                   │
-    │ │ 0x773286fee900 │                                   │
-    │ └────────────────┘                                   │
+    │ ▾ q · queue                                          │
+    │  ┌─────────── new ┐                                  │
+    │  │ q · length 0   │                                  │
+    │  │ 0x7be786fee428 │                                  │
+    │  └────────────────┘                                  │
     │                                                      │
     └──────────────────────────────────────────────────────┘
     |}]
@@ -388,23 +399,23 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
   [%expect
     {|
     ┌ HEAP ────────────────────── 2 live · 3 nodes · 1 new ┐
-    │ ▸ q · queue ⟨int M.t⟩                                │
-    │       ┌────────────────┐                             │
-    │       │ q · length 1   │                             │
-    │       │ 0x773286fee900 │                             │
-    │       └────────────────┘                             │
+    │ ▾ q · queue                                          │
+    │       ▾┌────────────────┐                            │
+    │        │ q · length 1   │                            │
+    │        │ 0x7be786fee428 │                            │
+    │        └────────────────┘                            │
     │                │                                     │
     │              first                                   │
-    │       ┌─────────── new ┐                             │
-    │       │ ·              │                             │
-    │       │ 0x773286feb760 │                             │
-    │       └────────────────┘                             │
-    │          ┌─────┴─────┐                               │
-    │          v         next                              │
-    │ ┌────────────────┐   ∅                               │
-    │ │ m · "k" ↦ 1    │                                   │
-    │ │ 0x773286ff21b8 │                                   │
-    │ └────────────────┘                                   │
+    │       ▾┌─────────── new ┐                            │
+    │        │ ·              │                            │
+    │        │ 0x7be786feb7b0 │                            │
+    │        └────────────────┘                            │
+    │          ┌─────┴──────┐                              │
+    │          v          next                             │
+    │  ┌────────────────┐   ∅                              │
+    │  │ m · "k" ↦ 1    │                                  │
+    │  │ 0x7be786ff16b0 │                                  │
+    │  └────────────────┘                                  │
     │                                                      │
     │                                                      │
     └──────────────────────────────────────────────────────┘
@@ -417,21 +428,21 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
   [%expect
     {|
     ┌ HEAP ────────────────────────── 1 live · 3 nodes · 1 new ┐
-    │ ▸ tbl · hashtbl ⟨string ⇒ int⟩                           │
-    │ ┌────────────────┐                                       │
-    │ │ tbl · size 1   │                                       │
-    │ │ 0x7d02585efa40 │                                       │
-    │ └────────────────┘                                       │
+    │ ▾ tbl · hashtbl                                          │
+    │ ▾┌────────────────┐                                      │
+    │  │ tbl · size 1   │                                      │
+    │  │ 0x7f4241feee40 │                                      │
+    │  └────────────────┘                                      │
     │          │                                               │
     │        data                                              │
-    │ ┌────────────────┐                                       │
-    │ │ slots 16       │                                       │
-    │ │ 0x7d02585efa68 │                                       │
-    │ └────────────────┘                                       │
+    │ ▾┌────────────────┐                                      │
+    │  │ slots 16       │                                      │
+    │  │ 0x7f4241feee68 │                                      │
+    │  └────────────────┘                                      │
     │          │                                               │
     │          1                                               │
-    │ ┌─────────── new ┐                                       │
-    │ │ "a" ↦ 1        │                                       │
+    │  ┌─────────── new ┐                                      │
+    │  │ "a" ↦ 1        │                                      │
     └──────────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -473,23 +484,23 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
   [%expect
     {|
     ┌ HEAP ────────────────────────── 2 live · 3 nodes · 1 new ┐
-    │ ▸ qq · queue ⟨'a Queue.t⟩                                │
-    │       ┌────────────────┐                                 │
-    │       │ qq · length 1  │                                 │
-    │       │ 0x7b11051f2ce0 │                                 │
-    │       └────────────────┘                                 │
+    │ ▾ qq · queue                                             │
+    │       ▾┌────────────────┐                                │
+    │        │ qq · length 1  │                                │
+    │        │ 0x7031011f2200 │                                │
+    │        └────────────────┘                                │
     │                │                                         │
     │              first                                       │
-    │       ┌─────────── new ┐                                 │
-    │       │ ·              │                                 │
-    │       │ 0x7b11051ecda0 │                                 │
-    │       └────────────────┘                                 │
-    │          ┌─────┴─────┐                                   │
-    │          v         next                                  │
-    │ ┌────────────────┐   ∅                                   │
-    │ │ q1 · length 0  │                                       │
-    │ │ 0x7b11051eff10 │                                       │
-    │ └────────────────┘                                       │
+    │       ▾┌─────────── new ┐                                │
+    │        │ ·              │                                │
+    │        │ 0x7031011eccd0 │                                │
+    │        └────────────────┘                                │
+    │          ┌─────┴──────┐                                  │
+    │          v          next                                 │
+    │  ┌────────────────┐   ∅                                  │
+    │  │ q1 · length 0  │                                      │
+    │  │ 0x7031011ef958 │                                      │
+    │  └────────────────┘                                      │
     │                                                          │
     │                                                          │
     │                                                          │
@@ -507,17 +518,17 @@ let%expect_test "heap pane: closures stay opaque" =
   [%expect
     {|
     ┌ HEAP ────────────────────────── 1 live · 2 nodes · 2 new ┐
-    │ ▸ q · queue ⟨int -> int⟩                                 │
-    │  ┌────────────────┐                                      │
-    │  │ q · length 1   │                                      │
-    │  │ 0x7980627f2cd8 │                                      │
-    │  └────────────────┘                                      │
+    │ ▾ q · queue                                              │
+    │  ▾┌────────────────┐                                     │
+    │   │ q · length 1   │                                     │
+    │   │ 0x724d0fdf21f8 │                                     │
+    │   └────────────────┘                                     │
     │           │                                              │
     │         first                                            │
-    │ ┌───────────── new ┐                                     │
-    │ │ ⟨0x7980627eff00⟩ │                                     │
-    │ │ 0x7980627efee8   │                                     │
-    │ └──────────────────┘                                     │
+    │  ┌───────────── new ┐                                    │
+    │  │ ⟨0x724d0fdef958⟩ │                                    │
+    │  │ 0x724d0fdef940   │                                    │
+    │  └──────────────────┘                                    │
     └──────────────────────────────────────────────────────────┘
     |}]
 ;;
@@ -544,5 +555,153 @@ let%expect_test "control chips hit-test exactly where they render" =
     (Step 21 26)
     (Play 32 43)
     (Quit 49 54)
+    |}]
+;;
+
+let%expect_test "heap fold: a card keeps itself, hides its kids" =
+  let replay = replay_of_fixture "map_basic" in
+  let { Replay.Step.structures; new_addresses; _ } =
+    Replay.step_exn replay ~step:1
+  in
+  print_view
+    ~height:10
+    (Heap_pane.view
+       ~width:56
+       ~height:10
+       ~structures
+       ~new_addresses
+       ~folds:
+         (Set.of_list
+            (module Heap_pane.Fold)
+            [ Heap_pane.Fold.Node (2, []) ])
+       ~scroll:0);
+  [%expect
+    {|
+    ┌ HEAP ────────────────────── 2 live · 3 nodes · 2 new ┐
+    │ ▾ m · map                                            │
+    │  ┌────────────────┐                                  │
+    │  │ m · "a" ↦ 1    │                                  │
+    │  │ 0x70f32cff19c0 │                                  │
+    │  └────────────────┘                                  │
+    │                                                      │
+    │ ▾ m · map                                            │
+    │ ▸┌─ new  ⋯ 1 hidden ┐                                │
+    └──────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "heap fold: a structure collapses to its header" =
+  let replay = replay_of_fixture "queue_of_maps" in
+  let { Replay.Step.structures; new_addresses; _ } =
+    Replay.step_exn replay ~step:2
+  in
+  (* folding the queue also keeps the map it references hidden — folded means
+     folded, not spilled back out as a section *)
+  print_view
+    ~height:8
+    (Heap_pane.view
+       ~width:56
+       ~height:8
+       ~structures
+       ~new_addresses
+       ~folds:
+         (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 2 ])
+       ~scroll:0);
+  [%expect
+    {|
+    ┌ HEAP ────────────────────── 2 live · 3 nodes · 1 new ┐
+    │ ▸ q · queue                                          │
+    │                                                      │
+    │                                                      │
+    │                                                      │
+    │                                                      │
+    │                                                      │
+    └──────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "heap fold: toggles sit where the glyphs render" =
+  let replay = replay_of_fixture "map_basic" in
+  let { Replay.Step.structures; new_addresses; _ } =
+    Replay.step_exn replay ~step:1
+  in
+  let toggle ~x ~y =
+    Heap_pane.toggle_at
+      ~structures
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~scroll:0
+      ~height:12
+      ~x
+      ~y
+    |> Option.value_map ~default:"·" ~f:(fun fold ->
+      Sexp.to_string [%sexp (fold : Heap_pane.Fold.t)])
+  in
+  (* #1's header glyph; #1's card is a leaf (no glyph); #2's header and
+     root-card glyphs; a plain card cell *)
+  print_endline (toggle ~x:0 ~y:0);
+  print_endline (toggle ~x:0 ~y:1);
+  print_endline (toggle ~x:0 ~y:6);
+  print_endline (toggle ~x:0 ~y:7);
+  print_endline (toggle ~x:3 ~y:8);
+  [%expect
+    {|
+    (Structure 1)
+    ·
+    (Structure 2)
+    (Node 2())
+    ·
+    |}]
+;;
+
+let%expect_test "stack fold: a call's range tucks behind a count" =
+  let replay = replay_of_fixture "map_fold" in
+  print_view
+    ~height:7
+    (Stack_pane.view
+       ~width:56
+       ~height:7
+       ~calls:(calls_of replay)
+       ~live:(live_of replay ~step:4)
+       ~selected:0
+       ~folds:(Int.Set.of_list [ 1 ]));
+  [%expect
+    {|
+    ┌ CALL STACK ──────────────────────── 5 calls · 1 live ┐
+    │      M.add "b" 2 M.empty               map_fold.ml:8 │
+    │  ▸ M.add "a" 1 (M.add "b" 2 M.empty)   map_fold.ml:8 │
+    │      ⋯ 2                                             │
+    │ ▎  M.fold (fun k v acc -> M.add k (v  map_fold.ml:10 │
+    │ ▎    * 2) acc) m M.empty                             │
+    └──────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "source fold: a definition folds to its first line" =
+  let source =
+    Jsip_parsing.Source_reader.load "../../../testing/cases/map_basic.ml"
+    |> Or_error.map ~f:Source_pane.Loaded.of_source_file
+  in
+  print_view
+    ~height:8
+    (Source_pane.view
+       ~width:56
+       ~height:8
+       ~file_label:"map_basic.ml"
+       ~source
+       ~folds:(Int.Set.of_list [ 5 ])
+       ~active_line:8
+       ~callsite_line:None
+       ~char_range:(10, 23));
+  [%expect
+    {|
+    ┌ SOURCE ───────────────────── map_basic.ml · 10 lines ┐
+    │         add/add/remove fire (3 events);              │
+    │     2    [empty] (an ident), [find] (returns the     │
+    │            value) and [ignore] don't. *)             │
+    │  ▾  3 module M = Map.Make (String)                   │
+    │     4                                                │
+    │ ▎▸  5 let () = ⋯ 5 lines                             │
+    └──────────────────────────────────────────────────────┘
     |}]
 ;;

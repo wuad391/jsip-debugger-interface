@@ -13,6 +13,15 @@
     [Queue.add m q] runs, the map's tree hangs off the queue cell's [v→]
     edge.
 
+    Any node folds: a [▾]/[▸] glyph sits in the column before each card with
+    something below it (and before each section header); clicking the glyph
+    folds that card's children away behind a [⋯ n hidden] border tag — the
+    card itself stays — while clicking the header's glyph hides the whole
+    structure behind the header, which is exactly its name · kind summary. A
+    folded subtree keeps claiming the structures it references, so folding a
+    cell does not spill its map back out as a section. Fold keys are stable
+    across steps ({!Fold.t}: structure id, or structure id + edge path).
+
     Each node is a card — its meaning up top ([{"a" ↦ 2}] for a map binding,
     the element for a set, [length n] for a queue root, the content for a
     cell, the joined positions for a walked value block), its full address in
@@ -43,13 +52,39 @@ open Jsip_types
 open Jsip_replay
 module View := Bonsai_term.View
 
+(** What one toggle folds: a whole structure behind its header, or one node's
+    children behind its card. Node paths are edge positions from the owning
+    structure's root, so folds survive stepping. *)
+module Fold : sig
+  type t =
+    | Structure of int
+    | Node of int * int list
+  [@@deriving sexp_of, compare, equal]
+
+  include Comparator.S with type t := t
+end
+
 val view
   :  width:int
   -> height:int
   -> structures:Replay.Structure.t list
   -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
   -> scroll:int
   -> View.t
+
+(** The fold glyph a click at pane-body position [(x, y)] hits, mirroring
+    [view]'s layout and scrolling. Checked before {!address_at}: glyph cells
+    toggle, the rest of a card jumps. *)
+val toggle_at
+  :  structures:Replay.Structure.t list
+  -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
+  -> scroll:int
+  -> height:int
+  -> x:int
+  -> y:int
+  -> Fold.t option
 
 (** The card a click at pane-body position [(x, y)] lands on, mirroring
     [view]'s layout and scrolling — the app jumps the replay to that node's
@@ -57,6 +92,7 @@ val view
 val address_at
   :  structures:Replay.Structure.t list
   -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
   -> scroll:int
   -> height:int
   -> x:int
