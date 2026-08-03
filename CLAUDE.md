@@ -18,9 +18,9 @@ tracked data structure evolve.
 rendered screenshot. Read it once; this file is about working *in* the repo.
 
 The compiler half lives at `~/jsip_debugger` (GitHub
-`ClaraY05/jsip_debugger`, work branch `vreplay-main`) and has its own
-`CLAUDE.md`. **The wire format is a contract between the two repos** — see
-"The wire contract" below before touching `lib/types` or `lib/parsing`.
+`ClaraY05/jsip-debugger-compiler`, work branch `vreplay-main`) and has its
+own `CLAUDE.md`. **The wire format is a contract between the two repos** —
+see "The wire contract" below before touching `lib/types` or `lib/parsing`.
 
 ## Build, test, format
 
@@ -119,7 +119,13 @@ Rules that keep it working:
   wrapper field doesn't break an older interface. Every nested type
   rejects extras deliberately — don't loosen them.
 - `Snapshot.Ds_type` mirrors the compiler's `Data_structure.t`; a newly
-  tracked structure shows up here as a new constructor.
+  tracked structure shows up here as a new constructor, and a dump naming
+  one this repo doesn't have **fails to parse**. This side lags on purpose
+  — the compiler lands a structure first — so expect to add constructors
+  before you can read a freshly vendored dump. As of 2026-08-03 `main` has
+  `Map`/`Set`/`Queue` while the compiler also emits `Hashtbl` and `User`
+  (values of the program's own declared types, which are event roots in
+  their own right now).
 - After any deliberate format change, re-vendor `testing/` from the
   compiler repo rather than hand-editing fixtures.
 
