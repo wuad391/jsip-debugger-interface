@@ -18,14 +18,14 @@ bright blue across all panes:
                                               ◂ back  ·  step ▸  ·  [space] play  ·  q quit
 ┌ CALL STACK ────────────── 3 calls · 1 live ┐┌ HEAP ──────────── 2 live · 3 nodes · 2 new ┐
 │    M.add "a" 1 m            map_basic.ml:7 ││ ▾ m · map ⟨string ⇒ int⟩                   │
-│ ▎  M.add "b" 2 m            map_basic.ml:8 ││  ┌────────────────┐                        │
-│    M.remove "a" m           map_basic.ml:9 ││  │ m · "a" ↦ 1    │                        │
+│ ▎  M.add "b" 2 m            map_basic.ml:8 ││  ┌ m ─────────────┐                        │
+│    M.remove "a" m           map_basic.ml:9 ││  │ "a" ↦ 1        │                        │
 │                                            ││  │ 0x79c43b7f24c8 │                        │
 │                                            ││  └────────────────┘                        │
 │                                            ││                                            │
 │                                            ││ ▾ m · map ⟨string ⇒ int⟩                   │
-│                                            ││ ▾┌─────────── new ┐                        │
-│                                            ││  │ m · "a" ↦ 1    │                        │
+│                                            ││ ▾┌ m ──────── new ┐                        │
+│                                            ││  │ "a" ↦ 1        │                        │
 │                                            ││  │ 0x79c43b7eebe8 │                        │
 └────────────────────────────────────────────┘│  └────────────────┘                        │
 ┌ SOURCE ─────────── map_basic.ml · 10 lines ┐│    ┌─────┴──────┐                          │
@@ -63,8 +63,9 @@ bright blue across all panes:
   every redraw, and only unreferenced structures get their own section
   header — name · kind · static type, the one this event walked marked
   in blue, its root card washed in the highlight background. Everything
-  folds: the `▾`/`▸` glyph beside a card tucks its subtree behind a
-  `⋯ n hidden` border tag (the card stays), and the glyph on a section
+  folds: the `▾`/`▸` glyph beside a card tucks its subtree away — the
+  card stays, and a `⋯ n hidden` note appears beneath it — and the glyph
+  on a section
   header hides the whole structure behind that name-and-type summary; a
   folded subtree keeps the structures it references hidden with it, and
   folds survive stepping. Nodes follow the
@@ -72,7 +73,8 @@ bright blue across all panes:
   hashtbl's record → bucket array → chains included; closures and other
   undecoded blocks print as `⟨0x…⟩`. Each structure is drawn like a CS
   tree diagram:
-  blue-outlined node cards (the node's meaning over its full address), a
+  blue-outlined node cards (the structure's name riding the border's top
+  left, the node's meaning over its full address), a
   parent centered above its children, siblings sharing a level under a
   labeled rail, `∅` where an interior slot is empty. Cards allocated *at
   this step* carry a green `new` tag in the border's top right. Clicking

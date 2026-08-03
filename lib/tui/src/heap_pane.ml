@@ -270,15 +270,17 @@ end
 
 let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
 
-(* the node card — blue outline, the full address in small type, border tags
-   for a fresh allocation (green [new]) and folded children ([⋯ n hidden]),
-   the current structure's root washed in the highlight background, and a
-   fold glyph in the column before the card when there is anything to fold:
+(* the node card — blue outline, the structure's name riding the border's top
+   left, a green [new] tag riding the top right for this step's allocations,
+   the full address in small type, and (when folded) how many nodes are
+   tucked away, spelled out below the card. The current structure's root card
+   is washed in the highlight background.
    {v
-   ▾┌─────────────── new ┐    ▸┌───────── ⋯ 3 hidden ┐
-    │ m · "a" ↦ 2        │     │ "b" ↦ 2             │
-    │ 0x763be65ee878     │     │ 0x763be65ee6b0      │
-    └────────────────────┘     └─────────────────────┘
+   ┌ m ──────────── new ┐
+   │ "a" ↦ 2            │
+   │ 0x763be65ee878     │
+   └────────────────────┘
+        ⋯ 3 hidden
    v} *)
 let node_box
   (node : Snapshot.Node.t)
@@ -297,58 +299,50 @@ let node_box
   in
   let border = Theme.fg' Theme.card_border in
   let summary =
-    let tag_views =
-      match root_structure with
-      | None -> []
-      | Some structure ->
-        let attrs =
-          match structure.is_current with
-          | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
-          | false -> Theme.fg' Theme.muted
-        in
-        [ View.text
-            ~attrs
-            [%string "%{Replay.Structure.display structure} · "]
-        ]
-    in
     View.hcat
-      (tag_views
-       @ List.map (summary_spans node ~mode ~hidden_labels) ~f:span_view)
+      (List.map (summary_spans node ~mode ~hidden_labels) ~f:span_view)
   in
   let address =
     View.text
       ~attrs:(Theme.fg' Theme.faint)
       (Snapshot.Address.display node.virtual_address)
   in
-  (* border tags announce themselves in the top border's right corner *)
-  let tags =
-    List.concat
-      [ (match is_new with
-         | true -> [ View.text ~attrs:(Theme.fg' Theme.fresh) " new " ]
-         | false -> [])
-      ; (match hidden_count with
-         | 0 -> []
-         | n ->
-           [ View.text
-               ~attrs:(Theme.fg' Theme.muted)
-               [%string " ⋯ %{n#Int} hidden "]
-           ])
-      ]
+  (* border riders: the structure's name left, a fresh allocation right *)
+  let name_tag =
+    match root_structure with
+    | None -> View.none
+    | Some structure ->
+      let attrs =
+        match structure.is_current with
+        | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
+        | false -> Theme.fg' Theme.muted
+      in
+      View.text ~attrs [%string " %{Replay.Structure.display structure} "]
   in
-  let tags_width =
-    List.sum (module Int) tags ~f:(fun tag -> View.width tag)
+  let new_tag =
+    match is_new with
+    | true -> View.text ~attrs:(Theme.fg' Theme.fresh) " new "
+    | false -> View.none
   in
+  let riders_width = View.width name_tag + View.width new_tag in
   let inner =
-    max (max (View.width summary) (View.width address)) (tags_width - 1)
+    Int.max
+      (Int.max (View.width summary) (View.width address))
+      (riders_width - 2)
   in
+  (* every row is exactly [inner + 4] cells, so the wash covers the card and
+     nothing else *)
+  let card_width = inner + 4 in
   let top =
     View.hcat
-      ([ View.text
-           ~attrs:border
-           ("┌" ^ Panel.repeat "─" ~width:(inner + 2 - tags_width))
-       ]
-       @ tags
-       @ [ View.text ~attrs:border "┐" ])
+      [ View.text ~attrs:border "┌"
+      ; name_tag
+      ; View.text
+          ~attrs:border
+          (Panel.repeat "─" ~width:(inner + 2 - riders_width))
+      ; new_tag
+      ; View.text ~attrs:border "┐"
+      ]
   in
   let bottom =
     View.text
@@ -362,12 +356,28 @@ let node_box
       ; View.text ~attrs:border " │"
       ]
   in
-  let card = View.vcat [ top; content summary; content address; bottom ] in
+  let card =
+    Panel.fit
+      (View.vcat [ top; content summary; content address; bottom ])
+      ~width:card_width
+      ~height:4
+  in
   let card =
     match is_selected with
     | true ->
       View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
     | false -> card
+  in
+  (* what a fold hides is said below the card, not squeezed into its border *)
+  let card =
+    match hidden_count with
+    | 0 -> card
+    | n ->
+      let note =
+        View.text ~attrs:(Theme.fg' Theme.text) [%string "⋯ %{n#Int} hidden"]
+      in
+      let indent = Int.max 0 ((card_width - View.width note) / 2) in
+      View.vcat [ card; View.pad ~l:indent note ]
   in
   (* the fold glyph sits in a reserved column left of every card, so sibling
      math stays uniform whether or not a card can fold *)
@@ -643,9 +653,10 @@ let rec tree
        , List.map box_toggles ~f:(Toggle.shift ~dx:parent_x ~dy:0)
          @ children_toggles )
      | true ->
-       (* the card alone, centered where it always sits, on the expanded
-          footprint's width — nothing else in the diagram moves *)
-       let folded_x = max 0 (parent_center - (View.width box / 2)) in
+       (* the card alone, at the very column it occupies expanded (the [⋯]
+          note lives below the border, so folding cannot change the card's
+          width) — nothing else in the diagram moves *)
+       let folded_x = parent_x in
        let canvas =
          View.zcat
            [ View.pad ~l:folded_x box

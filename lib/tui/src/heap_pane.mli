@@ -22,29 +22,28 @@
     cell does not spill its map back out as a section. Fold keys are stable
     across steps ({!Fold.t}: structure id, or structure id + edge path).
 
-    Each node is a card — its meaning up top ([{"a" ↦ 2}] for a map binding,
-    the element for a set, [length n] for a queue root, the content for a
-    cell, the joined positions for a walked value block), its full address in
-    small type below — outlined in blue; a card allocated at this step
-    carries a green [new] tag in its border's top right, and the current
-    structure's root card is washed in the highlight background. A node's
-    card sits centered over its children; siblings share a level, and a
-    labeled rail connects parent to children. [∅] marks an interior node's
-    empty slot; leaves keep empty slots to themselves. Queue cells' numeric
-    wire labels print as [v]/[next].
+    Each node is a card — the structure's name (or [#id]) riding the border's
+    top left, its meaning up top ([{"a" ↦ 2}] for a map binding, the element
+    for a set, [length n] for a queue root, the content for a cell, the
+    joined positions for a walked value block), its full address in small
+    type below — outlined in blue; a card allocated at this step carries a
+    green [new] tag riding the border's top right, a folded card says how
+    many nodes it hides below itself, and the current structure's root card
+    is washed in the highlight background.
 
     {v
-    ▸ m · map
-        ┌─────────────── new ┐
-        │ m · "a" ↦ 1        │
-        │ 0x763be65ee878     │
-        └────────────────────┘
-         ┌─────────┴────────┐
-         l                  r
-         ∅        ┌─────────────── new ┐
-                  │ "b" ↦ 2            │
-                  │ 0x763be65ee8a8     │
-                  └────────────────────┘
+    ▾ m · map ⟨string ⇒ int⟩
+    ▾┌ m ──────────── new ┐
+     │ "a" ↦ 1            │
+     │ 0x763be65ee878     │
+     └────────────────────┘
+      ┌─────────┴────────┐
+      l                  r
+      ∅        ▸┌ ───────── new ┐
+                │ "b" ↦ 2       │
+                │ 0x763be65ee8a8│
+                └───────────────┘
+                    ⋯ 2 hidden
     v} *)
 
 open! Core
