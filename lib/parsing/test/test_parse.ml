@@ -16,10 +16,14 @@ let all_fixtures =
   ; "map_nested"
   ; "map_partial_neg"
   ; "map_registry_gc"
+  ; "map_rewalk"
+  ; "map_shared_payload"
+  ; "map_versions"
   ; "map_wide_payload"
   ; "neg_plain"
   ; "neg_untracked"
   ; "queue_basic"
+  ; "queue_cycle"
   ; "queue_mixed"
   ; "queue_of_closures"
   ; "queue_of_maps"
@@ -47,12 +51,12 @@ let%expect_test "unsexp one real event line" =
       (args
        ((No_label (expression (Unnamed "\"a\"")))
         (No_label (expression (Unnamed 1))) (No_label (expression (Unnamed m)))))
-      (registry ((1 0x79c43b7f24c8 m)))
+      (registry ((1 0x779ae8bf23a0 m)))
       (ty ((printed "int M.t") (params ((key string) (data int)))))
       (snapshot
        ((ds_type Map)
         (root_node
-         ((virtual_address 0x79c43b7f24c8)
+         ((id 1) (virtual_address 0x779ae8bf23a0)
           (block ((l (Int 0)) (v (String a)) (d (Int 1)) (r (Int 0))))
           (children ())))))))
     |}]
@@ -61,11 +65,13 @@ let%expect_test "unsexp one real event line" =
 (* dumps from a compiler predating the [ty] field parse all the same — the
    field is optional, not a format version *)
 let%expect_test "an event without a ty field reads as None" =
+  (* [ty] arrived after the first dumps did, so the reader treats it as
+     optional; everything else is the current wire *)
   let line =
     {|(event (id 1) |}
     ^ {|(loc ((file_path t.ml) (line_number 1) (char_range (0 1)))) |}
     ^ {|(fn (Function_name M.add)) (args ()) (registry ((1 0x10))) |}
-    ^ {|(snapshot ((ds_type Map) (root_node ((virtual_address 0x10) |}
+    ^ {|(snapshot ((ds_type Map) (root_node ((id 1) (virtual_address 0x10) |}
     ^ {|(block ()) (children ()))))))|}
   in
   let wire = Dump_wire.of_string line |> Or_error.ok_exn in
@@ -124,10 +130,14 @@ let%expect_test "every golden dump parses end to end" =
     map_nested: 2 events
     map_partial_neg: 0 events
     map_registry_gc: 2 events
+    map_rewalk: 3 events
+    map_shared_payload: 3 events
+    map_versions: 5 events
     map_wide_payload: 1 events
     neg_plain: 0 events
     neg_untracked: 0 events
     queue_basic: 5 events
+    queue_cycle: 2 events
     queue_mixed: 8 events
     queue_of_closures: 3 events
     queue_of_maps: 3 events

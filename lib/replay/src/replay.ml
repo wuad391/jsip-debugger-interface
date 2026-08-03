@@ -1,6 +1,29 @@
 open! Core
 open Jsip_types
 
+(* The dump is a stream of deltas: every node's definition appears once,
+   under its wire id, and later occurrences are [Id] references — a shared
+   block, a cycle, or a whole re-observed structure collapsed to a stub. This
+   is the table those references resolve against, as of one step; a renderer
+   expands a reference by looking its id up here. *)
+module Nodes = struct
+  type t = Snapshot.Node.t Int.Map.t
+
+  let empty : t = Int.Map.empty
+
+  let rec define t (node : Snapshot.Node.t) =
+    let t =
+      match Snapshot.Node.is_revisit_stub node with
+      (* a stub states nothing: it must not overwrite the definition *)
+      | true -> t
+      | false -> Map.set t ~key:node.id ~data:node
+    in
+    List.fold node.children ~init:t ~f:define
+  ;;
+
+  let find t id = Map.find t id
+end
+
 module Structure = struct
   type t =
     { id : int
@@ -33,6 +56,7 @@ module Step = struct
     { call : Call.t
     ; frames : Call.t list
     ; structures : Structure.t list
+    ; nodes : Nodes.t
     ; new_addresses : Snapshot.Address.Set.t
     ; description : string
     }
@@ -80,14 +104,30 @@ let create call_stack =
      a structure whose events all predate the wire's [ty] field simply has
      none *)
   let latest_ty = ref Int.Map.empty in
+  (* every node definition the dump has stated so far *)
+  let nodes = ref Nodes.empty in
   let steps =
     Array.init (Call_stack.length call_stack) ~f:(fun step ->
       let call = Call_stack.call_exn call_stack ~step in
       let addresses = addresses_of_snapshot call.info.snapshot in
       let new_addresses = Set.diff addresses !seen in
       seen := Set.union !seen addresses;
-      latest_walk
-      := Map.set !latest_walk ~key:call.info.id ~data:call.info.snapshot;
+      nodes := Nodes.define !nodes call.info.snapshot.root_node;
+      (* a re-observed structure's event is a stub — its shape is what its id
+         was defined as earlier, wearing the address stated now *)
+      let snapshot =
+        let root = call.info.snapshot.root_node in
+        match
+          Snapshot.Node.is_revisit_stub root, Nodes.find !nodes root.id
+        with
+        | true, Some definition ->
+          { call.info.snapshot with
+            root_node =
+              { definition with virtual_address = root.virtual_address }
+          }
+        | (true | false), (Some _ | None) -> call.info.snapshot
+      in
+      latest_walk := Map.set !latest_walk ~key:call.info.id ~data:snapshot;
       (match call.info.ty with
        | None -> ()
        | Some ty ->
@@ -112,6 +152,7 @@ let create call_stack =
       { Step.call
       ; frames = Call_stack.frames_at call_stack ~step
       ; structures
+      ; nodes = !nodes
       ; new_addresses
       ; description = description call
       })

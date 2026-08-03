@@ -31,7 +31,6 @@ let vertical_rule ~height ~color =
 ;;
 
 let junction ~color = View.text ~attrs:(divider_attrs color) "┤"
-
 let header_height = 1
 let inner_width ~width = max 0 (width - 2)
 
@@ -58,8 +57,8 @@ let view ~title ~meta ~width ~height body =
       (fit body ~width:(inner_width ~width) ~height:(height - header_height))
   in
   (* [with_colors'] *sets* the unspecified background on every cell — a
-     rectangle behind the pane would only show through the gaps, leaving
-     text sitting on the terminal's own background instead of the pane's *)
+     rectangle behind the pane would only show through the gaps, leaving text
+     sitting on the terminal's own background instead of the pane's *)
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text

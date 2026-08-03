@@ -56,9 +56,13 @@ screen into panes:
   its place).
 - **Heap** — every live tracked structure: one keeps the shape of its
   most recent walk and only leaves the pane when the registry drops it.
-  A payload field referencing another live structure (an `Id` into the
-  registry) links that structure's whole tree in at the reference site —
-  so a map added to a queue hangs off the queue's cell. Structures carry
+  Dumps are deltas: every node's definition appears once under a wire id
+  and later occurrences are `Id` references, so the pane resolves them
+  against the running node table — a referenced structure's whole tree
+  links in at the reference site (a map added to a queue hangs off the
+  queue's cell), a shared block draws once and later slots point at it
+  with `↗ #n` (which also terminates payload cycles), and a re-observed
+  structure's stub replays the shape its id was defined with. Structures carry
   the latest variable name they were observed under (`m ·`, `tbl ·`;
   `#id` when anonymous), root addresses re-stamp from the registry on
   every redraw, and only unreferenced structures get their own section

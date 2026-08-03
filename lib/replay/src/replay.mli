@@ -42,12 +42,27 @@ module Structure : sig
   val current_root : t -> Snapshot.Node.t
 end
 
+(** The dump is a stream of deltas: every node's definition appears once
+    under its wire id, and later occurrences are [Snapshot.Block.Id]
+    references — a shared block, a cycle, or a whole re-observed structure
+    collapsed to a stub. This is the table those references resolve against,
+    as of one step. *)
+module Nodes : sig
+  type t = Snapshot.Node.t Int.Map.t
+
+  (** The node carrying that wire id, if the dump has defined it yet. *)
+  val find : t -> int -> Snapshot.Node.t option
+end
+
 module Step : sig
   type t =
     { call : Call.t (** the event that fired at this step *)
     ; frames : Call.t list (** the live stack, outermost first *)
     ; structures : Structure.t list
-    (** every live tracked structure, in registry order *)
+    (** every live tracked structure, in registry order; each one's root is
+        the resolved definition, never a stub *)
+    ; nodes : Nodes.t
+    (** every node the dump has defined up to and including this step *)
     ; new_addresses : Snapshot.Address.Set.t
     (** addresses in this step's snapshot that no earlier snapshot mentioned
         — the nodes this call allocated *)

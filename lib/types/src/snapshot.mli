@@ -32,8 +32,10 @@ module Address : sig
 end
 
 (** One field of a walked heap block: an immediate or opaque value kept
-    inline. [Address] points at another tracked structure resolvable through
-    the event's registry; [Id] is a registry id boundary. *)
+    inline. [Id] references the node carrying that wire id — a tracked root,
+    a shared block dumped by an earlier event, or an earlier node in this
+    same walk (sharing, a cycle). [Address] carries only a block the walker
+    did not decode. *)
 module Block : sig
   type t =
     | Int of int
@@ -101,11 +103,19 @@ end
     its pointer fields reach. *)
 module Node : sig
   type t =
-    { virtual_address : Address.t
+    { id : int
+    (** wire id, unique across the dump: the node's definition appears once
+        and later occurrences are [Block.Id] references to it *)
+    ; virtual_address : Address.t
     ; block : (string * Block.t) list
     ; children : t list
     }
   [@@deriving sexp, bin_io, compare, equal]
+
+  (** Whether this is a re-observed structure's stub — its id, its current
+      address, and no content, standing for whatever that id was defined as
+      earlier in the dump. *)
+  val is_revisit_stub : t -> bool
 end
 
 type t =

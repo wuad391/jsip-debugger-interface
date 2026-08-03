@@ -30,7 +30,7 @@ let replay_of_fixture name =
 ;;
 
 let heap_view ?(width = 56) ?(height = 15) replay ~step =
-  let { Replay.Step.structures; new_addresses; _ } =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step
   in
   print_view
@@ -40,6 +40,7 @@ let heap_view ?(width = 56) ?(height = 15) replay ~step =
        ~width
        ~height
        ~structures
+       ~nodes
        ~new_addresses
        ~folds:(Set.empty (module Heap_pane.Fold))
        ~scroll:0)
@@ -90,13 +91,13 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
     ▾ m · map ⟨string ⇒ int⟩
      ┌ m ─────────────┐
      │ "a" ↦ 1        │
-     │ 0x79c43b7f24c8 │
+     │ 0x779ae8bf23a0 │
      └────────────────┘
 
     ▾ m · map ⟨string ⇒ int⟩
     ▾┌ m ──────── new ┐
      │ "a" ↦ 1        │
-     │ 0x79c43b7eebe8 │
+     │ 0x779ae8bee8d8 │
      └────────────────┘
        ┌─────┴──────┐
        l            r
@@ -113,13 +114,13 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
     ▾ q · queue ⟨string⟩
     ▾┌ q ─────────────┐
      │ length 2       │
-     │ 0x7419b87f2ce0 │
+     │ 0x731eb5ff2bb8 │
      └────────────────┘
              │
            first
     ▾┌────────────────┐
      │ "x"            │
-     │ 0x7419b87eff50 │
+     │ 0x731eb5fefc48 │
      └────────────────┘
              │
            next
@@ -136,13 +137,13 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
     ▾ m · map ⟨string ⇒ float⟩
      ┌ m ─────────────┐
      │ "pi" ↦ 3.14    │
-     │ 0x76b1385f24c8 │
+     │ 0x7799bfbf23a0 │
      └────────────────┘
 
     ▾ #2 · map ⟨string ⇒ float⟩
           ▾┌ #2 ────────────┐
            │ "pi" ↦ 3.14    │
-           │ 0x76b1385ee568 │
+           │ 0x7799bfbee258 │
            └────────────────┘
              ┌─────┴──────┐
              l            r
@@ -163,13 +164,13 @@ let%expect_test "heap pane: a collected structure is simply gone" =
     ▾ #1 · map ⟨string ⇒ int⟩
      ┌ #1 ─────── new ┐
      │ "dead" ↦ 0     │
-     │ 0x74ad355f1370 │
+     │ 0x7a7727ff1248 │
      └────────────────┘
     HEAP                          1 live · 1 nodes · 1 new
     ▾ #2 · map ⟨string ⇒ int⟩
      ┌ #2 ─────── new ┐
      │ "live" ↦ 1     │
-     │ 0x74ad355fffd8 │
+     │ 0x7a7727ffffd8 │
      └────────────────┘
     |}]
 ;;
@@ -317,13 +318,13 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
     ▾ a · set ⟨int⟩
     ▾┌ a ─────────────┐
      │ 1              │
-     │ 0x7fa2171f22c8 │
+     │ 0x795aef9f21a0 │
      └────────────────┘
        ┌─────┴──────┐
        l            r
        ∅   ▾┌────────────────┐
             │ 2              │
-            │ 0x7fa2171f22f0 │
+            │ 0x795aef9f21c8 │
             └────────────────┘
               ┌─────┴──────┐
               l            r
@@ -333,12 +334,13 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
 
 let%expect_test "heap clicks land on cards, not the space between" =
   let replay = replay_of_fixture "map_basic" in
-  let { Replay.Step.structures; new_addresses; _ } =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:1
   in
   let at ~x ~y =
     Heap_pane.address_at
       ~structures
+      ~nodes
       ~new_addresses
       ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
@@ -352,8 +354,8 @@ let%expect_test "heap clicks land on cards, not the space between" =
   print_endline (at ~x:10 ~y:8);
   print_endline (at ~x:30 ~y:5);
   [%expect {|
-    0x79c43b7f24c8
-    0x79c43b7eebe8
+    0x779ae8bf23a0
+    0x779ae8bee8d8
     ·
     |}]
 ;;
@@ -369,13 +371,13 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
     ▾ m · map ⟨string ⇒ int⟩
      ┌ m ─────────────┐
      │ "k" ↦ 1        │
-     │ 0x773286ff21b8 │
+     │ 0x796745df2090 │
      └────────────────┘
 
     ▾ q · queue ⟨int M.t⟩
      ┌ q ──────── new ┐
      │ length 0       │
-     │ 0x773286fee900 │
+     │ 0x796745dee5f8 │
      └────────────────┘
     |}]
 ;;
@@ -391,19 +393,19 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
     ▾ q · queue ⟨int M.t⟩
           ▾┌ q ─────────────┐
            │ length 1       │
-           │ 0x773286fee900 │
+           │ 0x796745dee5f8 │
            └────────────────┘
                    │
                  first
           ▾┌─────────── new ┐
            │ ·              │
-           │ 0x773286feb760 │
+           │ 0x796745deb210 │
            └────────────────┘
              ┌─────┴──────┐
              v          next
      ┌ m ─────────────┐   ∅
      │ "k" ↦ 1        │
-     │ 0x773286ff21b8 │
+     │ 0x796745df2090 │
      └────────────────┘
     |}]
 ;;
@@ -417,19 +419,19 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
     ▾ tbl · hashtbl ⟨string ⇒ int⟩
     ▾┌ tbl ───────────┐
      │ size 1         │
-     │ 0x7d02585efa40 │
+     │ 0x735168def918 │
      └────────────────┘
              │
            data
     ▾┌────────────────┐
      │ slots 16       │
-     │ 0x7d02585efa68 │
+     │ 0x735168def940 │
      └────────────────┘
              │
              1
      ┌─────────── new ┐
      │ "a" ↦ 1        │
-     │ 0x7d02585e99b0 │
+     │ 0x735168de9570 │
     |}]
 ;;
 
@@ -473,19 +475,19 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
     ▾ qq · queue ⟨'a Queue.t⟩
           ▾┌ qq ────────────┐
            │ length 1       │
-           │ 0x7b11051f2ce0 │
+           │ 0x7038715f2bb8 │
            └────────────────┘
                    │
                  first
           ▾┌─────────── new ┐
            │ ·              │
-           │ 0x7b11051ecda0 │
+           │ 0x7038715ec848 │
            └────────────────┘
              ┌─────┴──────┐
              v          next
      ┌ q1 ────────────┐   ∅
      │ length 0       │
-     │ 0x7b11051eff10 │
+     │ 0x7038715efc00 │
      └────────────────┘
     |}]
 ;;
@@ -499,13 +501,13 @@ let%expect_test "heap pane: closures stay opaque" =
     ▾ q · queue ⟨int -> int⟩
      ▾┌ q ─────────────┐
       │ length 1       │
-      │ 0x7980627f2cd8 │
+      │ 0x75946a5f2bb0 │
       └────────────────┘
               │
             first
      ┌───────────── new ┐
-     │ ⟨0x7980627eff00⟩ │
-     │ 0x7980627efee8   │
+     │ ⟨0x75946a5efbf0⟩ │
+     │ 0x75946a5efbd8   │
      └──────────────────┘
     |}]
 ;;
@@ -537,7 +539,7 @@ let%expect_test "control chips hit-test exactly where they render" =
 
 let%expect_test "heap fold: a card keeps itself, hides its kids" =
   let replay = replay_of_fixture "map_basic" in
-  let { Replay.Step.structures; new_addresses; _ } =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:1
   in
   print_view
@@ -546,6 +548,7 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
        ~width:56
        ~height:10
        ~structures
+       ~nodes
        ~new_addresses
        ~folds:
          (Set.of_list
@@ -558,7 +561,7 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
     ▾ m · map ⟨string ⇒ int⟩
      ┌ m ─────────────┐
      │ "a" ↦ 1        │
-     │ 0x79c43b7f24c8 │
+     │ 0x779ae8bf23a0 │
      └────────────────┘
 
     ▾ m · map ⟨string ⇒ int⟩
@@ -569,7 +572,7 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
 
 let%expect_test "heap fold: a structure collapses to its header" =
   let replay = replay_of_fixture "queue_of_maps" in
-  let { Replay.Step.structures; new_addresses; _ } =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:2
   in
   (* folding the queue also keeps the map it references hidden — folded means
@@ -580,6 +583,7 @@ let%expect_test "heap fold: a structure collapses to its header" =
        ~width:56
        ~height:8
        ~structures
+       ~nodes
        ~new_addresses
        ~folds:
          (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 2 ])
@@ -593,12 +597,13 @@ let%expect_test "heap fold: a structure collapses to its header" =
 
 let%expect_test "heap fold: toggles sit where the glyphs render" =
   let replay = replay_of_fixture "map_basic" in
-  let { Replay.Step.structures; new_addresses; _ } =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:1
   in
   let toggle ~x ~y =
     Heap_pane.toggle_at
       ~structures
+      ~nodes
       ~new_addresses
       ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
@@ -682,7 +687,7 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
      must not move a cell, because the folded card keeps its expanded
      footprint *)
   let replay = replay_of_fixture "set_ops" in
-  let { Replay.Step.structures; new_addresses; _ } =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:2
   in
   let render folds =
@@ -693,6 +698,7 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
          ~width:60
          ~height:14
          ~structures
+         ~nodes
          ~new_addresses
          ~folds
          ~scroll:0)
@@ -706,13 +712,13 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
     ▾ a · set ⟨int⟩
     ▾┌ a ─────────────┐
      │ 1              │
-     │ 0x7fa2171f22c8 │
+     │ 0x795aef9f21a0 │
      └────────────────┘
        ┌─────┴──────┐
        l            r
        ∅   ▾┌────────────────┐
             │ 2              │
-            │ 0x7fa2171f22f0 │
+            │ 0x795aef9f21c8 │
             └────────────────┘
               ┌─────┴──────┐
               l            r
@@ -720,13 +726,13 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
     ▾ a · set ⟨int⟩
     ▾┌ a ─────────────┐
      │ 1              │
-     │ 0x7fa2171f22c8 │
+     │ 0x795aef9f21a0 │
      └────────────────┘
        ┌─────┴──────┐
        l            r
        ∅   ▸┌────────────────┐
             │ 2              │
-            │ 0x7fa2171f22f0 │
+            │ 0x795aef9f21c8 │
             └────────────────┘
                 ⋯ 1 hidden
     |}]
@@ -777,4 +783,125 @@ let%expect_test "every drawn glyph is one cell wide" =
       print_s [%message "not one cell" (glyph : string) (width : int)]);
   print_s [%sexp (List.length glyphs : int)];
   [%expect {| 26 |}]
+;;
+
+let%expect_test "delta wire: a revisit stub replays the earlier shape" =
+  (* map_rewalk's second event is a stub — same id, current address, no
+     content — so the pane must draw what that id was defined as *)
+  let replay = replay_of_fixture "map_rewalk" in
+  heap_view ~height:9 replay ~step:1;
+  [%expect
+    {|
+    HEAP                          2 live · 3 nodes · 2 new
+    ▾ #1 · map ⟨string ⇒ int⟩
+     ┌ #1 ────────────┐
+     │ "a" ↦ 1        │
+     │ 0x723b2a1f23a0 │
+     └────────────────┘
+
+    ▾ m · map ⟨string ⇒ int⟩
+    ▾┌ m ──────── new ┐
+    |}]
+;;
+
+let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
+  =
+  let replay = replay_of_fixture "map_shared_payload" in
+  heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                                  3 live · 7 nodes · 3 new
+    ▾ #1 · map ⟨string ⇒ point⟩
+        ▾┌ #1 ────────────┐
+         │ "p"            │
+         │ 0x7ce5a7ff2398 │
+         └────────────────┘
+    ┌────────────┼────────────┐
+    l            d            r
+    ∅    ┌────────────────┐   ∅
+         │ 1, 2           │
+         │ 0x7ce5b80dbad0 │
+         └────────────────┘
+
+    ▾ m · map ⟨string ⇒ point⟩
+     ▾┌ m ─────────────┐
+      │ "p"            │
+      │ 0x7ce5a7fedaa8 │
+      └────────────────┘
+    ┌─────┬───┴─────────┐
+    l     d             r
+    ∅   ↗ #2   ▾┌────────────────┐
+                │ "q"            │
+                │ 0x7ce5a7fedad8 │
+                └────────────────┘
+                   ┌────┴┬────┐
+                   l     d    r
+                   ∅   ↗ #2   ∅
+
+    ▾ #5 · map ⟨string ⇒ point⟩
+     ▾┌ #5 ─────── new ┐
+    |}]
+;;
+
+let%expect_test "delta wire: a payload cycle terminates" =
+  let replay = replay_of_fixture "queue_cycle" in
+  heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                                  1 live · 4 nodes · 3 new
+    ▾ q · queue ⟨cyc⟩
+          ▾┌ q ─────────────┐
+           │ length 1       │
+           │ 0x7485ca7f2b90 │
+           └────────────────┘
+                   │
+                 first
+          ▾┌─────────── new ┐
+           │ ·              │
+           │ 0x7485ca7efc20 │
+           └────────────────┘
+             ┌─────┴──────┐
+             v          next
+    ▾┌─────────── new ┐   ∅
+     │ "loop"         │
+     │ 0x7485ca7f2bc0 │
+     └────────────────┘
+             │
+             1
+    ▾┌─────────── new ┐
+     │ ·              │
+     │ 0x7485ca7f2bb0 │
+     └────────────────┘
+             │
+             0
+           ↗ #3
+    |}]
+;;
+
+let%expect_test "delta wire: version chains share their spines" =
+  let replay = replay_of_fixture "map_versions" in
+  heap_view ~width:64 ~height:20 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                                  2 live · 8 nodes · 4 new
+    ▾ #7 · map ⟨string ⇒ int⟩
+               ▾┌ #7 ────────────┐
+                │ "b" ↦ 2        │
+                │ 0x7b7f1dc87708 │
+                └────────────────┘
+             ┌──────────┴──────────┐
+             l                     r
+     ┌────────────────┐   ▾┌────────────────┐
+     │ "a" ↦ 1        │    │ "c" ↦ 3        │
+     │ 0x7b7f0dbe2080 │    │ 0x7b7f0dbe20e0 │
+     └────────────────┘    └────────────────┘
+                             ┌─────┴──────┐
+                             l            r
+                             ∅    ┌────────────────┐
+                                  │ "d" ↦ 4        │
+                                  │ 0x7b7f0dbe2110 │
+                                  └────────────────┘
+
+    ▾ #11 · map ⟨string ⇒ int⟩
+    |}]
 ;;

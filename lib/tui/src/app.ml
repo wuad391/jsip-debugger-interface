@@ -161,6 +161,7 @@ let render
   let { Replay.Step.call
       ; frames
       ; structures
+      ; nodes
       ; new_addresses
       ; description = _
       }
@@ -247,6 +248,7 @@ let render
              ~width:layout.heap.width
              ~height:layout.heap.height
              ~structures
+             ~nodes
              ~new_addresses
              ~folds:model.heap_folds
              ~scroll:model.heap_scroll)
@@ -354,6 +356,7 @@ let render
                   (match
                      Heap_pane.toggle_at
                        ~structures
+                       ~nodes
                        ~new_addresses
                        ~folds:model.heap_folds
                        ~scroll:model.heap_scroll
@@ -365,6 +368,7 @@ let render
                    | None ->
                      Heap_pane.address_at
                        ~structures
+                       ~nodes
                        ~new_addresses
                        ~folds:model.heap_folds
                        ~scroll:model.heap_scroll

@@ -67,6 +67,7 @@ val view
   :  width:int
   -> height:int
   -> structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
@@ -77,6 +78,7 @@ val view
     toggle, the rest of a card jumps. *)
 val toggle_at
   :  structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
@@ -90,6 +92,7 @@ val toggle_at
     allocation step. *)
 val address_at
   :  structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int

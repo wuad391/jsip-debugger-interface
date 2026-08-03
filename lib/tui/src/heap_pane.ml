@@ -32,11 +32,16 @@ module Context = struct
     ; by_address : Replay.Structure.t Snapshot.Address.Map.t
     (** for tagging a card that is some structure's root, not for resolving
         [Address] blocks *)
-    ; drawn : Int.Hash_set.t
+    ; nodes : Replay.Nodes.t
+    ; drawn : Int.Hash_set.t (** structures already placed on the canvas *)
+    ; drawn_nodes : Int.Hash_set.t
+    (** node ids already drawn: the wire shares blocks between structures and
+        versions (and a payload may even cycle), so a second occurrence
+        points at the first instead of redrawing it *)
     ; new_addresses : Snapshot.Address.Set.t
     }
 
-  let create ~structures ~new_addresses =
+  let create ~structures ~nodes ~new_addresses =
     { by_id =
         Int.Map.of_alist_reduce
           (List.map structures ~f:(fun (structure : Replay.Structure.t) ->
@@ -47,12 +52,24 @@ module Context = struct
           (List.map structures ~f:(fun (structure : Replay.Structure.t) ->
              structure.address, structure))
           ~f:(fun first (_ : Replay.Structure.t) -> first)
+    ; nodes
     ; drawn = Int.Hash_set.create ()
+    ; drawn_nodes = Int.Hash_set.create ()
     ; new_addresses
     }
   ;;
 
-  let resolve t (block : Snapshot.Block.t) =
+  (* an [Id] names a node the dump defined earlier — sometimes a tracked
+     structure's root, sometimes a shared payload block *)
+  let node t (block : Snapshot.Block.t) =
+    match block with
+    | Id id -> Replay.Nodes.find t.nodes id
+    | Address _ | Int _ | Float _ | String _ | Int32 _ | Int64 _
+    | Nativeint _ | Float_array _ ->
+      None
+  ;;
+
+  let structure t (block : Snapshot.Block.t) =
     match block with
     | Id id -> Map.find t.by_id id
     | Address _ | Int _ | Float _ | String _ | Int32 _ | Int64 _
@@ -90,6 +107,10 @@ module Edge = struct
     | Nil (** an empty interior slot *)
     | Child of Snapshot.Node.t * Mode.t
     | Ref of Replay.Structure.t
+    (** a tracked structure reached through a reference *)
+    | Shared of int
+    (** a node already drawn elsewhere on this canvas: the wire shares it, so
+        the canvas points at it rather than drawing it twice *)
 end
 
 let node_edges
@@ -106,13 +127,25 @@ let node_edges
     | Some child -> Some (Edge.Child (child, mode))
     | None -> None
   in
+  (* An [Id] leaf names a node the dump defined earlier. If it is a tracked
+     structure's root, its whole tree links in here; otherwise it is a shared
+     block, which draws here the first time and points back every time after.
+     Either way the slot stops printing as a value. *)
   let claim_reference block =
-    match Context.resolve context block with
-    | Some (structure : Replay.Structure.t)
-      when not (Hash_set.mem context.drawn structure.id) ->
-      Hash_set.add context.drawn structure.id;
-      Some (Edge.Ref structure)
-    | Some _ | None -> None
+    match Context.structure context block with
+    | Some (structure : Replay.Structure.t) ->
+      (match Hash_set.mem context.drawn structure.id with
+       | false ->
+         Hash_set.add context.drawn structure.id;
+         Some (Edge.Ref structure)
+       | true -> Some (Edge.Shared structure.id))
+    | None ->
+      (match Context.node context block with
+       | None -> None
+       | Some (definition : Snapshot.Node.t) ->
+         (match Hash_set.mem context.drawn_nodes definition.id with
+          | false -> Some (Edge.Child (definition, Mode.Payload))
+          | true -> Some (Edge.Shared definition.id)))
   in
   (* labeled edges in field order; anything the summary should not print (a
      slot drawn as an edge) lands in [hidden] *)
@@ -131,6 +164,16 @@ let node_edges
               | None -> edges, hidden)
            | Some (Snapshot.Block.Int 0) ->
              (label, Edge.Nil) :: edges, label :: hidden
+           | Some (Snapshot.Block.Id id as block) ->
+             (* a shared interior slot: the subtree lives under that id *)
+             let edge =
+               match Context.node context block with
+               | Some definition
+                 when not (Hash_set.mem context.drawn_nodes definition.id) ->
+                 Edge.Child (definition, Mode.Ds (Mode.deeper layers))
+               | Some _ | None -> Edge.Shared id
+             in
+             (label, edge) :: edges, label :: hidden
            | Some (_ : Snapshot.Block.t) -> edges, hidden)
         | false, true ->
           (match block_value label with
@@ -466,7 +509,7 @@ let rec tree
       List.for_all edges ~f:(fun ((_ : string), edge) ->
         match edge with
         | Edge.Nil -> true
-        | Edge.Child _ | Edge.Ref _ -> false)
+        | Edge.Child _ | Edge.Ref _ | Edge.Shared _ -> false)
     with
     | true -> []
     | false -> edges
@@ -480,6 +523,7 @@ let rec tree
   let leaf_box ~hidden_count =
     node_box node ~mode ~hidden_labels ~context ~fold_glyph ~hidden_count
   in
+  Hash_set.add context.drawn_nodes node.id;
   match edges with
   | [] ->
     let box = leaf_box ~hidden_count:0 in
@@ -510,6 +554,12 @@ let rec tree
         match edge with
         | Edge.Nil ->
           label, (View.text ~attrs:(Theme.fg' Theme.faint) "∅", 0, [], [])
+        | Edge.Shared id ->
+          (* the node is on the canvas already — say which one *)
+          let stub =
+            View.text ~attrs:(Theme.fg' Theme.muted) [%string "↗ #%{id#Int}"]
+          in
+          label, (stub, View.width stub / 2, [], [])
         | Edge.Child (child, mode) ->
           ( label
           , tree
@@ -561,6 +611,7 @@ let rec tree
               , (_ : Toggle.t list) )
             -> List.length placed)
     in
+    Hash_set.add context.drawn_nodes node.id;
     let box = leaf_box ~hidden_count in
     (* geometry always follows the unfolded card, so folding (whose ⋯ tag can
        widen the border) never moves the card's center *)
@@ -704,13 +755,13 @@ let structure_header (structure : Replay.Structure.t) ~folded =
    fold hides it), a breathing row. A structure referenced from another one
    is drawn inside its referrer's tree instead of as its own section — the
    registry still decides what is alive, only the placement moves. *)
-let layout ~structures ~new_addresses ~folds =
-  let context = Context.create ~structures ~new_addresses in
+let layout ~structures ~nodes ~new_addresses ~folds =
+  let context = Context.create ~structures ~nodes ~new_addresses in
   let referenced =
     let rec walk (owner : Replay.Structure.t) (node : Snapshot.Node.t) acc =
       let acc =
         List.fold node.block ~init:acc ~f:(fun acc ((_ : string), block) ->
-          match Context.resolve context block with
+          match Context.structure context block with
           | Some (target : Replay.Structure.t) when target.id <> owner.id ->
             Set.add acc target.id
           | Some _ | None -> acc)
@@ -798,9 +849,9 @@ let clamp_scroll canvas ~height ~scroll =
     (Int.max 0 (View.height canvas - (height - Panel.header_height)))
 ;;
 
-let view ~width ~height ~structures ~new_addresses ~folds ~scroll =
+let view ~width ~height ~structures ~nodes ~new_addresses ~folds ~scroll =
   let canvas, (_ : Placed.t list), (_ : Toggle.t list) =
-    layout ~structures ~new_addresses ~folds
+    layout ~structures ~nodes ~new_addresses ~folds
   in
   let scroll = clamp_scroll canvas ~height ~scroll in
   let fresh = Set.length new_addresses in
@@ -815,9 +866,9 @@ let view ~width ~height ~structures ~new_addresses ~folds ~scroll =
   Panel.view ~title:"heap" ~meta ~width ~height (View.crop ~t:scroll canvas)
 ;;
 
-let toggle_at ~structures ~new_addresses ~folds ~scroll ~height ~x ~y =
+let toggle_at ~structures ~nodes ~new_addresses ~folds ~scroll ~height ~x ~y =
   let canvas, (_ : Placed.t list), toggles =
-    layout ~structures ~new_addresses ~folds
+    layout ~structures ~nodes ~new_addresses ~folds
   in
   let scroll = clamp_scroll canvas ~height ~scroll in
   let y = y + scroll in
@@ -826,9 +877,10 @@ let toggle_at ~structures ~new_addresses ~folds ~scroll ~height ~x ~y =
   |> Option.map ~f:(fun (toggle : Toggle.t) -> toggle.fold)
 ;;
 
-let address_at ~structures ~new_addresses ~folds ~scroll ~height ~x ~y =
+let address_at ~structures ~nodes ~new_addresses ~folds ~scroll ~height ~x ~y
+  =
   let canvas, placed, (_ : Toggle.t list) =
-    layout ~structures ~new_addresses ~folds
+    layout ~structures ~nodes ~new_addresses ~folds
   in
   let scroll = clamp_scroll canvas ~height ~scroll in
   List.find placed ~f:(Placed.contains ~x ~y:(y + scroll))

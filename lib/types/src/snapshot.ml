@@ -144,11 +144,17 @@ end
 
 module Node = struct
   type t =
-    { virtual_address : Address.t
+    { id : int
+    ; virtual_address : Address.t
     ; block : (string * Block.t) list
     ; children : t list
     }
   [@@deriving sexp, bin_io, compare, equal]
+
+  (* the wire dumps a re-observed immutable structure as its id, its current
+     address, and nothing else — the shape is whatever that id was defined as
+     earlier in the dump *)
+  let is_revisit_stub t = List.is_empty t.block && List.is_empty t.children
 end
 
 type t =
@@ -159,6 +165,7 @@ type t =
 
 let empty =
   { ds_type = Ds_type.Map
-  ; root_node = { Node.virtual_address = 0n; block = []; children = [] }
+  ; root_node =
+      { Node.id = 0; virtual_address = 0n; block = []; children = [] }
   }
 ;;
