@@ -20,60 +20,39 @@ let horizontal_rule ~width ~color =
   View.text ~attrs:(Theme.fg' color) (repeat "─" ~width)
 ;;
 
-let inner_width ~width = max 0 (width - 4)
+let vertical_rule ~height ~color =
+  View.vcat
+    (List.init (max 0 height) ~f:(fun (_ : int) ->
+       View.text ~attrs:(Theme.fg' color) "│"))
+;;
 
-let view ?(strong = false) ~title ~meta ~width ~height body =
-  let border_color =
-    match strong with true -> Theme.border_strong | false -> Theme.border
-  in
-  let border_attrs = Theme.fg' border_color in
+let header_height = 1
+let inner_width ~width = max 0 (width - 2)
+
+let view ~title ~meta ~width ~height body =
   let title_view =
     View.text ~attrs:[ Theme.fg Theme.secondary ] (String.uppercase title)
   in
   let meta_view = View.text ~attrs:(Theme.fg' Theme.faint) meta in
-  let fill =
-    max 0 (width - View.width title_view - View.width meta_view - 6)
+  let gap =
+    max 1 (width - View.width title_view - View.width meta_view - 2)
   in
-  let top =
+  let header =
     View.hcat
-      [ View.text ~attrs:border_attrs "┌ "
+      [ View.text " "
       ; title_view
-      ; View.text ~attrs:border_attrs (" " ^ repeat "─" ~width:fill)
-      ; View.text " "
+      ; View.transparent_rectangle ~width:gap ~height:1
       ; meta_view
-      ; View.text ~attrs:border_attrs " ┐"
+      ; View.text " "
       ]
   in
-  let bottom =
-    View.hcat
-      [ View.text ~attrs:border_attrs "└"
-      ; horizontal_rule ~width:(max 0 (width - 2)) ~color:border_color
-      ; View.text ~attrs:border_attrs "┘"
-      ]
+  let body =
+    View.pad
+      ~l:1
+      (fit body ~width:(inner_width ~width) ~height:(height - header_height))
   in
-  let side =
-    View.vcat
-      (List.init
-         (max 0 (height - 2))
-         ~f:(fun _ -> View.text ~attrs:border_attrs "│"))
-  in
-  let padded_body =
-    View.pad ~l:1 (fit body ~width:(inner_width ~width) ~height:(height - 2))
-  in
-  let framed =
-    View.vcat
-      [ fit top ~width ~height:1
-      ; View.hcat
-          [ side
-          ; fit padded_body ~width:(width - 2) ~height:(height - 2)
-          ; side
-          ]
-      ; bottom
-      ]
-  in
-  View.with_colors'
-    ~fill_backdrop:true
-    ~fg:Theme.text
-    ~bg:Theme.panel_bg
-    (fit framed ~width ~height)
+  View.zcat
+    [ fit (View.vcat [ fit header ~width ~height:1; body ]) ~width ~height
+    ; View.rectangle ~attrs:[ Attr.bg Theme.panel_bg ] ~width ~height ()
+    ]
 ;;

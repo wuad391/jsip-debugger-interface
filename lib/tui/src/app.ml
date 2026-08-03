@@ -250,6 +250,22 @@ let render
              ~new_addresses
              ~folds:model.heap_folds
              ~scroll:model.heap_scroll)
+      ; (* where the two dividers meet *)
+        View.pad
+          ~l:layout.column_divider.x
+          ~t:layout.row_divider.y
+          (View.text ~attrs:(Theme.fg' Theme.border) "┤")
+      ; View.pad
+          ~l:layout.column_divider.x
+          ~t:layout.column_divider.y
+          (Panel.vertical_rule
+             ~height:layout.column_divider.height
+             ~color:Theme.border)
+      ; View.pad
+          ~t:layout.row_divider.y
+          (Panel.horizontal_rule
+             ~width:layout.row_divider.width
+             ~color:Theme.border)
       ; View.pad
           ~t:layout.session.y
           (Session_bar.view
@@ -305,7 +321,7 @@ let render
               ~live
               ~selected
               ~folds:model.stack_folds
-              ~x:(max 0 (x - 1))
+              ~x
               ~row:y
             |> Option.map ~f:(fun target ->
               match (target : Stack_pane.Target.t) with
@@ -323,7 +339,7 @@ let render
                  ~active_line:(Location.line_number location)
                  ~callsite_line
                  ~char_range:(Location.char_range location)
-                 ~x:(max 0 (x - 1))
+                 ~x
                  ~y
                |> Option.map ~f:(fun line ->
                  act

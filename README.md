@@ -11,35 +11,36 @@ the source position, and the allocated data structures evolve.
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells, its warm-gray
 palette re-pitched for dark terminals — selection and position in one
-bright blue across all panes:
+bright blue across all panes, and no boxes — single dividers split the
+screen into panes:
 
 ```
- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ █████████████████ █████████████████ █████████████████ █████████████████ █████████████████
+ █████████████████ █████████████████ █████████████████ █████████████████ █████████████████
                                               ◂ back  ·  step ▸  ·  [space] play  ·  q quit
-┌ CALL STACK ────────────── 3 calls · 1 live ┐┌ HEAP ──────────── 2 live · 3 nodes · 2 new ┐
-│    M.add "a" 1 m            map_basic.ml:7 ││ ▾ m · map ⟨string ⇒ int⟩                   │
-│ ▎  M.add "b" 2 m            map_basic.ml:8 ││  ┌ m ─────────────┐                        │
-│    M.remove "a" m           map_basic.ml:9 ││  │ "a" ↦ 1        │                        │
-│                                            ││  │ 0x79c43b7f24c8 │                        │
-│                                            ││  └────────────────┘                        │
-│                                            ││                                            │
-│                                            ││ ▾ m · map ⟨string ⇒ int⟩                   │
-│                                            ││ ▾┌ m ──────── new ┐                        │
-│                                            ││  │ "a" ↦ 1        │                        │
-│                                            ││  │ 0x79c43b7eebe8 │                        │
-└────────────────────────────────────────────┘│  └────────────────┘                        │
-┌ SOURCE ─────────── map_basic.ml · 10 lines ┐│    ┌─────┴──────┐                          │
-│            [ignore] don't. *)              ││    l            r                          │
-│  ▾  3 module M = Map.Make (String)         ││    ∅    ┌─────────── new ┐                 │
-│     4                                      ││         │ "b" ↦ 2        │                 │
-│  ▾  5 let () =                             ││         │ 0x79c43b7eec18 │                 │
-│     6   let m = M.empty in                 ││         └────────────────┘                 │
-│     7   let m = M.add "a" 1 m in           ││                                            │
-│ ▎   8   let m = M.add "b" 2 m in           ││                                            │
-│     9   let m = M.remove "a" m in          ││                                            │
-│    10   ignore (M.find "b" m)              ││                                            │
-└────────────────────────────────────────────┘└────────────────────────────────────────────┘
- ● ocaml-debug │ map_basic.dump │ map ⟨string ⇒ int⟩ · replay
+
+
+ CALL STACK                 5 calls · 2 live │ HEAP                3 live · 4 nodes · 1 new
+      M.add "b" 2 M.empty      map_fold.ml:8 │ ▾ #1 · map ⟨string ⇒ int⟩
+  ▾ M.add "a" 1 (M.add "b" 2   map_fold.ml:8 │  ┌ #1 ────────────┐
+      M.empty)                               │  │ "b" ↦ 2        │
+ ▎    M.add k (v * 2) acc     map_fold.ml:12 │  │ 0x7235beff24c8 │
+      M.add k (v * 2) acc     map_fold.ml:12 │  └────────────────┘
+    M.fold (fun k v acc ->    map_fold.ml:10 │
+      M.add k (v * 2) acc) m M.empty         │ ▾ m · map ⟨string ⇒ int⟩
+                                             │       ▾┌ m ─────────────┐
+                                             │        │ "b" ↦ 2        │
+                                             │        │ 0x7235befeec78 │
+─────────────────────────────────────────────┤        └────────────────┘
+ SOURCE               map_fold.ml · 15 lines │          ┌─────┴──────┐
+     9   let doubled =                       │          l            r
+    10     M.fold                            │  ┌────────────────┐   ∅
+    11       (fun k v acc ->                 │  │ "a" ↦ 1        │
+ ▎  12         M.add k (v * 2) acc)          │  │ 0x7235befeeca8 │
+    13       m M.empty                       │  └────────────────┘
+    14   in                                  │
+    15   ignore (M.find "a" doubled)         │ ▾ #3 · map ⟨string ⇒ int⟩
+ ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay
 ```
 
 - **Call stack** — every call in the run, indented by depth: the current
@@ -73,15 +74,15 @@ bright blue across all panes:
   hashtbl's record → bucket array → chains included; closures and other
   undecoded blocks print as `⟨0x…⟩`. Each structure is drawn like a CS
   tree diagram:
-  blue-outlined node cards (the structure's name riding the border's top
-  left, the node's meaning over its full address), a
+  blue-outlined node cards (the structure's name in white riding the
+  border's top left, the node's meaning over its full address), a
   parent centered above its children, siblings sharing a level under a
   labeled rail, `∅` where an interior slot is empty. Cards allocated *at
   this step* carry a green `new` tag in the border's top right. Clicking
   a card jumps the replay to the step that allocated it; the wheel
   scrolls.
-- **Transport** — across the top: one tick per event (click to jump)
-  over the controls, right-aligned chips that double as the key legend —
+- **Transport** — across the top: a tall bar with one tick per event
+  (click to jump) over the controls, right-aligned chips that double as the key legend —
   `◂ back · step ▸ · [space] play · q quit` — every chip clickable. The
   session bar (dump name, structure) sits along the bottom.
 

@@ -325,14 +325,13 @@ let view
     | Error _ -> "missing"
   in
   Panel.view
-    ~strong:true
     ~title:"source"
     ~meta:[%string "%{file_label} · %{lines_label}"]
     ~width
     ~height
     (body
        ~width:(Panel.inner_width ~width)
-       ~height:(height - 2)
+       ~height:(height - Panel.header_height)
        ~source
        ~folds
        ~active_line
@@ -355,7 +354,7 @@ let toggle_at
   | Error (_ : Error.t) -> None
   | Ok loaded ->
     let width = Panel.inner_width ~width in
-    let height = height - 2 in
+    let height = height - Panel.header_height in
     let visual =
       visual_lines
         ~width

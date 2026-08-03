@@ -198,7 +198,7 @@ let scroll_offset rows ~height ~calls ~live ~selected ~folds =
 
 let view ~width ~height ~calls ~live ~selected ~folds =
   let inner_width = Panel.inner_width ~width in
-  let inner_height = height - 2 in
+  let inner_height = height - Panel.header_height in
   let rows = rows ~width:inner_width ~calls ~live ~selected ~folds in
   let offset =
     scroll_offset rows ~height:inner_height ~calls ~live ~selected ~folds
@@ -219,7 +219,7 @@ let view ~width ~height ~calls ~live ~selected ~folds =
 
 let target_at ~width ~height ~calls ~live ~selected ~folds ~x ~row =
   let inner_width = Panel.inner_width ~width in
-  let inner_height = height - 2 in
+  let inner_height = height - Panel.header_height in
   let rows = rows ~width:inner_width ~calls ~live ~selected ~folds in
   let offset =
     scroll_offset rows ~height:inner_height ~calls ~live ~selected ~folds

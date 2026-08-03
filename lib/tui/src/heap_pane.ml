@@ -312,10 +312,12 @@ let node_box
     match root_structure with
     | None -> View.none
     | Some structure ->
+      (* the name reads as the card's label, not as chrome — white, and bold
+         for the structure this step walked *)
       let attrs =
         match structure.is_current with
-        | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
-        | false -> Theme.fg' Theme.muted
+        | true -> [ Theme.fg Theme.text; Attr.bold ]
+        | false -> Theme.fg' Theme.text
       in
       View.text ~attrs [%string " %{Replay.Structure.display structure} "]
   in
@@ -791,7 +793,9 @@ let count_nodes structures =
 ;;
 
 let clamp_scroll canvas ~height ~scroll =
-  Int.min scroll (Int.max 0 (View.height canvas - (height - 2)))
+  Int.min
+    scroll
+    (Int.max 0 (View.height canvas - (height - Panel.header_height)))
 ;;
 
 let view ~width ~height ~structures ~new_addresses ~folds ~scroll =

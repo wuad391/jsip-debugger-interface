@@ -1,8 +1,8 @@
 (** The transport strip across the top: tick timeline and the controls.
 
-    Two rows — the per-step tick bar (past dimmed to the same hue, current in
-    the highlight blue, future hairline; clickable to jump) over the
-    controls: right-aligned chips, each naming its key ([◂ back], [step ▸],
+    A tall per-step tick bar (past dimmed to the same hue, current in the
+    highlight blue, future hairline; clickable to jump) over the controls:
+    right-aligned chips, each naming its key ([◂ back], [step ▸],
     [[space] play], [q quit]) — the row is simultaneously the buttons and the
     entire key legend, and every chip is clickable. *)
 
@@ -18,7 +18,7 @@ module Button : sig
   [@@deriving sexp_of, equal]
 end
 
-(** Two rows tall. [step] is 0-based. *)
+(** [Layout.tick_height + 1] rows tall. [step] is 0-based. *)
 val view : width:int -> step:int -> total:int -> playing:bool -> View.t
 
 (** Which step a click at column [x] of the tick row jumps to. *)

@@ -40,21 +40,26 @@ let bar ~cell_width =
   let gap = cell_width > 2 in
   String.concat
     (List.init cell_width ~f:(fun i ->
-       match gap && i = cell_width - 1 with true -> " " | false -> "━"))
+       match gap && i = cell_width - 1 with true -> " " | false -> "█"))
 ;;
 
+(* the bar stands [Layout.tick_height] rows tall, so progress through the run
+   reads at a glance rather than as a hairline *)
 let ticks ~width ~step ~total =
-  let views =
-    List.map (tick_cells ~width ~total) ~f:(fun (cell_step, cell_width) ->
-      let color =
-        match Ordering.of_int (compare cell_step step) with
-        | Equal -> Theme.highlight
-        | Less -> Theme.tick_past
-        | Greater -> Theme.hairline
-      in
-      View.text ~attrs:(Theme.fg' color) (bar ~cell_width))
+  let row =
+    let views =
+      List.map (tick_cells ~width ~total) ~f:(fun (cell_step, cell_width) ->
+        let color =
+          match Ordering.of_int (compare cell_step step) with
+          | Equal -> Theme.highlight
+          | Less -> Theme.tick_past
+          | Greater -> Theme.hairline
+        in
+        View.text ~attrs:(Theme.fg' color) (bar ~cell_width))
+    in
+    Panel.fit (View.hcat (View.text " " :: views)) ~width ~height:1
   in
-  Panel.fit (View.hcat (View.text " " :: views)) ~width ~height:1
+  View.vcat (List.init Layout.tick_height ~f:(fun (_ : int) -> row))
 ;;
 
 (* The chips, right-aligned. Each chip names its key, so the row is both the
