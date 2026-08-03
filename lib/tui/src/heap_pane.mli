@@ -13,6 +13,11 @@
     [Queue.add m q] runs, the map's tree hangs off the queue cell's [v→]
     edge.
 
+    Structures tile the pane in three columns rather than stacking in one:
+    each drops into the shortest run of columns wide enough to hold it, and a
+    tree too wide for one column claims the neighbours it needs. Two versions
+    of a map side by side is the comparison this pane exists to make.
+
     Any node folds: a [▾]/[▸] glyph sits in the column before each card with
     something below it (and before each section header); clicking the glyph
     folds that card's children away behind a [⋯ n hidden] border tag — the
@@ -29,6 +34,11 @@
     step carries a green [new] tag riding the border's top right, and a
     folded card says how many nodes it hides below itself.
 
+    An edge into a card the canvas already drew is a card too — dashed, and
+    named by what that card holds rather than by the wire's node number, so a
+    shared subtree reads [↗ "b" → 2] and not [↗ #11]. It answers to the same
+    address as its target, so picking either one picks both out.
+
     Two of the cards are picked out (see {!Selection}): the selected one is
     blue and is the only card that spells out its address — twelve hex digits
     on every card set the whole diagram's width from a string nobody was
@@ -36,16 +46,16 @@
     else outlines in the calmer card blue.
 
     {v
-    ▾ m · map ⟨string ⇒ int⟩
-    ▾┌ m ──────────── new ┐
-     │ "a" → 1            │
-     │ 0x763be65ee878     │  ← selected: blue, and the address shows
-     └────────────────────┘
-      ┌─────────┴────────┐
-      l                  r
-      ∅        ▸┌ ───── new ┐
-                │ "b" → 2   │  ← orange while the cursor is here
-                └───────────┘
+    ▾ m · map ⟨string ⇒ int⟩            ▾ bigger · map ⟨string ⇒ int⟩
+    ▾┌ m ──────────── new ┐              ┌ bigger ┐
+     │ "a" → 1            │              │ "c" → 3│
+     │ 0x763be65ee878     │  ← selected  └────────┘
+     └────────────────────┘                ┌──┴──┐
+      ┌─────────┴────────┐                 l     r
+      l                  r             ┌┄ ↗ ┄┄┄┄┄┐
+    ┌┄┄┄┐      ▸┌ ───── new ┐          ┆ "b" → 2 ┆  ← the same node
+    ┆ ∅ ┆       │ "b" → 2   │  ← aimed └┄┄┄┄┄┄┄┄┄┘    as the card left
+    └┄┄┄┘       └───────────┘
                   ⋯ 2 hidden
     v} *)
 
@@ -71,13 +81,13 @@ end
 
     They coexist: [selected] stays blue while [cursor] moves in orange, so
     you can see where you came from and where [Enter] would take you.
-    Committing makes the cursor the selection and clears it.
+    Committing makes the cursor the selection and clears it. A [↗] pointer
+    shares the address of the card it points at, so both light up together.
 
     Both are geometry: the two picked-out cards are a row taller and several
     columns wider than the rest, being the only ones that spell out an
-    address. {!move_cursor} therefore reads the tree rather than the
-    drawing, so aiming does not depend on where the last press left the
-    picture. *)
+    address. {!move_cursor} therefore reads the tree rather than the drawing,
+    so aiming does not depend on where the last press left the picture. *)
 module Selection : sig
   type t =
     { selected : Snapshot.Address.t option
@@ -112,14 +122,16 @@ val view
     selection). The cursor walks the tree rather than the picture: [Up] and
     [Down] climb to a card's parent and descend to its first child, [Left]
     and [Right] run along the layer it sits on — cousins included, since a
-    layer is a depth in one tree, not one parent's children. Empty slots and
-    [↗ #n] pointers place no card and so are skipped.
+    layer is a depth in one tree, not one parent's children. Empty slots
+    place no card and so are skipped; a [↗] pointer places one wearing its
+    target's address, so aiming at it aims at that card.
 
-    Structures stack down the canvas, so the ends join up: [Up] from a root
-    climbs to the tree above it, [Down] from a leaf drops into the one below.
+    Structures are the outermost layer: from a root [Left]/[Right] step to
+    the structure beside it and [Up] to the one before it, and [Down] off a
+    leaf falls through to the structure after.
 
     [None] when nothing lies that way; with no cursor and no selection, the
-    first tree's root, so the first keypress always lands somewhere. *)
+    first structure's root, so the first keypress always lands somewhere. *)
 val move_cursor
   :  structures:Replay.Structure.t list
   -> nodes:Replay.Nodes.t
@@ -128,17 +140,6 @@ val move_cursor
   -> selection:Selection.t
   -> direction:Direction.t
   -> Snapshot.Address.t option
-
-(** Where a card sits on the canvas — its top row and height, before
-    scrolling — so the app can bring the cursor into view. *)
-val row_of
-  :  structures:Replay.Structure.t list
-  -> nodes:Replay.Nodes.t
-  -> new_addresses:Snapshot.Address.Set.t
-  -> folds:Set.M(Fold).t
-  -> selection:Selection.t
-  -> Snapshot.Address.t
-  -> (int * int) option
 
 (** The fold glyph a click at pane-body position [(x, y)] hits, mirroring
     [view]'s layout and scrolling. Checked before {!address_at}: glyph cells
@@ -150,6 +151,7 @@ val toggle_at
   -> folds:Set.M(Fold).t
   -> scroll:int
   -> selection:Selection.t
+  -> width:int
   -> height:int
   -> x:int
   -> y:int
@@ -165,6 +167,7 @@ val address_at
   -> folds:Set.M(Fold).t
   -> scroll:int
   -> selection:Selection.t
+  -> width:int
   -> height:int
   -> x:int
   -> y:int

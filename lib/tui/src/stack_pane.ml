@@ -71,20 +71,15 @@ let rows ~width ~calls ~live ~selected ~folds ~cursor =
         | false, true -> Some Theme.highlight_bg
         | false, false -> None
       in
-      let fn_attrs, args_color, loc_color =
+      let fn_attrs, args_color =
         match is_cursor, live_index, is_selected with
         | true, _, _ ->
-          ( [ Theme.fg Theme.cursor_deep; Attr.bold ]
-          , Theme.secondary
-          , Theme.faint )
+          [ Theme.fg Theme.cursor_deep; Attr.bold ], Theme.secondary
         | false, (Some _ | None), true ->
-          ( [ Theme.fg Theme.highlight_deep; Attr.bold ]
-          , Theme.secondary
-          , Theme.faint )
+          [ Theme.fg Theme.highlight_deep; Attr.bold ], Theme.secondary
         | false, Some _, false ->
-          [ Theme.fg Theme.text; Attr.bold ], Theme.secondary, Theme.faint
-        | false, None, false ->
-          [ Theme.fg Theme.ghost ], Theme.ghost, Theme.ghost
+          [ Theme.fg Theme.text; Attr.bold ], Theme.secondary
+        | false, None, false -> [ Theme.fg Theme.ghost ], Theme.ghost
       in
       let indent = 2 * (call.info.depth - 1) in
       let folded = Set.mem folds step in
@@ -105,14 +100,15 @@ let rows ~width ~calls ~live ~selected ~folds ~cursor =
         | true -> [ `Hidden, [%string " ⋯ %{descendants calls step#Int}"] ]
         | false -> []
       in
-      let location = Location.display call.info.location in
-      (* the first line leaves room for the location chip and a gap; the
-         continuations only for their own two-space indent *)
+      (* the row is the call and nothing else: where it was written is
+         already on screen, highlighted, in the source pane below — a
+         [file.ml:line] chip on every row said it a second time and cost the
+         column a third of its width *)
       let available = width - 1 - indent - 2 in
       let wrapped =
         Wrap.spans
           ([ `Fn, fn; `Args, [%string " %{args}"] ] @ hidden_note)
-          ~first_width:(max 8 (available - String.length location - 2))
+          ~first_width:(max 8 available)
           ~width:(max 8 (available - 2))
       in
       let bar =
@@ -141,19 +137,7 @@ let rows ~width ~calls ~live ~selected ~folds ~cursor =
               ]
             | _ -> [ bar; View.text (String.make (indent + 4) ' ') ]
           in
-          let left = View.hcat (lead @ List.map spans ~f:render_span) in
-          let line =
-            match line_index with
-            | 0 ->
-              let right = View.text ~attrs:(Theme.fg' loc_color) location in
-              let gap = max 1 (width - View.width left - View.width right) in
-              View.hcat
-                [ left
-                ; View.transparent_rectangle ~width:gap ~height:1
-                ; right
-                ]
-            | _ -> left
-          in
+          let line = View.hcat (lead @ List.map spans ~f:render_span) in
           let line = Panel.fit line ~width ~height:1 in
           match bg with
           | Some bg -> View.with_colors' ~fill_backdrop:true ~bg line

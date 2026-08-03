@@ -50,6 +50,10 @@ module Placed = struct
     ; address : Snapshot.Address.t
     ; depth : int (** card rows between this one and its tree's root *)
     ; parent : Snapshot.Address.t option (** [None] on a section's root *)
+    ; is_stub : bool
+    (** a [↗] pointer at a card drawn elsewhere. It answers to the address of
+        the card it points at, so picking either one lights up both — but the
+        card itself is the one the cursor navigates from. *)
     }
 
   let contains t ~x ~y =
@@ -58,6 +62,21 @@ module Placed = struct
 
   let shift t ~dx ~dy = { t with x = t.x + dx; y = t.y + dy }
 end
+
+(* Two cards can answer to one address, because a pointer wears the address
+   of what it points at. Anything asking where an address {i is} wants the
+   card, not the pointer. *)
+let card_at placed address =
+  let matching =
+    List.filter placed ~f:(fun (card : Placed.t) ->
+      Snapshot.Address.equal card.address address)
+  in
+  match
+    List.find matching ~f:(fun (card : Placed.t) -> not card.is_stub)
+  with
+  | Some card -> Some card
+  | None -> List.hd matching
+;;
 
 (* everything reference-following needs while a step's canvas is drawn: the
    registry, and which structures are already on it. Only [Id] blocks
@@ -144,14 +163,22 @@ let pretty_label ~ds_type ~(layer : Layer.t) label =
 
 (* one node's outgoing edges and inline fields, by the layer contract *)
 module Edge = struct
+  (* a node already drawn elsewhere on this canvas: the wire shares it, so
+     the canvas points at it rather than drawing it twice. The pointer
+     carries enough to name what it points at the way that card does — the
+     node the id defines, and the mode this slot would have read it in. *)
+  type shared =
+    { id : int
+    ; node : Snapshot.Node.t option
+    ; mode : Mode.t
+    }
+
   type t =
     | Nil (** an empty interior slot *)
     | Child of Snapshot.Node.t * Mode.t
     | Ref of Replay.Structure.t
     (** a tracked structure reached through a reference *)
-    | Shared of int
-    (** a node already drawn elsewhere on this canvas: the wire shares it, so
-        the canvas points at it rather than drawing it twice *)
+    | Shared of shared
 end
 
 let node_edges
@@ -179,14 +206,28 @@ let node_edges
        | false ->
          Hash_set.add context.drawn structure.id;
          Some (Edge.Ref structure)
-       | true -> Some (Edge.Shared structure.id))
+       | true ->
+         Some
+           (Edge.Shared
+              { id = structure.id
+              ; node = Some structure.snapshot.root_node
+              ; mode =
+                  Mode.Ds
+                    (Snapshot.Ds_type.layers structure.snapshot.ds_type)
+              }))
     | None ->
       (match Context.node context block with
        | None -> None
        | Some (definition : Snapshot.Node.t) ->
          (match Hash_set.mem context.drawn_nodes definition.id with
           | false -> Some (Edge.Child (definition, Mode.Payload))
-          | true -> Some (Edge.Shared definition.id)))
+          | true ->
+            Some
+              (Edge.Shared
+                 { id = definition.id
+                 ; node = Some definition
+                 ; mode = Mode.Payload
+                 })))
   in
   (* labeled edges in field order; anything the summary should not print (a
      slot drawn as an edge) lands in [hidden] *)
@@ -212,7 +253,12 @@ let node_edges
                | Some definition
                  when not (Hash_set.mem context.drawn_nodes definition.id) ->
                  Edge.Child (definition, Mode.Ds (Mode.deeper layers))
-               | Some _ | None -> Edge.Shared id
+               | Some _ | None ->
+                 Edge.Shared
+                   { id
+                   ; node = Context.node context block
+                   ; mode = Mode.Ds (Mode.deeper layers)
+                   }
              in
              (label, edge) :: edges, label :: hidden
            | Some (_ : Snapshot.Block.t) -> edges, hidden)
@@ -512,6 +558,125 @@ let nil_box =
     ]
 ;;
 
+(* what the card over there is showing, so a pointer at it names the same
+   thing it does. Interior edges are that card's business, not the pointer's,
+   so only the payload survives — for a map node, its binding. *)
+let shared_spans (node : Snapshot.Node.t) ~(mode : Mode.t) =
+  let hidden_labels =
+    match mode with
+    | Mode.Ds (Fixed { labels; interior; payload } :: _) ->
+      List.filter labels ~f:(fun label ->
+        List.mem interior label ~equal:String.equal
+        || not (List.mem payload label ~equal:String.equal))
+    | Mode.Ds (Array_elements :: _) | Mode.Ds [] | Mode.Payload -> []
+  in
+  summary_spans node ~mode ~hidden_labels
+;;
+
+(* A card the canvas has already drawn, pointed at rather than drawn twice —
+   which is the whole point of a persistent structure: [bigger] and [m] share
+   two subtrees, and redrawing them would bury the one fact worth seeing.
+
+   The pointer is a card too, dashed to say it is not the original, and it
+   names its target by what that card holds rather than by the wire's node
+   number: [↗ "b" → 2] names something on screen, [↗ #11] names nothing. It
+   answers to the target's address, so choosing or aiming at either the
+   pointer or the card lights up both, in blue or orange to match.
+   {v
+   ┌┄ ↗ ┄┄┄┄┄┄┄┐
+   ┆ "b" → 2   ┆
+   └┄┄┄┄┄┄┄┄┄┄┄┘
+   v} *)
+let shared_box
+  (target : Snapshot.Node.t option)
+  ~id
+  ~mode
+  ~(context : Context.t)
+  =
+  let picked f =
+    match target with
+    | None -> false
+    | Some (node : Snapshot.Node.t) ->
+      f context.selection node.virtual_address
+  in
+  let is_selected = picked Selection.selects in
+  let is_cursor = picked Selection.aims_at in
+  let border =
+    Theme.fg'
+      (match is_cursor, is_selected with
+       | true, _ -> Theme.cursor
+       | false, true -> Theme.highlight
+       | false, false -> Theme.ghost)
+  in
+  let summary =
+    match target with
+    | Some node ->
+      View.hcat (List.map (shared_spans node ~mode) ~f:span_view)
+    | None -> View.text ~attrs:(Theme.fg' Theme.muted) [%string "#%{id#Int}"]
+  in
+  (* the arrow rides the border where a card's name does, and reads like one
+     where the pointer is picked out *)
+  let arrow =
+    let attrs =
+      match is_selected || is_cursor with
+      | true -> [ Theme.fg Theme.text; Attr.bold ]
+      | false -> Theme.fg' Theme.muted
+    in
+    View.text ~attrs " ↗ "
+  in
+  (* a picked pointer spells the address out for the same reason a picked
+     card does — and here it is the whole argument: two boxes wearing one
+     address are one object drawn twice *)
+  let address =
+    match is_selected || is_cursor with
+    | false -> None
+    | true ->
+      Option.map target ~f:(fun (node : Snapshot.Node.t) ->
+        View.text
+          ~attrs:(Theme.fg' Theme.secondary)
+          (Snapshot.Address.display node.virtual_address))
+  in
+  let inner =
+    List.reduce_exn
+      ~f:Int.max
+      (View.width summary
+       :: (View.width arrow - 2)
+       :: List.map (Option.to_list address) ~f:View.width)
+  in
+  let content line =
+    View.hcat
+      [ View.text ~attrs:border "┆ "
+      ; Panel.fit line ~width:inner ~height:1
+      ; View.text ~attrs:border " ┆"
+      ]
+  in
+  let rows =
+    [ View.hcat
+        [ View.text ~attrs:border "┌"
+        ; arrow
+        ; View.text
+            ~attrs:border
+            (Panel.repeat "┄" ~width:(inner + 2 - View.width arrow))
+        ; View.text ~attrs:border "┐"
+        ]
+    ; content summary
+    ]
+    @ List.map (Option.to_list address) ~f:content
+    @ [ View.text
+          ~attrs:border
+          [%string "└%{Panel.repeat \"┄\" ~width:(inner + 2)}┘"]
+      ]
+  in
+  let card =
+    Panel.fit (View.vcat rows) ~width:(inner + 4) ~height:(List.length rows)
+  in
+  match is_cursor, is_selected with
+  | true, _ -> View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg card
+  | false, true ->
+    View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
+  | false, false -> card
+;;
+
 let sibling_gap = 3
 
 (* the ┌──┴──┐ rail between a parent and its children, hooks at each child's
@@ -618,6 +783,7 @@ let rec tree
         ; address = node.virtual_address
         ; depth
         ; parent
+        ; is_stub = false
         }
       ]
     , [] )
@@ -636,12 +802,26 @@ let rec tree
         in
         match edge with
         | Edge.Nil -> label, (nil_box, View.width nil_box / 2, [], [])
-        | Edge.Shared id ->
-          (* the node is on the canvas already — say which one *)
-          let stub =
-            View.text ~attrs:(Theme.fg' Theme.muted) [%string "↗ #%{id#Int}"]
+        | Edge.Shared { id; node = target; mode } ->
+          (* the node is on the canvas already — point at it, wearing its
+             address so that picking either end lights both up *)
+          let stub = shared_box target ~id ~mode ~context in
+          let placed =
+            match target with
+            | None -> []
+            | Some (target : Snapshot.Node.t) ->
+              [ { Placed.x = 0
+                ; y = 0
+                ; width = View.width stub
+                ; height = View.height stub
+                ; address = target.virtual_address
+                ; depth = depth + 1
+                ; parent = Some node.virtual_address
+                ; is_stub = true
+                }
+              ]
           in
-          label, (stub, View.width stub / 2, [], [])
+          label, (stub, View.width stub / 2, placed, [])
         | Edge.Child (child, mode) ->
           ( label
           , tree
@@ -733,6 +913,7 @@ let rec tree
       ; address = node.virtual_address
       ; depth
       ; parent
+      ; is_stub = false
       }
     in
     let box_toggles = [ { Toggle.x = 0; y = 0; fold } ] in
@@ -839,11 +1020,24 @@ let structure_header (structure : Replay.Structure.t) ~folded =
     ]
 ;;
 
-(* Every live structure, stacked: a header, its tree (unless the header's
-   fold hides it), a breathing row. A structure referenced from another one
-   is drawn inside its referrer's tree instead of as its own section — the
-   registry still decides what is alive, only the placement moves. *)
-let layout ~structures ~nodes ~new_addresses ~folds ~selection =
+(* one structure's block — its header row with its tree under it — measured
+   and positioned relative to its own top-left corner, so {!pack} can put it
+   anywhere *)
+module Section = struct
+  type t =
+    { view : View.t
+    ; width : int
+    ; height : int
+    ; placed : Placed.t list
+    ; toggles : Toggle.t list
+    }
+end
+
+(* Every live structure, in registry order: a header, and its tree unless the
+   header's fold hides it. A structure referenced from another one is drawn
+   inside its referrer's tree instead of getting a section — the registry
+   still decides what is alive, only the placement moves. *)
+let sections ~structures ~nodes ~new_addresses ~folds ~selection =
   let context =
     Context.create ~structures ~nodes ~new_addresses ~selection
   in
@@ -862,18 +1056,15 @@ let layout ~structures ~nodes ~new_addresses ~folds ~selection =
     List.fold structures ~init:Int.Set.empty ~f:(fun acc structure ->
       walk structure structure.Replay.Structure.snapshot.root_node acc)
   in
-  let section
-    (views, all_placed, all_toggles, y)
-    (structure : Replay.Structure.t)
-    =
+  let section (sections : Section.t list) (structure : Replay.Structure.t) =
     match Hash_set.mem context.drawn structure.id with
-    | true -> views, all_placed, all_toggles, y
+    | true -> sections
     | false ->
       Hash_set.add context.drawn structure.id;
       let folded = Set.mem folds (Fold.Structure structure.id) in
       let header = structure_header structure ~folded in
       let header_toggle =
-        { Toggle.x = 0; y; fold = Fold.Structure structure.id }
+        { Toggle.x = 0; y = 0; fold = Fold.Structure structure.id }
       in
       (* the tree lays out either way so its reference claims hold — a folded
          structure keeps what it references hidden with it *)
@@ -890,38 +1081,81 @@ let layout ~structures ~nodes ~new_addresses ~folds ~selection =
           ~depth:0
           ~parent:None
       in
-      (match folded with
-       | true ->
-         (* the header is the whole summary *)
-         ( View.pad ~t:y header :: views
-         , all_placed
-         , header_toggle :: all_toggles
-         , y + 2 )
-       | false ->
-         let views =
-           View.pad ~t:(y + 1) canvas :: View.pad ~t:y header :: views
-         in
-         let placed =
-           List.map placed ~f:(Placed.shift ~dx:0 ~dy:(y + 1)) @ all_placed
-         in
-         let toggles =
-           header_toggle
-           :: (List.map toggles ~f:(Toggle.shift ~dx:0 ~dy:(y + 1))
-               @ all_toggles)
-         in
-         views, placed, toggles, y + 1 + View.height canvas + 1)
+      let block =
+        match folded with
+        | true ->
+          (* the header is the whole summary *)
+          { Section.view = header
+          ; width = View.width header
+          ; height = 1
+          ; placed = []
+          ; toggles = [ header_toggle ]
+          }
+        | false ->
+          { Section.view = View.zcat [ View.pad ~t:1 canvas; header ]
+          ; width = Int.max (View.width header) (View.width canvas)
+          ; height = 1 + View.height canvas
+          ; placed = List.map placed ~f:(Placed.shift ~dx:0 ~dy:1)
+          ; toggles =
+              header_toggle :: List.map toggles ~f:(Toggle.shift ~dx:0 ~dy:1)
+          }
+      in
+      block :: sections
   in
   let top_level =
     List.filter structures ~f:(fun (structure : Replay.Structure.t) ->
       not (Set.mem referenced structure.id))
   in
-  let acc = List.fold top_level ~init:([], [], [], 0) ~f:section in
+  let acc = List.fold top_level ~init:[] ~f:section in
   (* mutually-referencing structures have no unreferenced root; anything
      still undrawn gets its own section after all *)
-  let views, placed, toggles, (_ : int) =
-    List.fold structures ~init:acc ~f:section
+  List.rev (List.fold structures ~init:acc ~f:section)
+;;
+
+let columns = 3
+let column_gap = 3
+let row_gap = 1
+
+(* Sections lay side by side rather than stacking in one column. A run
+   allocates many small structures and a few large ones, and a single column
+   spent most of a pane — now two thirds of the screen — on nothing: a map
+   beside the queue holding it beside the version one more [add] returned is
+   the comparison the pane exists to make.
+
+   They flow in registry order, up to [columns] to a row, and a section that
+   would not fit in what is left of a row starts the next one — so the
+   columns are as wide as the trees in them, and a tree wider than the pane
+   still gets a row to itself rather than being squeezed. Each row is as tall
+   as its tallest section. *)
+let pack sections ~body_width =
+  let place (views, all_placed, all_toggles, row) (section : Section.t) =
+    let x, y, row_height, count = row in
+    let starts_row =
+      count > 0 && (count >= columns || x + section.width > body_width)
+    in
+    let x, y, row_height, count =
+      match starts_row with
+      | true -> 0, y + row_height + row_gap, 0, 0
+      | false -> x, y, row_height, count
+    in
+    ( View.pad ~l:x ~t:y section.view :: views
+    , List.map section.placed ~f:(Placed.shift ~dx:x ~dy:y) @ all_placed
+    , List.map section.toggles ~f:(Toggle.shift ~dx:x ~dy:y) @ all_toggles
+    , ( x + section.width + column_gap
+      , y
+      , Int.max row_height section.height
+      , count + 1 ) )
+  in
+  let views, placed, toggles, (_ : int * int * int * int) =
+    List.fold sections ~init:([], [], [], (0, 0, 0, 0)) ~f:place
   in
   View.zcat views, placed, toggles
+;;
+
+let layout ~structures ~nodes ~new_addresses ~folds ~selection ~body_width =
+  pack
+    (sections ~structures ~nodes ~new_addresses ~folds ~selection)
+    ~body_width
 ;;
 
 let count_nodes structures =
@@ -943,10 +1177,7 @@ let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
   match selection.cursor with
   | None -> scroll
   | Some address ->
-    (match
-       List.find placed ~f:(fun (card : Placed.t) ->
-         Snapshot.Address.equal card.address address)
-     with
+    (match card_at placed address with
      | None -> scroll
      | Some card ->
        Int.max (card.y + card.height - body_height) (Int.min scroll card.y))
@@ -982,7 +1213,13 @@ let view
   ~selection
   =
   let canvas, placed, (_ : Toggle.t list) =
-    layout ~structures ~nodes ~new_addresses ~folds ~selection
+    layout
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~selection
+      ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   let fresh = Set.length new_addresses in
@@ -1004,12 +1241,19 @@ let toggle_at
   ~folds
   ~scroll
   ~selection
+  ~width
   ~height
   ~x
   ~y
   =
   let canvas, placed, toggles =
-    layout ~structures ~nodes ~new_addresses ~folds ~selection
+    layout
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~selection
+      ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   let y = y + scroll in
@@ -1025,23 +1269,32 @@ let address_at
   ~folds
   ~scroll
   ~selection
+  ~width
   ~height
   ~x
   ~y
   =
   let canvas, placed, (_ : Toggle.t list) =
-    layout ~structures ~nodes ~new_addresses ~folds ~selection
+    layout
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~selection
+      ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   List.find placed ~f:(Placed.contains ~x ~y:(y + scroll))
   |> Option.map ~f:(fun (placed : Placed.t) -> placed.address)
 ;;
 
+(* the cards as the sections built them — before packing, so their positions
+   are relative to their own structure. That is all the cursor reads: a
+   card's depth, its parent, and its column within its own tree. Where the
+   pane later drops that tree cannot change where [d] lands. *)
 let cards ~structures ~nodes ~new_addresses ~folds ~selection =
-  let (_ : View.t), placed, (_ : Toggle.t list) =
-    layout ~structures ~nodes ~new_addresses ~folds ~selection
-  in
-  placed
+  sections ~structures ~nodes ~new_addresses ~folds ~selection
+  |> List.concat_map ~f:(fun (section : Section.t) -> section.placed)
 ;;
 
 (* The cursor walks the tree, not the picture: [w]/[s] climb and descend it,
@@ -1051,11 +1304,13 @@ let cards ~structures ~nodes ~new_addresses ~folds ~selection =
    left child reaches its cousin on the right instead of whatever card
    happens to be nearest.
 
-   Empty slots and [↗ #n] pointers place no card, so a layer skips over them;
-   there is nothing to aim at there.
+   Empty slots place no card, so a layer skips over them; a [↗] pointer does
+   place one, wearing the address of the card it points at, so aiming at a
+   pointer aims at that card wherever the pane drew it.
 
-   The trees are stacked in one canvas, so the ends connect: [w] from a root
-   climbs to the tree above, [s] from a leaf drops to the one below. *)
+   Structures are a layer of their own — the outermost one. From a root,
+   [a]/[d] step to the structure beside it and [w] to the one before it; [s]
+   off a leaf falls through to the structure after. *)
 let move_cursor
   ~structures
   ~nodes
@@ -1066,15 +1321,12 @@ let move_cursor
   =
   let placed = cards ~structures ~nodes ~new_addresses ~folds ~selection in
   let address_of (card : Placed.t) = card.address in
-  let find address =
-    List.find placed ~f:(fun (card : Placed.t) ->
-      Snapshot.Address.equal card.address address)
-  in
+  let find address = card_at placed address in
   let by_x = List.sort ~compare:(fun (a : Placed.t) b -> compare a.x b.x) in
+  (* registry order, which is also the order the columns are filled in *)
   let roots =
     List.filter placed ~f:(fun (card : Placed.t) ->
       Option.is_none card.parent)
-    |> List.sort ~compare:(fun (a : Placed.t) b -> compare a.y b.y)
   in
   let rec root_of (card : Placed.t) =
     match Option.bind card.parent ~f:find with
@@ -1126,25 +1378,22 @@ let move_cursor
          | first :: (_ : Placed.t list) -> Some first
          | [] -> sibling_tree card ~offset:1)
       | Left | Right ->
-        let root = root_of card in
-        let layer =
-          List.filter placed ~f:(fun (other : Placed.t) ->
-            other.depth = card.depth
-            && Snapshot.Address.equal (root_of other).address root.address)
-          |> by_x
+        let offset =
+          match direction with Left -> -1 | Up | Down | Right -> 1
         in
-        neighbour_in
-          layer
-          card
-          ~offset:(match direction with Left -> -1 | _ -> 1)
+        (match card.parent with
+         (* a root has no layer inside its own tree; the structures beside it
+            are its layer, and the pane tiles them left to right *)
+         | None -> sibling_tree card ~offset
+         | Some (_ : Snapshot.Address.t) ->
+           let root = root_of card in
+           let layer =
+             List.filter placed ~f:(fun (other : Placed.t) ->
+               other.depth = card.depth
+               && Snapshot.Address.equal (root_of other).address root.address)
+             |> by_x
+           in
+           neighbour_in layer card ~offset)
     in
     Option.map moved ~f:address_of
-;;
-
-(* the canvas row a card starts on, so the app can scroll it into view *)
-let row_of ~structures ~nodes ~new_addresses ~folds ~selection address =
-  cards ~structures ~nodes ~new_addresses ~folds ~selection
-  |> List.find ~f:(fun (card : Placed.t) ->
-    Snapshot.Address.equal card.address address)
-  |> Option.map ~f:(fun (card : Placed.t) -> card.y, card.height)
 ;;

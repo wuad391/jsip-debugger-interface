@@ -31,9 +31,12 @@ let compute ({ height; width } : Dimensions.t) =
   (* two rows go below the panes: the session bar and the rule fencing it off
      from them *)
   let main_height = max 6 (height - main_y - 2) in
-  (* the left column and the heap split the width; the stack and source split
-     the left column; a divider line sits along every seam *)
-  let left_width = max 34 (width * 50 / 100) in
+  (* the left column takes a third and the heap the rest; the stack and
+     source split the left column; a divider line sits along every seam. The
+     stack and the source are lists of text, which read fine narrow — the
+     heap is a diagram, and every column it gains is another structure that
+     fits beside the last one instead of below it. *)
+  let left_width = max 30 (width / 3) in
   let pane_width = max 1 (left_width - 1) in
   let heap_width = max 20 (width - left_width) in
   let stack_height = max 4 (main_height * 55 / 100) in

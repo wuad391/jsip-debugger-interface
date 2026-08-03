@@ -598,6 +598,7 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
                        ~folds:model.heap_folds
                        ~scroll:model.heap_scroll
                        ~selection
+                       ~width:layout.heap.width
                        ~height:layout.heap.height
                        ~x
                        ~y
@@ -611,6 +612,7 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
                        ~folds:model.heap_folds
                        ~scroll:model.heap_scroll
                        ~selection
+                       ~width:layout.heap.width
                        ~height:layout.heap.height
                        ~x
                        ~y

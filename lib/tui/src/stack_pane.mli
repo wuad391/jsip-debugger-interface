@@ -1,8 +1,9 @@
 (** The call-stack pane: the whole run's calls, with the live chain lit.
 
-    Every event in the dump gets a row — the callee, its arguments, and a
-    right-aligned [file.ml:line] chip — indented by call depth, so the run's
-    shape is visible at once. Rows on the current step's live chain render
+    Every event in the dump gets a row — the callee and its arguments,
+    indented by call depth, so the run's shape is visible at once. Where a
+    call was written is not repeated here: the source pane below already has
+    that line highlighted. Rows on the current step's live chain render
     bright; the selected frame gets the accent bar and wash; everything else
     (already returned, or not reached yet) is dimmed and clicking it jumps
     the replay there. Long argument lists wrap onto continuation lines, and
