@@ -14,39 +14,45 @@ palette re-pitched for dark terminals — selection and position in one
 bright blue across all panes:
 
 ```
- ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━
-                                       ◂ back  ·  step ▸  ·  [space] play  ·  q quit
-────────────────────────────────────────────────────────────────────────────────────────────
-┌ CALL STACK ────────────── 5 calls · 1 live ┐┌ HEAP ───────────── set · 4 nodes · 4 new ┐
-│  S.of_list [1; 2; 3]          set_ops.ml:6 ││            ┌────────────────┐            │
-│  S.of_list [3; 4]             set_ops.ml:7 ││            │ 3  new         │            │
-│ ▎S.union a b                  set_ops.ml:8 ││            │ 0x714aae9ea098 │            │
-│  S.inter a b                  set_ops.ml:9 ││            └────────────────┘            │
-│  S.diff a b                  set_ops.ml:10 ││           ┌─────────┴──────────┐         │
-│                                            ││           l                    r         │
-│                                            ││  ┌────────────────┐   ┌────────────────┐ │
-│                                            ││  │ 2  new         │   │ 4  new         │ │
-│                                            ││  │ 0x714aae9ea0c0 │   │ 0x714aae9ea1a8 │ │
-│                                            ││  └────────────────┘   └────────────────┘ │
-└────────────────────────────────────────────┘│     ┌─────┴─────┐                        │
-┌ SOURCE ───────────── set_ops.ml · 10 lines ┐│     l           r                        │
-│    5 let () =                              ││ ┌────────────────┐   ∅                   │
-│    6   let a = S.of_list [ 1; 2; 3 ] in    ││ │ 1  new         │                       │
-│    7   let b = S.of_list [ 3; 4 ] in       ││ │ 0x714aae9ea0e8 │                       │
-│ ▎  8   ignore (S.union a b);               ││ └────────────────┘                       │
-│    9   ignore (S.inter a b);               ││                                          │
-└────────────────────────────────────────────┘└──────────────────────────────────────────┘
- ● ocaml-debug │ set_ops.dump │ set · replay
+ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                                              ◂ back  ·  step ▸  ·  [space] play  ·  q quit
+┌ CALL STACK ────────────── 3 calls · 1 live ┐┌ HEAP ──────────── 2 live · 3 nodes · 2 new ┐
+│    M.add "a" 1 m            map_basic.ml:7 ││ ▾ m · map ⟨string ⇒ int⟩                   │
+│ ▎  M.add "b" 2 m            map_basic.ml:8 ││  ┌────────────────┐                        │
+│    M.remove "a" m           map_basic.ml:9 ││  │ m · "a" ↦ 1    │                        │
+│                                            ││  │ 0x79c43b7f24c8 │                        │
+│                                            ││  └────────────────┘                        │
+│                                            ││                                            │
+│                                            ││ ▾ m · map ⟨string ⇒ int⟩                   │
+│                                            ││ ▾┌─────────── new ┐                        │
+│                                            ││  │ m · "a" ↦ 1    │                        │
+│                                            ││  │ 0x79c43b7eebe8 │                        │
+└────────────────────────────────────────────┘│  └────────────────┘                        │
+┌ SOURCE ─────────── map_basic.ml · 10 lines ┐│    ┌─────┴──────┐                          │
+│            [ignore] don't. *)              ││    l            r                          │
+│  ▾  3 module M = Map.Make (String)         ││    ∅    ┌─────────── new ┐                 │
+│     4                                      ││         │ "b" ↦ 2        │                 │
+│  ▾  5 let () =                             ││         │ 0x79c43b7eec18 │                 │
+│     6   let m = M.empty in                 ││         └────────────────┘                 │
+│     7   let m = M.add "a" 1 m in           ││                                            │
+│ ▎   8   let m = M.add "b" 2 m in           ││                                            │
+│     9   let m = M.remove "a" m in          ││                                            │
+│    10   ignore (M.find "b" m)              ││                                            │
+└────────────────────────────────────────────┘└────────────────────────────────────────────┘
+ ● ocaml-debug │ map_basic.dump │ map ⟨string ⇒ int⟩ · replay
 ```
 
 - **Call stack** — every call in the run, indented by depth: the current
   step's live chain renders bright, everything already returned or not yet
   reached is dimmed (click one to jump there). Clicking a live frame
   selects it and the source pane follows, marking the caller's line with
-  `▸`. Long argument lists wrap.
+  `▸`. Long argument lists wrap, and a call's `▾`/`▸` glyph folds its
+  whole range behind a `⋯ n` count without touching any other pane.
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
-  blank gutter.
+  blank gutter, and top-level definitions fold to their first line plus
+  a `⋯ n lines` marker (a fold hiding the active line takes the wash in
+  its place).
 - **Heap** — every live tracked structure: one keeps the shape of its
   most recent walk and only leaves the pane when the registry drops it.
   A payload field referencing another live structure (an `Id` into the
@@ -55,8 +61,13 @@ bright blue across all panes:
   the latest variable name they were observed under (`m ·`, `tbl ·`;
   `#id` when anonymous), root addresses re-stamp from the registry on
   every redraw, and only unreferenced structures get their own section
-  header (the one this event walked marked in blue, its root card washed
-  in the highlight background). Nodes follow the
+  header — name · kind · static type, the one this event walked marked
+  in blue, its root card washed in the highlight background. Everything
+  folds: the `▾`/`▸` glyph beside a card tucks its subtree behind a
+  `⋯ n hidden` border tag (the card stays), and the glyph on a section
+  header hides the whole structure behind that name-and-type summary; a
+  folded subtree keeps the structures it references hidden with it, and
+  folds survive stepping. Nodes follow the
   emitter's layered layout contract — interior skeleton vs user payload,
   hashtbl's record → bucket array → chains included; closures and other
   undecoded blocks print as `⟨0x…⟩`. Each structure is drawn like a CS
