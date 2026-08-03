@@ -192,7 +192,17 @@ let render
           (Session_bar.view
              ~width:dimensions.width
              ~dump_name
-             ~structure:(Snapshot.Ds_type.display snapshot.ds_type))
+             ~structure:
+               ((* the walked structure's kind, typed when the wire says *)
+                let kind = Snapshot.Ds_type.display snapshot.ds_type in
+                let current =
+                  List.find structures ~f:(fun (s : Replay.Structure.t) ->
+                    s.is_current)
+                in
+                match current with
+                | Some { ty = Some ty; _ } ->
+                  [%string "%{kind} %{Type_info.display ty}"]
+                | Some { ty = None; _ } | None -> kind))
       ; View.rectangle
           ~attrs:[ Attr.bg Theme.bg ]
           ~width:dimensions.width

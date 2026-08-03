@@ -7,6 +7,7 @@ type t =
   ; fn : Function_info.t
   ; args : Argument.t list
   ; registry : Registry_entry.t list
+  ; ty : Type_info.t option [@sexp.option]
   ; snapshot : Snapshot.t
   }
 [@@deriving sexp] [@@sexp.allow_extra_fields]

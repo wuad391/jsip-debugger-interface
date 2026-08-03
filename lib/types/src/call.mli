@@ -11,6 +11,9 @@ module Info : sig
     (** every tracked-and-alive structure at event time; resolves [Id]
         references inside [snapshot] and carries the latest variable name
         each structure was observed under *)
+    ; ty : Type_info.t option [@sexp.option]
+    (** the walked structure's static type, straight off the wire; [None] on
+        dumps from a compiler predating the field *)
     ; snapshot : Snapshot.t (** the walked shape of the structure *)
     }
   [@@deriving sexp_of]

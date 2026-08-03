@@ -47,14 +47,30 @@ let%expect_test "unsexp one real event line" =
       (args
        ((No_label (expression (Unnamed "\"a\"")))
         (No_label (expression (Unnamed 1))) (No_label (expression (Unnamed m)))))
-      (registry ((1 0x70f32cff19c0 m)))
+      (registry ((1 0x79c43b7f24c8 m)))
+      (ty ((printed "int M.t") (params ((key string) (data int)))))
       (snapshot
        ((ds_type Map)
         (root_node
-         ((virtual_address 0x70f32cff19c0)
+         ((virtual_address 0x79c43b7f24c8)
           (block ((l (Int 0)) (v (String a)) (d (Int 1)) (r (Int 0))))
           (children ())))))))
     |}]
+;;
+
+(* dumps from a compiler predating the [ty] field parse all the same — the
+   field is optional, not a format version *)
+let%expect_test "an event without a ty field reads as None" =
+  let line =
+    {|(event (id 1) |}
+    ^ {|(loc ((file_path t.ml) (line_number 1) (char_range (0 1)))) |}
+    ^ {|(fn (Function_name M.add)) (args ()) (registry ((1 0x10))) |}
+    ^ {|(snapshot ((ds_type Map) (root_node ((virtual_address 0x10) |}
+    ^ {|(block ()) (children ()))))))|}
+  in
+  let wire = Dump_wire.of_string line |> Or_error.ok_exn in
+  print_s [%sexp (wire.ty : Type_info.t option)];
+  [%expect {| () |}]
 ;;
 
 let%expect_test "read a whole real dump into Call.Info values" =

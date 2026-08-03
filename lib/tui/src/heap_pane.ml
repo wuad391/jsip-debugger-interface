@@ -519,13 +519,19 @@ let rec tree
     , Placed.shift box_placed ~dx:parent_x ~dy:0 :: children_placed )
 ;;
 
-(* the section header over one structure's tree: its name (or [#id]) and
-   kind, the one this step's event walked marked in the highlight blue *)
+(* the section header over one structure's tree: its name (or [#id]), kind
+   and static type, the one this step's event walked marked in the highlight
+   blue *)
 let structure_header (structure : Replay.Structure.t) =
   let label =
     [%string
       "%{Replay.Structure.display structure} · %{Snapshot.Ds_type.display \
        structure.snapshot.ds_type}"]
+  in
+  let label =
+    match structure.ty with
+    | None -> label
+    | Some ty -> [%string "%{label} %{Type_info.display ty}"]
   in
   match structure.is_current with
   | true ->
