@@ -89,3 +89,20 @@ let%expect_test "an empty dump makes an empty call stack" =
   print_s [%sexp (Call_stack.length t : int)];
   [%expect {| 0 |}]
 ;;
+
+let%expect_test "hostile payload strings display escaped" =
+  List.iter
+    [ "plain"
+    ; {|quote"and\back|}
+    ; "newline\nand\ttab"
+    ; "nul\000and\255high"
+    ]
+    ~f:(fun s -> print_endline (Snapshot.Block.display (String s)));
+  [%expect
+    {|
+    "plain"
+    "quote\"and\\back"
+    "newline\nand\ttab"
+    "nul\000and\255high"
+    |}]
+;;

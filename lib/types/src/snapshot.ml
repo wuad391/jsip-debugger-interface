@@ -44,7 +44,11 @@ module Block = struct
     match t with
     | Int i -> Int.to_string i
     | Float f -> Float.to_string f
-    | String s -> [%string {|"%{s}"|}]
+    | String s ->
+      (* payload strings are raw; escape so a key holding quotes or
+         backslashes comes out unambiguous, matching the compiler-escaped
+         source text the stack pane shows *)
+      [%string {|"%{String.escaped s}"|}]
     | Int32 i -> [%string "%{i#Int32}l"]
     | Int64 i -> [%string "%{i#Int64}L"]
     | Nativeint i -> [%string "%{i#Nativeint}n"]
