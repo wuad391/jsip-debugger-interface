@@ -254,7 +254,7 @@ let render
         View.pad
           ~l:layout.column_divider.x
           ~t:layout.row_divider.y
-          (View.text ~attrs:(Theme.fg' Theme.border) "┤")
+          (Panel.junction ~color:Theme.border)
       ; View.pad
           ~l:layout.column_divider.x
           ~t:layout.column_divider.y

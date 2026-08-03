@@ -14,7 +14,7 @@ type t =
   ; session : Region.t
   }
 
-let tick_height = 2
+let tick_height = 1
 let controls_gap = 2
 
 let compute ({ height; width } : Dimensions.t) =

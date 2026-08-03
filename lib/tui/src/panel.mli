@@ -33,7 +33,10 @@ val inner_width : width:int -> int
     overflow, padding shortfall with transparent cells. *)
 val fit : Bonsai_term.View.t -> width:int -> height:int -> Bonsai_term.View.t
 
-(** A [─] run and a [│] column, for the dividers between panes. *)
+(** A [─] run, a [│] column, and the [┤] where they meet — the dividers
+    between panes. *)
+val junction : color:Bonsai_term.Attr.Color.t -> Bonsai_term.View.t
+
 val horizontal_rule
   :  width:int
   -> color:Bonsai_term.Attr.Color.t
