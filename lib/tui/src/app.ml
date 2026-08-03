@@ -47,10 +47,10 @@ module Model = struct
     ; stack_folds : Int.Set.t
     ; source_folds : Set.M(Source_fold).t
     ; focus : Pane.t
-    ; heap_selected : Snapshot.Address.t option
+    ; heap_selected : Heap_pane.Spot.t option
     (** [None] falls back to the structure this step walked, which is what
         the pane highlighted before selection existed *)
-    ; heap_cursor : Snapshot.Address.t option
+    ; heap_cursor : Heap_pane.Spot.t option
     ; stack_cursor : int option (** a call index *)
     }
   [@@deriving sexp_of, equal]
@@ -88,7 +88,7 @@ module Action = struct
     | Commit_cursor (** [Enter]: the orange becomes the blue *)
     | Jump_cursor of Heap_pane.Direction.t
     (** shift + [wasd]: aim and commit in one, skipping the orange *)
-    | Select_heap_node of Snapshot.Address.t (** a click on a card *)
+    | Select_heap_node of Heap_pane.Spot.t (** a click on a card *)
   [@@deriving sexp_of]
 end
 
@@ -103,13 +103,12 @@ let frame_count replay ~step =
 let heap_selection replay (model : Model.t) =
   let selected =
     match model.heap_selected with
-    | Some (_ : Snapshot.Address.t) -> model.heap_selected
+    | Some (_ : Heap_pane.Spot.t) -> model.heap_selected
     | None ->
       List.find
         (Replay.step_exn replay ~step:model.step).structures
         ~f:(fun (structure : Replay.Structure.t) -> structure.is_current)
-      |> Option.map ~f:(fun (structure : Replay.Structure.t) ->
-        structure.address)
+      |> Option.map ~f:Heap_pane.spot_of_structure
   in
   { Heap_pane.Selection.selected; cursor = model.heap_cursor }
 ;;
@@ -161,20 +160,20 @@ let apply_action
   (* committing a heap card is exactly what clicking it does — jump to where
      it was allocated — and additionally pins it as the selection, so the
      card stays blue and keeps showing its address at the new step *)
-  let select_heap_node model address =
+  let select_heap_node model (spot : Heap_pane.Spot.t) =
     let stepped =
-      match Map.find births address with
+      match Map.find births spot.address with
       | Some step -> move ~playing:false step
       | None -> model
     in
-    { stepped with heap_selected = Some address; heap_cursor = None }
+    { stepped with heap_selected = Some spot; heap_cursor = None }
   in
   let commit (model : Model.t) =
     match model.focus with
     | Pane.Heap ->
       (match model.heap_cursor with
        | None -> model
-       | Some address -> select_heap_node model address)
+       | Some spot -> select_heap_node model spot)
     | Pane.Stack ->
       (match model.stack_cursor with
        | None -> model
@@ -209,7 +208,7 @@ let apply_action
       in
       (match moved with
        | None -> model
-       | Some address -> { model with heap_cursor = Some address })
+       | Some spot -> { model with heap_cursor = Some spot })
     | Pane.Stack ->
       let vertical =
         match (direction : Heap_pane.Direction.t) with
@@ -274,7 +273,7 @@ let apply_action
   | Move_cursor direction -> aim model ~direction
   | Commit_cursor -> commit model
   | Jump_cursor direction -> commit (aim model ~direction)
-  | Select_heap_node address -> select_heap_node model address
+  | Select_heap_node spot -> select_heap_node model spot
 ;;
 
 (* where each address was first seen — what a click on a heap node jumps to *)
@@ -605,7 +604,7 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
                    with
                    | Some fold -> Some (act (Action.Toggle_heap_fold fold))
                    | None ->
-                     Heap_pane.address_at
+                     Heap_pane.spot_at
                        ~structures
                        ~nodes
                        ~new_addresses
@@ -616,8 +615,8 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
                        ~height:layout.heap.height
                        ~x
                        ~y
-                     |> Option.map ~f:(fun address ->
-                       act (Action.Select_heap_node address)))
+                     |> Option.map ~f:(fun spot ->
+                       act (Action.Select_heap_node spot)))
                 | None -> None))))
   in
   let on_scroll (position : Position.t) direction : Action.t option =

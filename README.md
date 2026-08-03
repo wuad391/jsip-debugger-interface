@@ -82,9 +82,9 @@ divider line along each seam:
   gray card where an interior slot is empty — a nil pointer is still a
   slot, so it gets a box like everything else. An edge into a card the
   canvas already drew gets a dashed card too, named by what that card
-  holds rather than by the wire's id (`↗ "d" → 4`, not `↗ #7`) and
-  wearing the same address, so a shared subtree reads as one object
-  drawn twice. Cards allocated *at this step* carry a green `new` tag in
+  holds rather than by the wire's id (`↗ "d" → 4`, not `↗ #7`); picking
+  either one tints the other's border to match, so a shared subtree
+  reads as one object drawn twice. Cards allocated *at this step* carry a green `new` tag in
   the border's top right. Structures lay side by side, up to three to a
   row, wrapping when the next one would not fit; a tree wider than the
   pane gets a row to itself. Clicking a card jumps the replay to the
@@ -104,10 +104,9 @@ dune exec app/bin/main.exe -- -dump-file testing/expected/map_nested.dump
 verbatim from the compiler repo (see `testing/README.md`) — any of them
 replays. For **structure sharing**, replay `map_spine_sharing` and step
 to the end: a five-node map sits beside the version one more `add`
-returned, and the two `↗` cards in the lower tree are the subtrees that
-`add` did not rebuild. Aim at one with `s` and both it and the card it
-names light up, wearing the same address — the same allocation, drawn
-twice.
+returned, and the two `↗` cards in the other tree are the subtrees that
+`add` did not rebuild. Aim at one with `s` and the card it names, over
+in `m`, takes an orange border — the same allocation, drawn twice.
 
 ```sh
 dune exec app/bin/main.exe -- -dump-file testing/expected/map_spine_sharing.dump
@@ -133,8 +132,8 @@ climb to a card's parent and descend to its first child, `a`/`d` run
 along the layer it sits on. A layer is a depth in one tree, not one
 parent's children, so `a` from `"j"` reaches its cousin `"b"` two
 subtrees away. Empty slots place no card and are skipped; an `↗` card
-does place one, wearing its target's address, so aiming at a pointer
-aims at the card it names wherever the pane drew it.
+does place one, and standing on it tints the border of the card it
+names without moving you there — you stay in the tree you are reading.
 
 Structures are the outermost layer. From a root, `a`/`d` step to the
 structure beside it and `w` to the one before it, and `s` off a leaf

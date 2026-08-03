@@ -13,10 +13,10 @@
     [Queue.add m q] runs, the map's tree hangs off the queue cell's [v→]
     edge.
 
-    Structures tile the pane in three columns rather than stacking in one:
-    each drops into the shortest run of columns wide enough to hold it, and a
-    tree too wide for one column claims the neighbours it needs. Two versions
-    of a map side by side is the comparison this pane exists to make.
+    Structures lay side by side rather than stacking, up to three to a row,
+    wrapping when the next one would not fit and giving a tree wider than the
+    pane a row to itself. Two versions of a map beside each other is the
+    comparison this pane exists to make.
 
     Any node folds: a [▾]/[▸] glyph sits in the column before each card with
     something below it (and before each section header); clicking the glyph
@@ -36,8 +36,7 @@
 
     An edge into a card the canvas already drew is a card too — dashed, and
     named by what that card holds rather than by the wire's node number, so a
-    shared subtree reads [↗ "b" → 2] and not [↗ #11]. It answers to the same
-    address as its target, so picking either one picks both out.
+    shared subtree reads [↗ "b" → 2] and not [↗ #11].
 
     Two of the cards are picked out (see {!Selection}): the selected one is
     blue and is the only card that spells out its address — twelve hex digits
@@ -45,18 +44,23 @@
     reading — and the one the keyboard is aiming at is orange. Everything
     else outlines in the calmer card blue.
 
+    Because a [↗] pointer and the card it names are one node, picking either
+    tints the other's border to match — the border only, so the card you are
+    actually on is still the one wearing the wash and the address, and the
+    drawing does not shift to make room for a second wide card.
+
     {v
     ▾ m · map ⟨string ⇒ int⟩            ▾ bigger · map ⟨string ⇒ int⟩
-    ▾┌ m ──────────── new ┐              ┌ bigger ┐
-     │ "a" → 1            │              │ "c" → 3│
-     │ 0x763be65ee878     │  ← selected  └────────┘
-     └────────────────────┘                ┌──┴──┐
-      ┌─────────┴────────┐                 l     r
-      l                  r             ┌┄ ↗ ┄┄┄┄┄┐
-    ┌┄┄┄┐      ▸┌ ───── new ┐          ┆ "b" → 2 ┆  ← the same node
-    ┆ ∅ ┆       │ "b" → 2   │  ← aimed └┄┄┄┄┄┄┄┄┄┘    as the card left
-    └┄┄┄┘       └───────────┘
-                  ⋯ 2 hidden
+    ▾┌ m ──────────── new ┐             ▾┌ bigger ─────── new ┐
+     │ "a" → 1            │              │ "c" → 3            │
+     │ 0x763be65ee878     │  ← selected  │ 0x763be65ee9a8     │
+     └────────────────────┘              └────────────────────┘
+      ┌─────────┴────────┐                 ┌────────┴───────┐
+      l                  r                 l                r
+    ┌┄┄┄┐       ┌ ───── new ┐         ┌┄ ↗ ┄┄┄┄┄┐         ┌┄┄┄┐
+    ┆ ∅ ┆       │ "b" → 2   │  ← its  ┆ "b" → 2 ┆ ← aimed ┆ ∅ ┆
+    └┄┄┄┘       └───────────┘  border └┄┄┄┄┄┄┄┄┄┘   at    └┄┄┄┘
+                               turns
     v} *)
 
 open! Core
@@ -76,13 +80,29 @@ module Fold : sig
   include Comparator.S with type t := t
 end
 
-(** The chosen card and the one the keyboard is aiming at, both keyed by
-    address — what a click yields and what the canvas keys cards by.
+(** Which drawing of a node a position means. A node can be on the canvas
+    twice — its own card, and a [↗] pointer at it from a structure that
+    shares it — and those are two places even though they are one object. *)
+module Site : sig
+  type t [@@deriving sexp_of, equal]
+end
+
+(** A node, and which drawing of it. Color follows the address, so standing
+    on a pointer lights up the card it points at as well; the keyboard
+    follows the site, so it stays on the pointer. *)
+module Spot : sig
+  type t =
+    { address : Snapshot.Address.t
+    ; site : Site.t
+    }
+  [@@deriving sexp_of, equal]
+end
+
+(** The chosen card and the one the keyboard is aiming at.
 
     They coexist: [selected] stays blue while [cursor] moves in orange, so
     you can see where you came from and where [Enter] would take you.
-    Committing makes the cursor the selection and clears it. A [↗] pointer
-    shares the address of the card it points at, so both light up together.
+    Committing makes the cursor the selection and clears it.
 
     Both are geometry: the two picked-out cards are a row taller and several
     columns wider than the rest, being the only ones that spell out an
@@ -90,13 +110,17 @@ end
     so aiming does not depend on where the last press left the picture. *)
 module Selection : sig
   type t =
-    { selected : Snapshot.Address.t option
-    ; cursor : Snapshot.Address.t option
+    { selected : Spot.t option
+    ; cursor : Spot.t option
     }
   [@@deriving sexp_of, equal]
 
   val none : t
 end
+
+(** A structure's own root card — where the pane starts you off, and what it
+    falls back to before anything is chosen. *)
+val spot_of_structure : Replay.Structure.t -> Spot.t
 
 module Direction : sig
   type t =
@@ -123,8 +147,9 @@ val view
     [Down] climb to a card's parent and descend to its first child, [Left]
     and [Right] run along the layer it sits on — cousins included, since a
     layer is a depth in one tree, not one parent's children. Empty slots
-    place no card and so are skipped; a [↗] pointer places one wearing its
-    target's address, so aiming at it aims at that card.
+    place no card and so are skipped; a [↗] pointer places a card of its own,
+    so the cursor can stand on it — lighting up the card it names, without
+    leaving the tree you are reading.
 
     Structures are the outermost layer: from a root [Left]/[Right] step to
     the structure beside it and [Up] to the one before it, and [Down] off a
@@ -139,10 +164,10 @@ val move_cursor
   -> folds:Set.M(Fold).t
   -> selection:Selection.t
   -> direction:Direction.t
-  -> Snapshot.Address.t option
+  -> Spot.t option
 
 (** The fold glyph a click at pane-body position [(x, y)] hits, mirroring
-    [view]'s layout and scrolling. Checked before {!address_at}: glyph cells
+    [view]'s layout and scrolling. Checked before {!spot_at}: glyph cells
     toggle, the rest of a card jumps. *)
 val toggle_at
   :  structures:Replay.Structure.t list
@@ -159,8 +184,9 @@ val toggle_at
 
 (** The card a click at pane-body position [(x, y)] lands on, mirroring
     [view]'s layout and scrolling — the app jumps the replay to that node's
-    allocation step. *)
-val address_at
+    allocation step. Clicking a [↗] pointer lands on the pointer, not on the
+    card it names. *)
+val spot_at
   :  structures:Replay.Structure.t list
   -> nodes:Replay.Nodes.t
   -> new_addresses:Snapshot.Address.Set.t
@@ -171,4 +197,4 @@ val address_at
   -> height:int
   -> x:int
   -> y:int
-  -> Snapshot.Address.t option
+  -> Spot.t option

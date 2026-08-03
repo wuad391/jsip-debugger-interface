@@ -5,27 +5,73 @@ module Attr = Bonsai_term.Attr
 module View = Bonsai_term.View
 module Layer = Snapshot.Ds_type.Layer
 
-(* which card is chosen and which one the keyboard is aiming at. Both are
-   addresses because that is what a click yields and what the canvas keys
-   cards by; either may be absent, and while you aim they are both on screen
-   — blue behind, orange ahead. *)
+(* Which drawing of a node the keyboard is standing on. A node can be on the
+   canvas twice — its own card, and a [↗] pointer at it from a structure that
+   shares it — and those are two places even though they are one object, so a
+   position has to say which one it means. Keyed like a fold: the owning
+   structure, and the edge path down to the card. *)
+module Site = struct
+  type t =
+    { structure : int
+    ; path : int list
+    }
+  [@@deriving sexp_of, equal]
+end
+
+(* a node, and which drawing of it *)
+module Spot = struct
+  type t =
+    { address : Snapshot.Address.t
+    ; site : Site.t
+    }
+  [@@deriving sexp_of, equal]
+end
+
+(* which card is chosen and which one the keyboard is aiming at; either may
+   be absent, and while you aim they are both on screen — blue behind, orange
+   ahead. *)
 module Selection = struct
   type t =
-    { selected : Snapshot.Address.t option
-    ; cursor : Snapshot.Address.t option
+    { selected : Spot.t option
+    ; cursor : Spot.t option
     }
   [@@deriving sexp_of, equal]
 
   let none = { selected = None; cursor = None }
 
-  let is address slot =
-    match slot with
-    | Some other -> Snapshot.Address.equal other address
-    | None -> false
+  (* How a card is picked out. The one the keyboard is standing on wears the
+     full treatment — wash, address, bright border. Any other drawing of the
+     same node wears the border color alone: enough to find it across the
+     pane, without a second card shouting from wherever it happens to be. *)
+  module Mark = struct
+    type t =
+      | Plain
+      | Linked_to_selected
+      | Linked_to_cursor
+      | Selected
+      | Cursor
+  end
+
+  let where spot ~address ~site =
+    match spot with
+    | None -> `Elsewhere
+    | Some { Spot.address = other; site = other_site } ->
+      (match Site.equal other_site site with
+       | true -> `Here
+       | false ->
+         (match Snapshot.Address.equal other address with
+          | true -> `Linked
+          | false -> `Elsewhere))
   ;;
 
-  let selects t address = is address t.selected
-  let aims_at t address = is address t.cursor
+  let mark t ~address ~site =
+    match where t.cursor ~address ~site, where t.selected ~address ~site with
+    | `Here, _ -> Mark.Cursor
+    | (`Linked | `Elsewhere), `Here -> Mark.Selected
+    | `Linked, (`Linked | `Elsewhere) -> Mark.Linked_to_cursor
+    | `Elsewhere, `Linked -> Mark.Linked_to_selected
+    | `Elsewhere, `Elsewhere -> Mark.Plain
+  ;;
 end
 
 module Direction = struct
@@ -38,9 +84,9 @@ module Direction = struct
 end
 
 (* where a node's card landed on the tree canvas — for click-to-jump, and for
-   the cursor, which walks the tree rather than the picture: [depth] and
-   [parent] are the diagram's own structure, so aiming does not shift when
-   the drawing does *)
+   the cursor, which walks the tree rather than the picture: [depth], [site]
+   and [parent] are the diagram's own structure, so aiming does not shift
+   when the drawing does *)
 module Placed = struct
   type t =
     { x : int
@@ -48,13 +94,12 @@ module Placed = struct
     ; width : int
     ; height : int
     ; address : Snapshot.Address.t
+    ; site : Site.t (** this card, as opposed to any other drawing of it *)
     ; depth : int (** card rows between this one and its tree's root *)
-    ; parent : Snapshot.Address.t option (** [None] on a section's root *)
-    ; is_stub : bool
-    (** a [↗] pointer at a card drawn elsewhere. It answers to the address of
-        the card it points at, so picking either one lights up both — but the
-        card itself is the one the cursor navigates from. *)
+    ; parent : Site.t option (** [None] on a section's root *)
     }
+
+  let spot t = { Spot.address = t.address; site = t.site }
 
   let contains t ~x ~y =
     x >= t.x && x < t.x + t.width && y >= t.y && y < t.y + t.height
@@ -63,19 +108,8 @@ module Placed = struct
   let shift t ~dx ~dy = { t with x = t.x + dx; y = t.y + dy }
 end
 
-(* Two cards can answer to one address, because a pointer wears the address
-   of what it points at. Anything asking where an address {i is} wants the
-   card, not the pointer. *)
-let card_at placed address =
-  let matching =
-    List.filter placed ~f:(fun (card : Placed.t) ->
-      Snapshot.Address.equal card.address address)
-  in
-  match
-    List.find matching ~f:(fun (card : Placed.t) -> not card.is_stub)
-  with
-  | Some card -> Some card
-  | None -> List.hd matching
+let card_at placed site =
+  List.find placed ~f:(fun (card : Placed.t) -> Site.equal card.site site)
 ;;
 
 (* everything reference-following needs while a step's canvas is drawn: the
@@ -423,20 +457,21 @@ let node_box
   ~mode
   ~hidden_labels
   ~(context : Context.t)
+  ~site
   ~fold_glyph
   ~hidden_count
   =
   let is_new = Set.mem context.new_addresses node.virtual_address in
   let root_structure = Map.find context.by_address node.virtual_address in
-  let selection = context.selection in
-  let is_selected = Selection.selects selection node.virtual_address in
-  let is_cursor = Selection.aims_at selection node.virtual_address in
+  let mark =
+    Selection.mark context.selection ~address:node.virtual_address ~site
+  in
   let border =
     Theme.fg'
-      (match is_cursor, is_selected with
-       | true, _ -> Theme.cursor
-       | false, true -> Theme.highlight
-       | false, false -> Theme.card_border)
+      (match (mark : Selection.Mark.t) with
+       | Cursor | Linked_to_cursor -> Theme.cursor
+       | Selected | Linked_to_selected -> Theme.highlight
+       | Plain -> Theme.card_border)
   in
   let summary =
     View.hcat
@@ -444,11 +479,13 @@ let node_box
   in
   (* both picked-out cards spell their address out: the blue one because it
      is the chosen one, the orange one because knowing what you are about to
-     choose is the point of aiming *)
+     choose is the point of aiming. A card merely linked to one of them does
+     not — it is not where you are, and a second wide card would move the
+     drawing for nothing. *)
   let address =
-    match is_selected || is_cursor with
-    | false -> None
-    | true ->
+    match (mark : Selection.Mark.t) with
+    | Linked_to_selected | Linked_to_cursor | Plain -> None
+    | Selected | Cursor ->
       Some
         (View.text
            ~attrs:(Theme.fg' Theme.secondary)
@@ -462,9 +499,10 @@ let node_box
       (* the name reads as the card's label, not as chrome — white, and bold
          where the card is chosen or aimed at *)
       let attrs =
-        match is_selected || is_cursor with
-        | true -> [ Theme.fg Theme.text; Attr.bold ]
-        | false -> Theme.fg' Theme.text
+        match (mark : Selection.Mark.t) with
+        | Selected | Cursor -> [ Theme.fg Theme.text; Attr.bold ]
+        | Linked_to_selected | Linked_to_cursor | Plain ->
+          Theme.fg' Theme.text
       in
       View.text ~attrs [%string " %{Replay.Structure.display structure} "]
   in
@@ -516,12 +554,12 @@ let node_box
     Panel.fit (View.vcat rows) ~width:card_width ~height:(List.length rows)
   in
   let card =
-    match is_cursor, is_selected with
-    | true, _ ->
+    match (mark : Selection.Mark.t) with
+    | Cursor ->
       View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg card
-    | false, true ->
+    | Selected ->
       View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
-    | false, false -> card
+    | Linked_to_selected | Linked_to_cursor | Plain -> card
   in
   (* what a fold hides is said below the card, not squeezed into its border *)
   let card =
@@ -592,21 +630,20 @@ let shared_box
   ~id
   ~mode
   ~(context : Context.t)
+  ~site
   =
-  let picked f =
+  let mark =
     match target with
-    | None -> false
+    | None -> Selection.Mark.Plain
     | Some (node : Snapshot.Node.t) ->
-      f context.selection node.virtual_address
+      Selection.mark context.selection ~address:node.virtual_address ~site
   in
-  let is_selected = picked Selection.selects in
-  let is_cursor = picked Selection.aims_at in
   let border =
     Theme.fg'
-      (match is_cursor, is_selected with
-       | true, _ -> Theme.cursor
-       | false, true -> Theme.highlight
-       | false, false -> Theme.ghost)
+      (match (mark : Selection.Mark.t) with
+       | Cursor | Linked_to_cursor -> Theme.cursor
+       | Selected | Linked_to_selected -> Theme.highlight
+       | Plain -> Theme.ghost)
   in
   let summary =
     match target with
@@ -618,9 +655,10 @@ let shared_box
      where the pointer is picked out *)
   let arrow =
     let attrs =
-      match is_selected || is_cursor with
-      | true -> [ Theme.fg Theme.text; Attr.bold ]
-      | false -> Theme.fg' Theme.muted
+      match (mark : Selection.Mark.t) with
+      | Selected | Cursor -> [ Theme.fg Theme.text; Attr.bold ]
+      | Linked_to_selected | Linked_to_cursor | Plain ->
+        Theme.fg' Theme.muted
     in
     View.text ~attrs " ↗ "
   in
@@ -628,9 +666,9 @@ let shared_box
      card does — and here it is the whole argument: two boxes wearing one
      address are one object drawn twice *)
   let address =
-    match is_selected || is_cursor with
-    | false -> None
-    | true ->
+    match (mark : Selection.Mark.t) with
+    | Linked_to_selected | Linked_to_cursor | Plain -> None
+    | Selected | Cursor ->
       Option.map target ~f:(fun (node : Snapshot.Node.t) ->
         View.text
           ~attrs:(Theme.fg' Theme.secondary)
@@ -670,11 +708,11 @@ let shared_box
   let card =
     Panel.fit (View.vcat rows) ~width:(inner + 4) ~height:(List.length rows)
   in
-  match is_cursor, is_selected with
-  | true, _ -> View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg card
-  | false, true ->
+  match (mark : Selection.Mark.t) with
+  | Cursor -> View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg card
+  | Selected ->
     View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
-  | false, false -> card
+  | Linked_to_selected | Linked_to_cursor | Plain -> card
 ;;
 
 let sibling_gap = 3
@@ -760,14 +798,22 @@ let rec tree
     | true -> []
     | false -> edges
   in
-  let fold = Fold.Node (structure_id, List.rev path) in
+  let site = { Site.structure = structure_id; path = List.rev path } in
+  let fold = Fold.Node (structure_id, site.path) in
   let collapsible = not (List.is_empty edges) in
   let folded = collapsible && Set.mem folds fold in
   let fold_glyph =
     match collapsible with true -> Some folded | false -> None
   in
   let leaf_box ~hidden_count =
-    node_box node ~mode ~hidden_labels ~context ~fold_glyph ~hidden_count
+    node_box
+      node
+      ~mode
+      ~hidden_labels
+      ~context
+      ~site
+      ~fold_glyph
+      ~hidden_count
   in
   Hash_set.add context.drawn_nodes node.id;
   match edges with
@@ -781,9 +827,9 @@ let rec tree
         ; width = box_width
         ; height = View.height box
         ; address = node.virtual_address
+        ; site
         ; depth
         ; parent
-        ; is_stub = false
         }
       ]
     , [] )
@@ -804,8 +850,15 @@ let rec tree
         | Edge.Nil -> label, (nil_box, View.width nil_box / 2, [], [])
         | Edge.Shared { id; node = target; mode } ->
           (* the node is on the canvas already — point at it, wearing its
-             address so that picking either end lights both up *)
-          let stub = shared_box target ~id ~mode ~context in
+             address so that picking either end lights both up. The pointer
+             keeps a site of its own, at the edge it hangs off, so the cursor
+             standing here stays here. *)
+          let stub_site =
+            { Site.structure = structure_id
+            ; path = List.rev (index :: path)
+            }
+          in
+          let stub = shared_box target ~id ~mode ~context ~site:stub_site in
           let placed =
             match target with
             | None -> []
@@ -815,9 +868,9 @@ let rec tree
                 ; width = View.width stub
                 ; height = View.height stub
                 ; address = target.virtual_address
+                ; site = stub_site
                 ; depth = depth + 1
-                ; parent = Some node.virtual_address
-                ; is_stub = true
+                ; parent = Some site
                 }
               ]
           in
@@ -833,7 +886,7 @@ let rec tree
               ~structure_id
               ~path:(index :: path)
               ~depth:(depth + 1)
-              ~parent:(Some node.virtual_address) )
+              ~parent:(Some site) )
         | Edge.Ref (structure : Replay.Structure.t) ->
           ( label
           , tree
@@ -846,7 +899,7 @@ let rec tree
               ~structure_id:structure.id
               ~path:[]
               ~depth:(depth + 1)
-              ~parent:(Some node.virtual_address) ))
+              ~parent:(Some site) ))
     in
     (* children lay out even when folded: their claims must hold (a folded
        queue cell keeps its map hidden), their card count is the [⋯ n hidden]
@@ -911,9 +964,9 @@ let rec tree
       ; width = View.width box
       ; height = box_height
       ; address = node.virtual_address
+      ; site
       ; depth
       ; parent
-      ; is_stub = false
       }
     in
     let box_toggles = [ { Toggle.x = 0; y = 0; fold } ] in
@@ -1176,8 +1229,8 @@ let count_nodes structures =
 let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
   match selection.cursor with
   | None -> scroll
-  | Some address ->
-    (match card_at placed address with
+  | Some { Spot.site; address = (_ : Snapshot.Address.t) } ->
+    (match card_at placed site with
      | None -> scroll
      | Some card ->
        Int.max (card.y + card.height - body_height) (Int.min scroll card.y))
@@ -1262,7 +1315,7 @@ let toggle_at
   |> Option.map ~f:(fun (toggle : Toggle.t) -> toggle.fold)
 ;;
 
-let address_at
+let spot_at
   ~structures
   ~nodes
   ~new_addresses
@@ -1285,7 +1338,14 @@ let address_at
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   List.find placed ~f:(Placed.contains ~x ~y:(y + scroll))
-  |> Option.map ~f:(fun (placed : Placed.t) -> placed.address)
+  |> Option.map ~f:Placed.spot
+;;
+
+(* where the pane starts you off: a structure's own root card *)
+let spot_of_structure (structure : Replay.Structure.t) =
+  { Spot.address = structure.address
+  ; site = { Site.structure = structure.id; path = [] }
+  }
 ;;
 
 (* the cards as the sections built them — before packing, so their positions
@@ -1320,8 +1380,7 @@ let move_cursor
   ~(direction : Direction.t)
   =
   let placed = cards ~structures ~nodes ~new_addresses ~folds ~selection in
-  let address_of (card : Placed.t) = card.address in
-  let find address = card_at placed address in
+  let find site = card_at placed site in
   let by_x = List.sort ~compare:(fun (a : Placed.t) b -> compare a.x b.x) in
   (* registry order, which is also the order the columns are filled in *)
   let roots =
@@ -1338,7 +1397,7 @@ let move_cursor
     let root = root_of card in
     match
       List.findi roots ~f:(fun (_ : int) (other : Placed.t) ->
-        Snapshot.Address.equal other.address root.address)
+        Site.equal other.site root.site)
     with
     | None -> None
     | Some (index, (_ : Placed.t)) -> List.nth roots (index + offset)
@@ -1346,19 +1405,19 @@ let move_cursor
   let neighbour_in list (card : Placed.t) ~offset =
     match
       List.findi list ~f:(fun (_ : int) (other : Placed.t) ->
-        Snapshot.Address.equal other.address card.address)
+        Site.equal other.site card.site)
     with
     | None -> None
     | Some (index, (_ : Placed.t)) -> List.nth list (index + offset)
   in
   let from =
     Option.first_some selection.cursor selection.selected
-    |> Option.bind ~f:find
+    |> Option.bind ~f:(fun (spot : Spot.t) -> find spot.site)
   in
   match from with
   | None ->
     (* nothing aimed at yet: start at the first tree's root *)
-    List.hd roots |> Option.map ~f:address_of
+    List.hd roots |> Option.map ~f:Placed.spot
   | Some card ->
     let moved =
       match direction with
@@ -1370,7 +1429,7 @@ let move_cursor
         let children =
           List.filter placed ~f:(fun (other : Placed.t) ->
             match other.parent with
-            | Some parent -> Snapshot.Address.equal parent card.address
+            | Some parent -> Site.equal parent card.site
             | None -> false)
           |> by_x
         in
@@ -1385,15 +1444,15 @@ let move_cursor
          (* a root has no layer inside its own tree; the structures beside it
             are its layer, and the pane tiles them left to right *)
          | None -> sibling_tree card ~offset
-         | Some (_ : Snapshot.Address.t) ->
+         | Some (_ : Site.t) ->
            let root = root_of card in
            let layer =
              List.filter placed ~f:(fun (other : Placed.t) ->
                other.depth = card.depth
-               && Snapshot.Address.equal (root_of other).address root.address)
+               && Site.equal (root_of other).site root.site)
              |> by_x
            in
            neighbour_in layer card ~offset)
     in
-    Option.map moved ~f:address_of
+    Option.map moved ~f:Placed.spot
 ;;

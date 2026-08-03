@@ -55,14 +55,13 @@ let heap_view
        ~selection)
 ;;
 
-(* the address of the structure this step walked — what the app selects by
-   default, and so the card that shows its address *)
-let current_address replay ~step =
+(* the structure this step walked — what the app selects by default, and so
+   the card that shows its address *)
+let current_spot replay ~step =
   List.find
     (Replay.step_exn replay ~step).structures
     ~f:(fun (structure : Replay.Structure.t) -> structure.is_current)
-  |> Option.map ~f:(fun (structure : Replay.Structure.t) ->
-    structure.address)
+  |> Option.map ~f:Heap_pane.spot_of_structure
 ;;
 
 let calls_of replay =
@@ -351,7 +350,7 @@ let%expect_test "heap clicks land on cards, not the space between" =
     Replay.step_exn replay ~step:1
   in
   let at ~x ~y =
-    Heap_pane.address_at
+    Heap_pane.spot_at
       ~width:56
       ~structures
       ~nodes
@@ -362,7 +361,8 @@ let%expect_test "heap clicks land on cards, not the space between" =
       ~height:15
       ~x
       ~y
-    |> Option.value_map ~default:"·" ~f:Snapshot.Address.display
+    |> Option.value_map ~default:"·" ~f:(fun (spot : Heap_pane.Spot.t) ->
+      Snapshot.Address.display spot.address)
   in
   (* the root card, the child card, and the gap beside the rail *)
   print_endline (at ~x:2 ~y:1);
@@ -965,7 +965,7 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
      side by side. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
-  let selected = current_address replay ~step in
+  let selected = current_spot replay ~step in
   let structures = (Replay.step_exn replay ~step).structures in
   let cursor =
     Heap_pane.move_cursor
@@ -985,21 +985,19 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
   [%expect
     {|
     HEAP                                              2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩
                    ▾┌ m ──────┐
                     │ "f" → 6 │
                     └─────────┘
-               ┌─────────┴──────────┐
-               l                    r
-      ▾┌────────────────┐     ▾┌─────────┐
-       │ "d" → 4        │      │ "h" → 8 │
-       │ 0x7ce0ebfe28a8 │      └─────────┘
-       └────────────────┘     ┌─────┴─────┐
-          ┌────┴─────┐        l           r
-          l          r      ┌┄┄┄┐    ┌──────────┐
-     ┌─────────┐   ┌┄┄┄┐    ┆ ∅ ┆    │ "j" → 10 │
-     │ "b" → 2 │   ┆ ∅ ┆    └┄┄┄┘    └──────────┘
-     └─────────┘   └┄┄┄┘
+               ┌─────────┴─────────┐
+               l                   r
+         ▾┌─────────┐        ▾┌─────────┐
+          │ "d" → 4 │         │ "h" → 8 │
+          └─────────┘         └─────────┘
+          ┌────┴─────┐       ┌─────┴─────┐
+          l          r       l           r
+     ┌─────────┐   ┌┄┄┄┐   ┌┄┄┄┐    ┌──────────┐
+     │ "b" → 2 │   ┆ ∅ ┆   ┆ ∅ ┆    │ "j" → 10 │
+     └─────────┘   └┄┄┄┘   └┄┄┄┘    └──────────┘
 
     ▾ bigger · map ⟨string ⇒ int⟩
                 ▾┌ bigger ─── new ┐
@@ -1010,6 +1008,8 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
              l                        r
     ┌ ↗ ┄┄┄┄┄┄┄┄┄┄┄┄┄┐          ▾┌──── new ┐
     ┆ "d" → 4        ┆           │ "h" → 8 │
+    ┆ 0x7ce0ebfe28a8 ┆           └─────────┘
+    └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         ┌──────┴───────┐
     |}]
 ;;
 
@@ -1017,9 +1017,13 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
   (* map_spine_sharing's last step draws [m]'s five-node tree and the version
      derived from it. [s] descends, [a]/[d] run along a layer — "b" and "j"
      are cousins, two subtrees apart, but they share a depth — and [s] off a
-     leaf falls through to the next structure. The last [s] lands on
-     [bigger]'s [↗] pointer, which is [m]'s "d" subtree: aiming at a pointer
-     aims at what it points at. *)
+     leaf falls through to the next structure.
+
+     The last three presses are the point: [s] lands on [bigger]'s [↗]
+     pointer, which names [m]'s "d" subtree — and [d] then runs along
+     [bigger]'s layer and [w] climbs to [bigger]'s root, not [m]'s. Standing
+     on a pointer lights up the card it names but leaves the cursor where it
+     is, in the tree being read. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
@@ -1029,7 +1033,7 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
      root, otherwise the map key it holds. The delta wire keeps interior
      nodes in the id table rather than inline under the root, so that is
      where the keys are looked up. *)
-  let label address =
+  let label ({ address; site = (_ : Heap_pane.Site.t) } : Heap_pane.Spot.t) =
     match
       List.find structures ~f:(fun (structure : Replay.Structure.t) ->
         Snapshot.Address.equal structure.address address)
@@ -1047,7 +1051,7 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
   in
   let selection =
     ref
-      { Heap_pane.Selection.selected = current_address replay ~step
+      { Heap_pane.Selection.selected = current_spot replay ~step
       ; cursor = None
       }
   in
@@ -1062,6 +1066,8 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
     ; Down, "s"
     ; Down, "s"
     ; Down, "s"
+    ; Right, "d"
+    ; Up, "w"
     ]
     ~f:(fun (direction, key) ->
       let moved =
@@ -1075,12 +1081,12 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
       in
       (match moved with
        | None -> ()
-       | Some (_ : Snapshot.Address.t) ->
+       | Some (_ : Heap_pane.Spot.t) ->
          selection := { !selection with cursor = moved });
       let landed =
         match moved with
         | None -> "(nothing that way)"
-        | Some address -> label address
+        | Some spot -> label spot
       in
       print_endline [%string "%{key} -> %{landed}"]);
   [%expect
@@ -1095,6 +1101,8 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
     s -> "b"
     s -> bigger
     s -> "d"
+    d -> "h"
+    w -> bigger
     |}]
 ;;
 
