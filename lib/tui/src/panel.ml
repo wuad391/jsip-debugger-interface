@@ -16,8 +16,8 @@ let repeat glyph ~width =
   String.concat (List.init (max 0 width) ~f:(fun (_ : int) -> glyph))
 ;;
 
-(* dividers sit on the app surface between panes, so they state that
-   background rather than inheriting the terminal's *)
+(* dividers state the surface they sit on rather than inheriting the
+   terminal's background *)
 let divider_attrs color = [ Theme.fg color; Attr.bg Theme.bg ]
 
 let horizontal_rule ~width ~color =
@@ -30,7 +30,7 @@ let vertical_rule ~height ~color =
        View.text ~attrs:(divider_attrs color) "│"))
 ;;
 
-let junction ~color = View.text ~attrs:(divider_attrs color) "┤"
+
 let header_height = 1
 let inner_width ~width = max 0 (width - 2)
 
@@ -62,6 +62,6 @@ let view ~title ~meta ~width ~height body =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
-    ~bg:Theme.panel_bg
+    ~bg:Theme.bg
     (fit (View.vcat [ fit header ~width ~height:1; body ]) ~width ~height)
 ;;

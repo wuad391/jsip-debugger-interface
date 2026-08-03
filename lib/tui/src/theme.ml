@@ -14,8 +14,10 @@ let color hex =
    gold accent, purple/blue/green syntax) with lightness inverted —
    backgrounds sink to near-black warm grays, text rises to warm off-white,
    and the accent gold brightens so it still carries the highlights *)
-let bg = color 0x151312
-let panel_bg = color 0x1d1b19
+(* one surface for the whole screen: panes are not boxes and do not sit on
+   their own slab, so a second background would only ever read as a stray
+   band where two panes meet *)
+let bg = color 0x1d1b19
 let accent = color 0xd4a24e
 let fresh = color 0x8fd694
 

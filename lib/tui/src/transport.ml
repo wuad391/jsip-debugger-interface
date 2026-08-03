@@ -40,11 +40,11 @@ let bar ~cell_width =
   let gap = cell_width > 2 in
   String.concat
     (List.init cell_width ~f:(fun i ->
-       match gap && i = cell_width - 1 with true -> " " | false -> "█"))
+       match gap && i = cell_width - 1 with true -> " " | false -> "▀"))
 ;;
 
-(* the bar stands [Layout.tick_height] rows tall, so progress through the run
-   reads at a glance rather than as a hairline *)
+(* a half-height bar hugging the top edge: heavier than a hairline, and it
+   leaves the row under it empty *)
 let ticks ~width ~step ~total =
   let row =
     let views =
@@ -137,6 +137,13 @@ let view ~width ~step ~total ~playing =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
-    ~bg:Theme.panel_bg
-    (View.vcat [ ticks ~width ~step ~total; controls ~width ~playing ])
+    ~bg:Theme.bg
+    (Panel.fit
+       (View.vcat
+          [ ticks ~width ~step ~total
+          ; View.transparent_rectangle ~width ~height:Layout.tick_gap
+          ; controls ~width ~playing
+          ])
+       ~width
+       ~height:Layout.strip_height)
 ;;

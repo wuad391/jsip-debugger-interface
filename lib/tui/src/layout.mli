@@ -14,6 +14,13 @@ module Region := Bonsai_term.Region
 (** Rows the tick bar occupies — {!Transport} draws that many. *)
 val tick_height : int
 
+(** Blank rows under the bar, before the controls. *)
+val tick_gap : int
+
+(** Rows of chrome above the panes: the bar, a space, the controls, the
+    gap. {!Transport} fills the whole strip so it reads as one surface. *)
+val strip_height : int
+
 type t =
   { ticks : Region.t
   ; controls : Region.t
@@ -21,7 +28,6 @@ type t =
   ; source : Region.t
   ; heap : Region.t
   ; column_divider : Region.t (** between the left column and the heap *)
-  ; row_divider : Region.t (** between the stack and the source *)
   ; session : Region.t
   }
 

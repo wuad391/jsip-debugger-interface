@@ -20,6 +20,6 @@ let view ~width ~dump_name ~structure =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
-    ~bg:Theme.panel_bg
+    ~bg:Theme.bg
     (Panel.fit left ~width ~height:1)
 ;;

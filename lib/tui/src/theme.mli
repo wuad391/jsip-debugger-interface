@@ -10,8 +10,9 @@
 open! Core
 module Attr := Bonsai_term.Attr
 
+(** The screen's one surface — panes, strip and session bar all sit on
+    it, so nothing reads as a slab edge. *)
 val bg : Attr.Color.t
-val panel_bg : Attr.Color.t
 
 (** The brand gold: the session bar's dot. *)
 val accent : Attr.Color.t

@@ -233,7 +233,8 @@ let%expect_test "transport: ticks, then the clickable key legend" =
     (Transport.view ~width:56 ~step:1 ~total:3 ~playing:false);
   [%expect
     {|
-    █████████████████ █████████████████ █████████████████
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
              ◂ back  ·  step ▸  ·  [space] play  ·  q quit
     |}]
 ;;

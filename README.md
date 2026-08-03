@@ -11,36 +11,36 @@ the source position, and the allocated data structures evolve.
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells, its warm-gray
 palette re-pitched for dark terminals — selection and position in one
-bright blue across all panes, and no boxes — single dividers split the
-screen into panes:
+bright blue across all panes, and one surface — no boxes, a single
+divider between the columns:
 
 ```
- █████████████████ █████████████████ █████████████████ █████████████████ █████████████████
+ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
                                               ◂ back  ·  step ▸  ·  [space] play  ·  q quit
 
 
- CALL STACK                 5 calls · 1 live │ HEAP                2 live · 8 nodes · 4 new
-      M.add "a" 1         map_versions.ml:10 │ ▾ #7 · map ⟨string ⇒ int⟩
-        M.empty                              │            ▾┌ #7 ────────────┐
-    M.add "b" 2 (M.add    map_versions.ml:10 │             │ "b" ↦ 2        │
-      "a" 1 M.empty)                         │             │ 0x7b7f1dc87708 │
-    M.add "c" 3 m1        map_versions.ml:11 │             └────────────────┘
-    M.add "d" 4 m2        map_versions.ml:12 │          ┌──────────┴──────────┐
- ▎  M.add "e" 5 m         map_versions.ml:17 │          l                     r
-                                             │  ┌────────────────┐   ▾┌────────────────┐
-                                             │  │ "a" ↦ 1        │    │ "c" ↦ 3        │
-                                             │  │ 0x7b7f0dbe2080 │    │ 0x7b7f0dbe20e0 │
-─────────────────────────────────────────────┤  └────────────────┘    └────────────────┘
- SOURCE           map_versions.ml · 17 lines │                          ┌─────┴──────┐
-           M.empty) in                       │                          l            r
-    11   let m2 = M.add "c" 3 m1 in          │                          ∅    ┌─────────────
-    12   M.add "d" 4 m2                      │                               │ "d" ↦ 4
-    13                                       │                               │ 0x7b7f0dbe21
-  ▾ 14 let () =                              │                               └─────────────
-    15   let m = grow () in                  │
-    16   Gc.full_major ();                   │ ▾ #11 · map ⟨string ⇒ int⟩
- ▎  17   ignore (M.add "e" 5 m)              │ ▾┌ #11 ────── new ┐
- ● ocaml-debug │ map_versions.dump │ map ⟨string ⇒ int⟩ · replay
+ CALL STACK                 5 calls · 1 live │ HEAP                2 live · 3 nodes · 2 new
+      M.add "b" 2 M.empty      map_fold.ml:8 │ ▾ #1 · map ⟨string ⇒ int⟩
+ ▎▾ M.add "a" 1 (M.add "b" 2   map_fold.ml:8 │  ┌ #1 ────────────┐
+ ▎    M.empty)                               │  │ "b" ↦ 2        │
+      M.add k (v * 2) acc     map_fold.ml:12 │  │ 0x75101a3f23a0 │
+      M.add k (v * 2) acc     map_fold.ml:12 │  └────────────────┘
+    M.fold (fun k v acc ->    map_fold.ml:10 │
+      M.add k (v * 2) acc) m M.empty         │ ▾ m · map ⟨string ⇒ int⟩
+                                             │       ▾┌ m ──────── new ┐
+                                             │        │ "b" ↦ 2        │
+                                             │        │ 0x75101a3ee970 │
+                                             │        └────────────────┘
+ SOURCE               map_fold.ml · 15 lines │          ┌─────┴──────┐
+  ▾  5 module M = Map.Make (String)          │          l            r
+     6                                       │  ┌─────────── new ┐   ∅
+  ▾  7 let () =                              │  │ "a" ↦ 1        │
+ ▎   8   let m = M.add "a" 1 (M.add "b" 2 M  │  │ 0x75101a3ee9a0 │
+ ▎         .empty) in                        │  └────────────────┘
+     9   let doubled =                       │
+    10     M.fold                            │
+ ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay
 ```
 
 - **Call stack** — every call in the run, indented by depth: the current
@@ -85,8 +85,8 @@ screen into panes:
   this step* carry a green `new` tag in the border's top right. Clicking
   a card jumps the replay to the step that allocated it; the wheel
   scrolls.
-- **Transport** — across the top: a tall bar with one tick per event
-  (click to jump) over the controls, right-aligned chips that double as the key legend —
+- **Transport** — across the top: a bar with one tick per event (click
+  to jump) over the controls, right-aligned chips that double as the key legend —
   `◂ back · step ▸ · [space] play · q quit` — every chip clickable. The
   session bar (dump name, structure) sits along the bottom.
 
