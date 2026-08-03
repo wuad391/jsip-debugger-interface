@@ -5,6 +5,7 @@ module Structure = struct
   type t =
     { id : int
     ; name : string option
+    ; ty : Type_info.t option
     ; address : Snapshot.Address.t
     ; snapshot : Snapshot.t
     ; is_current : bool
@@ -75,6 +76,10 @@ let create call_stack =
   (* each event walks one structure; everything else in the registry keeps
      the shape of its own most recent walk *)
   let latest_walk = ref Int.Map.empty in
+  (* a structure's static type never changes, so its latest statement stands;
+     a structure whose events all predate the wire's [ty] field simply has
+     none *)
+  let latest_ty = ref Int.Map.empty in
   let steps =
     Array.init (Call_stack.length call_stack) ~f:(fun step ->
       let call = Call_stack.call_exn call_stack ~step in
@@ -83,6 +88,10 @@ let create call_stack =
       seen := Set.union !seen addresses;
       latest_walk
       := Map.set !latest_walk ~key:call.info.id ~data:call.info.snapshot;
+      (match call.info.ty with
+       | None -> ()
+       | Some ty ->
+         latest_ty := Map.set !latest_ty ~key:call.info.id ~data:ty);
       let structures =
         (* a registry id always has a walk by the time it appears — its first
            event is what registered it — so a miss is dropped rather than
@@ -94,6 +103,7 @@ let create call_stack =
             |> Option.map ~f:(fun snapshot ->
               { Structure.id
               ; name
+              ; ty = Map.find !latest_ty id
               ; address
               ; snapshot
               ; is_current = id = call.info.id

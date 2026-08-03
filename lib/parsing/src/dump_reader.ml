@@ -42,6 +42,7 @@ let parse_line
        ; location = wire.loc
        ; arguments = wire.args
        ; registry = wire.registry
+       ; ty = wire.ty
        ; snapshot = wire.snapshot
        }
        : Call.Info.t)

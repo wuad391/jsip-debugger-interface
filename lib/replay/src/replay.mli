@@ -25,6 +25,9 @@ module Structure : sig
     { id : int
     ; name : string option
     (** the latest variable name the structure was observed under *)
+    ; ty : Type_info.t option
+    (** the structure's static type, from its latest event that stated one;
+        [None] when every event predates the wire's [ty] field *)
     ; address : Snapshot.Address.t
     ; snapshot : Snapshot.t
     ; is_current : bool

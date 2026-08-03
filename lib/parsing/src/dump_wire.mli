@@ -12,6 +12,7 @@
         (args ((No_label (expression (Unnamed "\"a\"")))
                (No_label (expression (Unnamed m)))))
         (registry ((1 0x7f08c0e0 m)))
+        (ty ((printed "int M.t") (params ((key string) (data int)))))
         (snapshot ((ds_type Map) (root_node ...))))
     ]}
 
@@ -40,6 +41,9 @@ type t =
   ; registry : Registry_entry.t list
   (** the live weak registry at event time — ids, current addresses, and
       latest observed variable names *)
+  ; ty : Type_info.t option [@sexp.option]
+  (** the static type of this event's walked root; [None] on dumps from a
+      compiler predating the field *)
   ; snapshot : Snapshot.t
   }
 [@@deriving sexp]

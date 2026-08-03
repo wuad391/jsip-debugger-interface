@@ -8,6 +8,7 @@ module Info = struct
     ; location : Location.t
     ; arguments : Argument.t list
     ; registry : Registry_entry.t list
+    ; ty : Type_info.t option [@sexp.option]
     ; snapshot : Snapshot.t
     }
   [@@deriving sexp_of]
@@ -28,6 +29,7 @@ let empty =
            Location.create ~file_path:"none" ~line_number:0 ~char_range:(0, 0)
        ; arguments = []
        ; registry = []
+       ; ty = None
        ; snapshot = Snapshot.empty
        }
        : Info.t)
