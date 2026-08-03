@@ -133,9 +133,5 @@ let view ~width ~step ~total ~playing =
     ~fill_backdrop:true
     ~fg:Theme.text
     ~bg:Theme.panel_bg
-    (View.vcat
-       [ ticks ~width ~step ~total
-       ; controls ~width ~playing
-       ; Panel.horizontal_rule ~width ~color:Theme.border
-       ])
+    (View.vcat [ ticks ~width ~step ~total; controls ~width ~playing ])
 ;;

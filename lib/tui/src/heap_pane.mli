@@ -16,23 +16,24 @@
     Each node is a card — its meaning up top ([{"a" ↦ 2}] for a map binding,
     the element for a set, [length n] for a queue root, the content for a
     cell, the joined positions for a walked value block), its full address in
-    small type below — outlined in the brand gold, with cards allocated at
-    this step in the brighter fresh gold plus a [new] chip. A node's card
-    sits centered over its children; siblings share a level, and a labeled
-    rail connects parent to children. [∅] marks an interior node's empty
-    slot; leaves keep empty slots to themselves. Queue cells' numeric wire
-    labels print as [v]/[next].
+    small type below — outlined in blue; a card allocated at this step
+    carries a green [new] tag in its border's top right, and the current
+    structure's root card is washed in the highlight background. A node's
+    card sits centered over its children; siblings share a level, and a
+    labeled rail connects parent to children. [∅] marks an interior node's
+    empty slot; leaves keep empty slots to themselves. Queue cells' numeric
+    wire labels print as [v]/[next].
 
     {v
-    ▸ #1 · map
-        ┌────────────────────┐
-        │ "a" ↦ 1        new │
+    ▸ m · map
+        ┌─────────────── new ┐
+        │ m · "a" ↦ 1        │
         │ 0x763be65ee878     │
         └────────────────────┘
          ┌─────────┴────────┐
          l                  r
-         ∅        ┌────────────────────┐
-                  │ "b" ↦ 2        new │
+         ∅        ┌─────────────── new ┐
+                  │ "b" ↦ 2            │
                   │ 0x763be65ee8a8     │
                   └────────────────────┘
     v} *)

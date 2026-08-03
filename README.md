@@ -11,7 +11,7 @@ the source position, and the allocated data structures evolve.
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells, its warm-gray
 palette re-pitched for dark terminals — selection and position in one
-bright blue across all panes, the gold reserved for the heap's cards:
+bright blue across all panes:
 
 ```
  ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━
@@ -55,16 +55,18 @@ bright blue across all panes, the gold reserved for the heap's cards:
   the latest variable name they were observed under (`m ·`, `tbl ·`;
   `#id` when anonymous), root addresses re-stamp from the registry on
   every redraw, and only unreferenced structures get their own section
-  header (the one this event walked marked in blue). Nodes follow the
+  header (the one this event walked marked in blue, its root card washed
+  in the highlight background). Nodes follow the
   emitter's layered layout contract — interior skeleton vs user payload,
   hashtbl's record → bucket array → chains included; closures and other
   undecoded blocks print as `⟨0x…⟩`. Each structure is drawn like a CS
   tree diagram:
-  gold-outlined node cards (the node's meaning over its full address), a
+  blue-outlined node cards (the node's meaning over its full address), a
   parent centered above its children, siblings sharing a level under a
   labeled rail, `∅` where an interior slot is empty. Cards allocated *at
-  this step* get the brighter fresh border and a `new` chip. Clicking a
-  card jumps the replay to the step that allocated it; the wheel scrolls.
+  this step* carry a green `new` tag in the border's top right. Clicking
+  a card jumps the replay to the step that allocated it; the wheel
+  scrolls.
 - **Transport** — across the top: one tick per event (click to jump)
   over the controls, right-aligned chips that double as the key legend —
   `◂ back · step ▸ · [space] play · q quit` — every chip clickable. The

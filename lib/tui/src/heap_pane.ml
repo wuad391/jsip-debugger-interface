@@ -242,12 +242,13 @@ let span_view (tag, text) =
   View.text ~attrs text
 ;;
 
-(* the mockup's node card — gold outline, the full address in small type. A
-   card that is some tracked structure's root carries its name (or [#id]) as
-   a tag:
+(* the node card — blue outline, the full address in small type, a green
+   [new] tag in the border for this step's allocations, the current
+   structure's root washed in the highlight background. A card that is some
+   tracked structure's root carries its name (or [#id]) as a tag:
    {v
-   ┌────────────────────┐
-   │ m · "a" ↦ 2    new │
+   ┌─────────────── new ┐
+   │ m · "a" ↦ 2        │
    │ 0x763be65ee878     │
    └────────────────────┘
    v} *)
@@ -258,13 +259,16 @@ let node_box
   ~(context : Context.t)
   =
   let is_new = Set.mem context.new_addresses node.virtual_address in
-  let border_color =
-    match is_new with true -> Theme.fresh | false -> Theme.accent
+  let root_structure = Map.find context.by_address node.virtual_address in
+  let is_selected =
+    match root_structure with
+    | Some (structure : Replay.Structure.t) -> structure.is_current
+    | None -> false
   in
-  let border = Theme.fg' border_color in
+  let border = Theme.fg' Theme.card_border in
   let summary =
     let tag_views =
-      match Map.find context.by_address node.virtual_address with
+      match root_structure with
       | None -> []
       | Some structure ->
         let attrs =
@@ -277,18 +281,9 @@ let node_box
             [%string "%{Replay.Structure.display structure} · "]
         ]
     in
-    let spans =
-      List.map (summary_spans node ~mode ~hidden_labels) ~f:span_view
-    in
-    match is_new with
-    | true ->
-      View.hcat
-        (tag_views
-         @ spans
-         @ [ View.text "  "
-           ; View.text ~attrs:[ Theme.fg Theme.fresh; Attr.italic ] "new"
-           ])
-    | false -> View.hcat (tag_views @ spans)
+    View.hcat
+      (tag_views
+       @ List.map (summary_spans node ~mode ~hidden_labels) ~f:span_view)
   in
   let address =
     View.text
@@ -296,7 +291,27 @@ let node_box
       (Snapshot.Address.display node.virtual_address)
   in
   let inner = max (View.width summary) (View.width address) in
-  let horizontal = Panel.repeat "─" ~width:(inner + 2) in
+  (* a fresh allocation announces itself in the border's top right *)
+  let top =
+    match is_new with
+    | false ->
+      View.text
+        ~attrs:border
+        [%string "┌%{Panel.repeat \"─\" ~width:(inner + 2)}┐"]
+    | true ->
+      View.hcat
+        [ View.text
+            ~attrs:border
+            ("┌" ^ Panel.repeat "─" ~width:(max 0 (inner - 3)))
+        ; View.text ~attrs:(Theme.fg' Theme.fresh) " new "
+        ; View.text ~attrs:border "┐"
+        ]
+  in
+  let bottom =
+    View.text
+      ~attrs:border
+      [%string "└%{Panel.repeat \"─\" ~width:(inner + 2)}┘"]
+  in
   let content line =
     View.hcat
       [ View.text ~attrs:border "│ "
@@ -304,12 +319,10 @@ let node_box
       ; View.text ~attrs:border " │"
       ]
   in
-  View.vcat
-    [ View.text ~attrs:border [%string "┌%{horizontal}┐"]
-    ; content summary
-    ; content address
-    ; View.text ~attrs:border [%string "└%{horizontal}┘"]
-    ]
+  let card = View.vcat [ top; content summary; content address; bottom ] in
+  match is_selected with
+  | true -> View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
+  | false -> card
 ;;
 
 let sibling_gap = 3

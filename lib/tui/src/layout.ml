@@ -13,9 +13,9 @@ type t =
   }
 
 let compute ({ height; width } : Dimensions.t) =
-  (* the transport strip (ticks, controls, rule) across the top; the session
+  (* the transport strip (ticks over controls) across the top; the session
      bar across the bottom *)
-  let transport_height = 3 in
+  let transport_height = 2 in
   let main_y = transport_height in
   let main_height = max 6 (height - transport_height - 1) in
   (* mockup grid: stack row 1.28fr over source 0.72fr; both take half the

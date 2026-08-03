@@ -16,20 +16,23 @@ let color hex =
 let bg = color 0x151312
 let panel_bg = color 0x1d1b19
 let accent = color 0xd4a24e
-let fresh = color 0xeec27c
+let fresh = color 0x8fd694
 
 (* selection and position live in one hue so the eye can chase it across
    panes: a bright blue for bars, washes, and the current tick *)
 let highlight = color 0x4da3ff
 let highlight_bg = color 0x16324c
 let highlight_deep = color 0xa6d2ff
+
+(* heap node cards outline in a calmer blue than the selection *)
+let card_border = color 0x5d8cc2
 let text = color 0xe6e1dc
 let secondary = color 0xb8b2ac
 let muted = color 0x948e88
 let faint = color 0x7a7570
 let ghost = color 0x57534e
-let border = color 0x3a3733
-let border_strong = color 0x4c4843
+let border = color 0x4b4741
+let border_strong = color 0x5f5a53
 let hairline = color 0x2a2825
 let tick_past = color 0x2e5578
 let app_purple = color 0xc39ae2
