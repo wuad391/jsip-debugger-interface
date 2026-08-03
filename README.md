@@ -11,15 +11,15 @@ the source position, and the allocated data structures evolve.
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells, its warm-gray
 palette re-pitched for dark terminals — selection and position in one
-bright blue across all panes, and one surface — no boxes, a single
-divider between the columns:
+bright blue across all panes, and one surface — no boxes, just a
+divider line along each seam:
 
 ```
  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
 
                                               ◂ back  ·  step ▸  ·  [space] play  ·  q quit
 
-
+─────────────────────────────────────────────┬──────────────────────────────────────────────
  CALL STACK                 5 calls · 1 live │ HEAP                2 live · 3 nodes · 2 new
       M.add "b" 2 M.empty      map_fold.ml:8 │ ▾ #1 · map ⟨string ⇒ int⟩
  ▎▾ M.add "a" 1 (M.add "b" 2   map_fold.ml:8 │  ┌ #1 ────────────┐
@@ -31,7 +31,7 @@ divider between the columns:
                                              │       ▾┌ m ──────── new ┐
                                              │        │ "b" ↦ 2        │
                                              │        │ 0x75101a3ee970 │
-                                             │        └────────────────┘
+─────────────────────────────────────────────┤        └────────────────┘
  SOURCE               map_fold.ml · 15 lines │          ┌─────┴──────┐
   ▾  5 module M = Map.Make (String)          │          l            r
      6                                       │  ┌─────────── new ┐   ∅

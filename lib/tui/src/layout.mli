@@ -24,10 +24,12 @@ val strip_height : int
 type t =
   { ticks : Region.t
   ; controls : Region.t
+  ; top_divider : Region.t (** between the transport strip and the panes *)
   ; stack : Region.t
   ; source : Region.t
   ; heap : Region.t
   ; column_divider : Region.t (** between the left column and the heap *)
+  ; row_divider : Region.t (** between the stack and the source *)
   ; session : Region.t
   }
 

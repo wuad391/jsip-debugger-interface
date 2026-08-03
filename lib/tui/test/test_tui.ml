@@ -772,6 +772,8 @@ let%expect_test "every drawn glyph is one cell wide" =
     ; 0x25cf, "●"
     ; 0x2588, "█"
     ; 0x2524, "┤"
+    ; 0x252c, "┬"
+    ; 0x2580, "▀"
     ]
   in
   List.iter glyphs ~f:(fun (scalar, glyph) ->
@@ -783,7 +785,7 @@ let%expect_test "every drawn glyph is one cell wide" =
     | width ->
       print_s [%message "not one cell" (glyph : string) (width : int)]);
   print_s [%sexp (List.length glyphs : int)];
-  [%expect {| 26 |}]
+  [%expect {| 28 |}]
 ;;
 
 let%expect_test "delta wire: a revisit stub replays the earlier shape" =

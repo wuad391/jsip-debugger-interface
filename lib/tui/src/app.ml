@@ -252,6 +252,25 @@ let render
              ~new_addresses
              ~folds:model.heap_folds
              ~scroll:model.heap_scroll)
+      ; (* junctions ride over the rules they interrupt *)
+        View.pad
+          ~l:layout.column_divider.x
+          ~t:layout.top_divider.y
+          (Panel.junction ~color:Theme.border "┬")
+      ; View.pad
+          ~l:layout.column_divider.x
+          ~t:layout.row_divider.y
+          (Panel.junction ~color:Theme.border "┤")
+      ; View.pad
+          ~t:layout.top_divider.y
+          (Panel.horizontal_rule
+             ~width:layout.top_divider.width
+             ~color:Theme.border)
+      ; View.pad
+          ~t:layout.row_divider.y
+          (Panel.horizontal_rule
+             ~width:layout.row_divider.width
+             ~color:Theme.border)
       ; View.pad
           ~l:layout.column_divider.x
           ~t:layout.column_divider.y

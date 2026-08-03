@@ -20,6 +20,10 @@ let repeat glyph ~width =
    terminal's background *)
 let divider_attrs color = [ Theme.fg color; Attr.bg Theme.bg ]
 
+(* where two dividers meet: [┬] under the strip, [┤] where the stack / source
+   seam runs into the column divider *)
+let junction ~color glyph = View.text ~attrs:(divider_attrs color) glyph
+
 let horizontal_rule ~width ~color =
   View.text ~attrs:(divider_attrs color) (repeat "─" ~width)
 ;;
