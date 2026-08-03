@@ -31,11 +31,18 @@ module Address : sig
   val display : t -> string
 end
 
-(** One field of a walked heap block: an immediate or opaque value kept
-    inline. [Id] references the node carrying that wire id — a tracked root,
-    a shared block dumped by an earlier event, or an earlier node in this
-    same walk (sharing, a cycle). [Address] carries only a block the walker
-    did not decode. *)
+(** One field of a walked heap block, under the label the walker gave it —
+    the wire carries every kept field, so a reader needs no layout of its own
+    to name anything.
+
+    [Child] says the field's value is a block of its own: it stands for the
+    next node in the owning node's [children], in order. [Id] references the
+    node carrying that wire id — a tracked root, a shared block dumped by an
+    earlier event, or an earlier node in this same walk (sharing, a cycle).
+    [Address] carries only a block the walker did not decode.
+
+    An empty pointer field arrives as [Int 0], indistinguishable from the
+    integer zero; see {!Ds_type.interior_labels}. *)
 module Block : sig
   type t =
     | Int of int
@@ -47,54 +54,70 @@ module Block : sig
     | Float_array of float list
     | Address of Address.t
     | Id of int
+    | Child
   [@@deriving sexp, bin_io, compare, equal]
 
   (** Source-ish spelling of the value: [42], ["a"], [0x1a0], [#2],
-      [[|1.; 2.|]] ... — what the heap pane prints inside a node. *)
+      [[|1.; 2.|]] ... — what the heap pane prints inside a node. A [Child]
+      is an edge, not a value, and the pane draws it rather than printing it. *)
   val display : t -> string
 end
 
 (** Which catalogued data structure the snapshot walked. Constructors mirror
     the compiler's [Data_structure.t] — order included, since constructor
     order is the C walker's contract; new tracked structures show up here as
-    new constructors. *)
+    new constructors.
+
+    There is one entry per REPRESENTATION, not per module: every [Make]
+    instance of a map is the same type, and [Core.Linked_queue] is a
+    [Stdlib.Queue.t] and arrives as [Queue].
+
+    [Core_*] is not the stdlib entry under another name. Core reaches its
+    containers through Base, and a Base map is a record over a tagged tree
+    where the stdlib's map is the tree itself; a Base hashtable is
+    [{table; length}] over an array of AVL trees where the stdlib's buckets
+    are cons chains. They share a name and nothing else. *)
 module Ds_type : sig
   type t =
     | Map
     | Set
     | Queue
     | Hashtbl
+    | Stack
+    | Dynarray
+    | Core_map
+    | Core_set
+    | Core_hashtbl
+    | Core_hash_set
+    | Core_queue
+    | Core_stack
+    | Core_deque
+    | Core_fdeque
+    | Core_doubly_linked
+    | Core_hash_queue
+    | User
   [@@deriving sexp, bin_io, compare, equal]
 
-  (** Lowercase, for header chips: ["map"], ["hashtbl"], ... *)
+  (** Lowercase, for header chips: ["map"], ["core.hash_queue"], ... — Core
+      entries keep the qualifier, because a Core map beside a stdlib one is a
+      thing you want to be able to tell apart. *)
   val display : t -> string
 
-  (** One layer of the structure's internal representation, mirroring the
-      compiler's [Data_structure.layout] with the masks spelled as label
-      lists. A node's [block] holds every masked field it kept inline; a
-      masked label absent from it was a walked child, and the k-th such
-      absence is the k-th child — that recovery is per layer:
+  (** The labels this structure's own skeleton uses for its internal pointers
+      — the one thing the wire cannot say.
 
-      - [Fixed]: [interior] fields lead one layer deeper into the structure's
-        own skeleton, [payload] fields hold user data (walked payload blocks
-        and everything below them are generic value blocks with numeric
-        positional labels, no masks).
-      - [Array_elements]: a variable-size block whose fields get numeric
-        labels and are all interior. *)
-  module Layer : sig
-    type t =
-      | Fixed of
-          { labels : string list
-          ; interior : string list
-          ; payload : string list
-          }
-      | Array_elements
-  end
+      Every field arrives labeled, and a field holding a walked block reads
+      {!Block.Child}, so naming needs no layout. But an empty pointer and the
+      integer zero are the same word in memory and both arrive as [Int 0]:
+      [l (Int 0)] on a map node is the empty subtree, [d (Int 0)] on the same
+      node is the data zero. This is what lets the heap pane draw the first
+      as an empty slot and print the second as a value.
 
-  (** Root first, in the order interior edges meet them; nonempty, and past
-      the end the last layer repeats (a map's l/r spine, a bucket chain's
-      next). *)
-  val layers : t -> Layer.t list
+      Deliberately not exhaustive — numeric labels are excluded (an array
+      slot and a payload tuple's field both read ["1"]), as is any label the
+      structure also uses for user data. An unlisted empty slot reads [l=0]:
+      the cost of being wrong here is a box, never a wrong name. *)
+  val interior_labels : t -> string list
 end
 
 (** One heap block of the walked structure: its address, its non-pointer

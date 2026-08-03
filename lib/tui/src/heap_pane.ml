@@ -3,7 +3,6 @@ open Jsip_types
 open Jsip_replay
 module Attr = Bonsai_term.Attr
 module View = Bonsai_term.View
-module Layer = Snapshot.Ds_type.Layer
 
 (* Which drawing of a node the keyboard is standing on. A node can be on the
    canvas twice — its own card, and a [↗] pointer at it from a structure that
@@ -162,7 +161,7 @@ module Context = struct
     match block with
     | Id id -> Replay.Nodes.find t.nodes id
     | Address _ | Int _ | Float _ | String _ | Int32 _ | Int64 _
-    | Nativeint _ | Float_array _ ->
+    | Nativeint _ | Float_array _ | Child ->
       None
   ;;
 
@@ -170,72 +169,46 @@ module Context = struct
     match block with
     | Id id -> Map.find t.by_id id
     | Address _ | Int _ | Float _ | String _ | Int32 _ | Int64 _
-    | Nativeint _ | Float_array _ ->
+    | Nativeint _ | Float_array _ | Child ->
       None
   ;;
 end
 
-(* How to read one node: either we are on the structure's own skeleton — at a
-   known layer, interior edges leading one layer deeper (the last layer
-   repeats) — or below a payload edge, where blocks are generic user data
-   with numeric positional labels and no masks. *)
-module Mode = struct
-  type t =
-    | Ds of Layer.t list
-    | Payload
-
-  let deeper layers =
-    match layers with [] | [ _ ] -> layers | (_ : Layer.t) :: rest -> rest
-  ;;
-end
-
-(* queue cells keep the wire's numeric labels; show them as the fields they
-   are *)
-let pretty_label ~ds_type ~(layer : Layer.t) label =
-  match (ds_type : Snapshot.Ds_type.t), layer, label with
-  | Queue, Fixed { labels = [ "0"; "1" ]; _ }, "0" -> "v"
-  | Queue, Fixed { labels = [ "0"; "1" ]; _ }, "1" -> "next"
-  | (Map | Set | Queue | Hashtbl), (Fixed _ | Array_elements), label -> label
-;;
-
-(* one node's outgoing edges and inline fields, by the layer contract *)
+(* one node's outgoing edges and inline fields, straight off the wire *)
 module Edge = struct
   (* a node already drawn elsewhere on this canvas: the wire shares it, so
      the canvas points at it rather than drawing it twice. The pointer
-     carries enough to name what it points at the way that card does — the
-     node the id defines, and the mode this slot would have read it in. *)
+     carries the node the id defines, so it can name what it points at the
+     way that card does. *)
   type shared =
     { id : int
     ; node : Snapshot.Node.t option
-    ; mode : Mode.t
     }
 
   type t =
     | Nil (** an empty interior slot *)
-    | Child of Snapshot.Node.t * Mode.t
+    | Child of Snapshot.Node.t
     | Ref of Replay.Structure.t
     (** a tracked structure reached through a reference *)
     | Shared of shared
 end
 
-let node_edges
-  (node : Snapshot.Node.t)
-  ~(mode : Mode.t)
-  ~(context : Context.t)
-  =
-  let block_value label =
-    List.Assoc.find node.block label ~equal:String.equal
-  in
+(* Read a node the way the wire writes it: [block] holds every kept field
+   under its own label and in field order, a field holding a walked block
+   reads [Child] and stands for the next node in [children], and an [Id]
+   names a node defined earlier. Nothing here needs a layout — the only
+   per-structure knowledge left is {!Snapshot.Ds_type.interior_labels}, which
+   says which [Int 0] is an empty pointer rather than the number.
+
+   Returns the labeled edges in field order, and the leaf fields the card
+   should print. *)
+let node_edges (node : Snapshot.Node.t) ~ds_type ~(context : Context.t) =
   let children = Queue.of_list node.children in
-  let take_child mode =
-    match Queue.dequeue children with
-    | Some child -> Some (Edge.Child (child, mode))
-    | None -> None
-  in
-  (* An [Id] leaf names a node the dump defined earlier. If it is a tracked
+  let interior = Snapshot.Ds_type.interior_labels ds_type in
+  let is_interior label = List.mem interior label ~equal:String.equal in
+  (* An [Id] names a node the dump defined earlier. If it is a tracked
      structure's root, its whole tree links in here; otherwise it is a shared
-     block, which draws here the first time and points back every time after.
-     Either way the slot stops printing as a value. *)
+     block, which draws here the first time and points back every time after. *)
   let claim_reference block =
     match Context.structure context block with
     | Some (structure : Replay.Structure.t) ->
@@ -246,156 +219,99 @@ let node_edges
        | true ->
          Some
            (Edge.Shared
-              { id = structure.id
-              ; node = Some structure.snapshot.root_node
-              ; mode =
-                  Mode.Ds
-                    (Snapshot.Ds_type.layers structure.snapshot.ds_type)
-              }))
+              { id = structure.id; node = Some structure.snapshot.root_node }))
     | None ->
       (match Context.node context block with
        | None -> None
        | Some (definition : Snapshot.Node.t) ->
          (match Hash_set.mem context.drawn_nodes definition.id with
-          | false -> Some (Edge.Child (definition, Mode.Payload))
+          | false -> Some (Edge.Child definition)
           | true ->
-            Some
-              (Edge.Shared
-                 { id = definition.id
-                 ; node = Some definition
-                 ; mode = Mode.Payload
-                 })))
+            Some (Edge.Shared { id = definition.id; node = Some definition })))
   in
-  (* labeled edges in field order; anything the summary should not print (a
-     slot drawn as an edge) lands in [hidden] *)
-  let edges, hidden =
-    match mode with
-    | Ds (Fixed { labels; interior; payload } :: _ as layers) ->
-      let is_interior label = List.mem interior label ~equal:String.equal in
-      let is_payload label = List.mem payload label ~equal:String.equal in
-      List.fold labels ~init:([], []) ~f:(fun (edges, hidden) label ->
-        match is_interior label, is_payload label with
-        | true, _ ->
-          (match block_value label with
-           | None ->
-             (match take_child (Mode.Ds (Mode.deeper layers)) with
-              | Some edge -> (label, edge) :: edges, label :: hidden
-              | None -> edges, hidden)
-           | Some (Snapshot.Block.Int 0) ->
-             (label, Edge.Nil) :: edges, label :: hidden
-           | Some (Snapshot.Block.Id id as block) ->
-             (* a shared interior slot: the subtree lives under that id *)
-             let edge =
-               match Context.node context block with
-               | Some definition
-                 when not (Hash_set.mem context.drawn_nodes definition.id) ->
-                 Edge.Child (definition, Mode.Ds (Mode.deeper layers))
-               | Some _ | None ->
-                 Edge.Shared
-                   { id
-                   ; node = Context.node context block
-                   ; mode = Mode.Ds (Mode.deeper layers)
-                   }
-             in
-             (label, edge) :: edges, label :: hidden
-           | Some (_ : Snapshot.Block.t) -> edges, hidden)
-        | false, true ->
-          (match block_value label with
-           | None ->
-             (match take_child Mode.Payload with
-              | Some edge -> (label, edge) :: edges, label :: hidden
-              | None -> edges, hidden)
-           | Some block ->
-             (match claim_reference block with
-              | Some edge -> (label, edge) :: edges, label :: hidden
-              | None -> edges, hidden))
-        | false, false -> edges, hidden)
-    | Ds (Array_elements :: _ as layers) | Ds ([] as layers) ->
-      (* numeric labels; total field count = kept + walked. Empty slots
-         ([Int 0]) stay silent — a hashtbl's bucket array is mostly empties *)
-      let total = List.length node.block + List.length node.children in
-      let next_mode =
-        match layers with
-        | [] -> Mode.Payload
-        | (_ : Layer.t) :: _ -> Mode.Ds (Mode.deeper layers)
-      in
-      List.init total ~f:Int.to_string
-      |> List.fold ~init:([], []) ~f:(fun (edges, hidden) label ->
-        match block_value label with
-        | None ->
-          (match take_child next_mode with
-           | Some edge -> (label, edge) :: edges, label :: hidden
-           | None -> edges, hidden)
-        | Some (Snapshot.Block.Int 0) -> edges, label :: hidden
-        | Some (_ : Snapshot.Block.t) -> edges, hidden)
-    | Payload ->
-      let total = List.length node.block + List.length node.children in
-      List.init total ~f:Int.to_string
-      |> List.fold ~init:([], []) ~f:(fun (edges, hidden) label ->
-        match block_value label with
-        | None ->
-          (match take_child Mode.Payload with
-           | Some edge -> (label, edge) :: edges, label :: hidden
-           | None -> edges, hidden)
-        | Some block ->
+  let edges, leaves =
+    List.fold
+      node.block
+      ~init:([], [])
+      ~f:(fun (edges, leaves) (label, block) ->
+        match (block : Snapshot.Block.t) with
+        | Child ->
+          (match Queue.dequeue children with
+           | Some child -> (label, Edge.Child child) :: edges, leaves
+           | None -> edges, leaves)
+        | Id (_ : int) ->
           (match claim_reference block with
-           | Some edge -> (label, edge) :: edges, label :: hidden
-           | None -> edges, hidden))
+           | Some edge -> (label, edge) :: edges, leaves
+           | None -> edges, (label, block) :: leaves)
+        (* the empty pointer and the number nought are the same word; only
+           the structure's own skeleton labels tell them apart *)
+        | Int 0 when is_interior label -> (label, Edge.Nil) :: edges, leaves
+        | Int _ | Float _ | String _ | Int32 _ | Int64 _ | Nativeint _
+        | Float_array _ | Address _ ->
+          edges, (label, block) :: leaves)
   in
+  (* a walked block the wire did not label; nothing emits these today, but
+     drawing them beats dropping them *)
   let unclaimed =
-    List.map (Queue.to_list children) ~f:(fun child ->
-      "", Edge.Child (child, Mode.Payload))
+    List.map (Queue.to_list children) ~f:(fun child -> "", Edge.Child child)
   in
-  List.rev edges @ unclaimed, hidden
+  List.rev edges @ unclaimed, List.rev leaves
 ;;
 
-(* what the card says, per layer: [key → data] where the layer holds a pair
-   of payload fields, [length n]/[size n] for counters, the bare value for
-   single-payload layers, joined positions for user data *)
-let summary_spans (node : Snapshot.Node.t) ~(mode : Mode.t) ~hidden_labels =
-  let hidden label = List.mem hidden_labels label ~equal:String.equal in
-  let visible =
-    List.filter node.block ~f:(fun (label, (_ : Snapshot.Block.t)) ->
-      not (hidden label))
+(* the classic two-field payloads, by the labels the walker gives them: a map
+   node's key and data, a hashtable entry's, a hash queue pair's *)
+let is_binding = function
+  | "v", "d" | "k", "v" | "key", "data" -> true
+  | (_ : string), (_ : string) -> false
+;;
+
+let is_positional label = String.for_all label ~f:Char.is_digit
+
+(* What the card says. [key → data] where the node holds one of the known
+   binding pairs, [length n] for a counter, the bare value where there is
+   only one, positional values joined where the labels are an array's or a
+   tuple's, and [label=value] otherwise — user records included, which is why
+   the arrow is not simply "any two fields".
+
+   A positional field holding [Int 0] is dropped: an array's empty slots are
+   [Int 0], and a bucket array is mostly empty slots, so printing them buries
+   the one that is set under fifteen that are not. That does hide a literal
+   zero sitting in a tuple — the same trade the pane has always made, now
+   stated where it happens rather than hidden in a layer mask. A card left
+   with nothing to say falls back to how many slots it has. *)
+let summary_spans leaves ~arity =
+  let kept =
+    List.filter leaves ~f:(fun (label, block) ->
+      match is_positional label, (block : Snapshot.Block.t) with
+      | true, Int 0 -> false
+      | (true | false), _ -> true)
   in
-  let display (label, block) = label, Snapshot.Block.display block in
-  match mode with
-  | Ds (Fixed { payload; labels = _; interior = _ } :: _) ->
-    let payload_fields =
-      List.filter visible ~f:(fun (label, (_ : Snapshot.Block.t)) ->
-        List.mem payload label ~equal:String.equal)
-      |> List.map ~f:display
-    in
-    let leftovers =
-      List.filter visible ~f:(fun (label, (_ : Snapshot.Block.t)) ->
-        not (List.mem payload label ~equal:String.equal))
-      |> List.map ~f:display
-      |> List.concat_map ~f:(fun (label, value) ->
-        [ `Label, [%string "  %{label}="]; `Value, value ])
-    in
-    let main =
-      match payload_fields with
-      | [ ((_ : string), key); ((_ : string), data) ] ->
-        [ `Key, key; `Arrow, " → "; `Value, data ]
-      | [ ((("length" | "size") as label), value) ] ->
-        [ `Label, [%string "%{label} "]; `Value, value ]
-      | [ ((_ : string), value) ] -> [ `Value, value ]
-      | [] -> [ `Arrow, "·" ]
-      | fields ->
-        List.concat_map fields ~f:(fun (label, value) ->
-          [ `Label, [%string "%{label}="]; `Value, value ])
-    in
-    main @ leftovers
-  | Ds (Array_elements :: _) | Ds [] ->
-    let total = List.length node.block + List.length node.children in
-    [ `Label, "slots "; `Value, Int.to_string total ]
-  | Payload ->
-    (match
-       List.map visible ~f:(fun ((_ : string), block) ->
-         Snapshot.Block.display block)
-     with
-     | [] -> [ `Arrow, "·" ]
-     | values -> [ `Value, String.concat values ~sep:", " ])
+  let fields =
+    List.map kept ~f:(fun (label, block) ->
+      label, Snapshot.Block.display block)
+  in
+  let positional =
+    (not (List.is_empty leaves))
+    && List.for_all
+         leaves
+         ~f:(fun ((label : string), (_ : Snapshot.Block.t)) ->
+           is_positional label)
+  in
+  match fields with
+  | [] when positional -> [ `Label, "slots "; `Value, Int.to_string arity ]
+  | [] -> [ `Arrow, "·" ]
+  | fields when positional ->
+    [ `Value, String.concat (List.map fields ~f:snd) ~sep:", " ]
+  | [ (key_label, key); (data_label, data) ]
+    when is_binding (key_label, data_label) ->
+    [ `Key, key; `Arrow, " → "; `Value, data ]
+  | [ ((("length" | "size" | "len" | "num_readers") as label), value) ] ->
+    [ `Label, [%string "%{label} "]; `Value, value ]
+  | [ ((_ : string), value) ] -> [ `Value, value ]
+  | fields ->
+    List.concat_mapi fields ~f:(fun index (label, value) ->
+      let lead = match index with 0 -> "" | _ -> "  " in
+      [ `Label, [%string "%{lead}%{label}="]; `Value, value ])
 ;;
 
 let span_view (tag, text) =
@@ -457,8 +373,8 @@ let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
    v} *)
 let node_box
   (node : Snapshot.Node.t)
-  ~mode
-  ~hidden_labels
+  ~leaves
+  ~arity
   ~(context : Context.t)
   ~site
   ~fold_glyph
@@ -477,8 +393,7 @@ let node_box
        | Plain -> Theme.card_border)
   in
   let summary =
-    View.hcat
-      (List.map (summary_spans node ~mode ~hidden_labels) ~f:span_view)
+    View.hcat (List.map (summary_spans leaves ~arity) ~f:span_view)
   in
   (* both picked-out cards spell their address out: the blue one because it
      is the chosen one, the orange one because knowing what you are about to
@@ -600,18 +515,13 @@ let nil_box =
 ;;
 
 (* what the card over there is showing, so a pointer at it names the same
-   thing it does. Interior edges are that card's business, not the pointer's,
-   so only the payload survives — for a map node, its binding. *)
-let shared_spans (node : Snapshot.Node.t) ~(mode : Mode.t) =
-  let hidden_labels =
-    match mode with
-    | Mode.Ds (Fixed { labels; interior; payload } :: _) ->
-      List.filter labels ~f:(fun label ->
-        List.mem interior label ~equal:String.equal
-        || not (List.mem payload label ~equal:String.equal))
-    | Mode.Ds (Array_elements :: _) | Mode.Ds [] | Mode.Payload -> []
+   thing it does. The target is read exactly as its own card reads it: the
+   fields that are not edges, summarized the same way. *)
+let shared_spans (node : Snapshot.Node.t) ~ds_type ~context =
+  let (_ : (string * Edge.t) list), leaves =
+    node_edges node ~ds_type ~context
   in
-  summary_spans node ~mode ~hidden_labels
+  summary_spans leaves ~arity:(List.length node.block)
 ;;
 
 (* A card the canvas has already drawn, pointed at rather than drawn twice —
@@ -631,7 +541,7 @@ let shared_spans (node : Snapshot.Node.t) ~(mode : Mode.t) =
 let shared_box
   (target : Snapshot.Node.t option)
   ~id
-  ~mode
+  ~ds_type
   ~(context : Context.t)
   ~site
   =
@@ -651,7 +561,7 @@ let shared_box
   let summary =
     match target with
     | Some node ->
-      View.hcat (List.map (shared_spans node ~mode) ~f:span_view)
+      View.hcat (List.map (shared_spans node ~ds_type ~context) ~f:span_view)
     | None -> View.text ~attrs:(Theme.fg' Theme.muted) [%string "#%{id#Int}"]
   in
   (* the arrow rides the border where a card's name does, and reads like one
@@ -780,7 +690,6 @@ let rail_labels ~labeled_centers =
 let rec tree
   (node : Snapshot.Node.t)
   ~ds_type
-  ~(mode : Mode.t)
   ~(context : Context.t)
   ~folds
   ~structure_id
@@ -789,7 +698,7 @@ let rec tree
   ~parent
   : View.t * int * Placed.t list * Toggle.t list
   =
-  let edges, hidden_labels = node_edges node ~mode ~context in
+  let edges, leaves = node_edges node ~ds_type ~context in
   let edges =
     (* a leaf keeps its empty slots to itself *)
     match
@@ -811,8 +720,8 @@ let rec tree
   let leaf_box ~hidden_count =
     node_box
       node
-      ~mode
-      ~hidden_labels
+      ~leaves
+      ~arity:(List.length node.block)
       ~context
       ~site
       ~fold_glyph
@@ -838,21 +747,11 @@ let rec tree
       ]
     , [] )
   | edges ->
-    let current_layer =
-      match mode with
-      | Ds (layer :: _) -> Some layer
-      | Ds [] | Payload -> None
-    in
     let rendered =
       List.mapi edges ~f:(fun index (label, edge) ->
-        let label =
-          match current_layer with
-          | Some layer -> pretty_label ~ds_type ~layer label
-          | None -> label
-        in
         match edge with
         | Edge.Nil -> label, (nil_box, View.width nil_box / 2, [], [])
-        | Edge.Shared { id; node = target; mode } ->
+        | Edge.Shared { id; node = target } ->
           (* the node is on the canvas already — point at it, wearing its
              address so that picking either end lights both up. The pointer
              keeps a site of its own, at the edge it hangs off, so the cursor
@@ -862,7 +761,9 @@ let rec tree
             ; path = List.rev (index :: path)
             }
           in
-          let stub = shared_box target ~id ~mode ~context ~site:stub_site in
+          let stub =
+            shared_box target ~id ~ds_type ~context ~site:stub_site
+          in
           let placed =
             match target with
             | None -> []
@@ -880,12 +781,11 @@ let rec tree
               ]
           in
           label, (stub, View.width stub / 2, placed, [])
-        | Edge.Child (child, mode) ->
+        | Edge.Child child ->
           ( label
           , tree
               child
               ~ds_type
-              ~mode
               ~context
               ~folds
               ~structure_id
@@ -897,8 +797,6 @@ let rec tree
           , tree
               structure.snapshot.root_node
               ~ds_type:structure.snapshot.ds_type
-              ~mode:
-                (Mode.Ds (Snapshot.Ds_type.layers structure.snapshot.ds_type))
               ~context
               ~folds
               ~structure_id:structure.id
@@ -1131,8 +1029,6 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
         tree
           (Replay.Structure.current_root structure)
           ~ds_type:structure.snapshot.ds_type
-          ~mode:
-            (Mode.Ds (Snapshot.Ds_type.layers structure.snapshot.ds_type))
           ~context
           ~folds
           ~structure_id:structure.id

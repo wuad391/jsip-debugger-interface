@@ -71,16 +71,20 @@ divider line along each seam:
   on a section
   header hides the whole structure behind that name-and-type summary; a
   folded subtree keeps the structures it references hidden with it, and
-  folds survive stepping. Nodes follow the
-  emitter's layered layout contract — interior skeleton vs user payload,
-  hashtbl's record → bucket array → chains included; closures and other
-  undecoded blocks print as `⟨0x…⟩`. Each structure is drawn like a CS
-  tree diagram:
+  folds survive stepping. Nodes are read straight off the wire: every
+  kept field arrives under its own label and a field holding a walked
+  block reads `Child`, so the pane names a hashtbl's `data` edge, a
+  Core map's `tree` and a user record's fields without a layout of its
+  own. Closures and other undecoded blocks print as `⟨0x…⟩`. Each
+  structure is drawn like a CS tree diagram:
   node cards (the structure's name in white riding the border's top
   left, the node's meaning underneath), a parent centered above its
   children, siblings sharing a level under a labeled rail, and a dotted
-  gray card where an interior slot is empty — a nil pointer is still a
-  slot, so it gets a box like everything else. An edge into a card the
+  gray card where a pointer slot is empty — a nil pointer is still a
+  slot, so it gets a box like everything else (an empty pointer and the
+  integer zero are the same word in memory, so the pane tells them apart
+  by label, and a slot it does not recognize reads `l=0` rather than
+  guessing). An edge into a card the
   canvas already drew gets a dashed card too, named by what that card
   holds rather than by the wire's id (`↗ "d" → 4`, not `↗ #7`); picking
   either one tints the other's border to match, so a shared subtree

@@ -38,6 +38,7 @@ module Block = struct
     | Float_array of float list
     | Address of Address.t
     | Id of int
+    | Child
   [@@deriving sexp, bin_io, compare, equal]
 
   let display t =
@@ -63,82 +64,105 @@ module Block = struct
          one *)
       [%string "⟨%{Address.display address}⟩"]
     | Id id -> [%string "#%{id#Int}"]
+    (* never printed in practice: a [Child] field is an edge, and the pane
+       draws the arrow and the node it reaches instead of a value *)
+    | Child -> "→"
   ;;
 end
 
 module Ds_type = struct
+  (* Constructor order is the compiler's [Data_structure.t] order, which is
+     the C walker's contract. One entry per REPRESENTATION, not per module:
+     every [Make] instance of a map is the same type, and [Core.Linked_queue]
+     is a [Stdlib.Queue.t] and arrives as [Queue].
+
+     [Core_*] is not the stdlib entry under another name. Core reaches its
+     containers through Base, and a Base map is a record over a tagged tree
+     ([tree], then [Leaf]/[Node]) where the stdlib's is the tree itself; a
+     Base hashtable is [{table; length}] over an array of AVL trees where the
+     stdlib's buckets are cons chains. They share a name and nothing else, so
+     they are separate entries here for the same reason they are separate
+     entries in the compiler. *)
   type t =
     | Map
     | Set
     | Queue
     | Hashtbl
+    | Stack
+    | Dynarray
+    | Core_map
+    | Core_set
+    | Core_hashtbl
+    | Core_hash_set
+    | Core_queue
+    | Core_stack
+    | Core_deque
+    | Core_fdeque
+    | Core_doubly_linked
+    | Core_hash_queue
+    | User
   [@@deriving sexp, bin_io, compare, equal]
 
+  (* the header chip. Core entries keep the [core.] qualifier: a Core map
+     beside a stdlib one is a thing you want to be able to tell apart. *)
   let display t =
     match t with
     | Map -> "map"
     | Set -> "set"
     | Queue -> "queue"
     | Hashtbl -> "hashtbl"
+    | Stack -> "stack"
+    | Dynarray -> "dynarray"
+    | Core_map -> "core.map"
+    | Core_set -> "core.set"
+    | Core_hashtbl -> "core.hashtbl"
+    | Core_hash_set -> "core.hash_set"
+    | Core_queue -> "core.queue"
+    | Core_stack -> "core.stack"
+    | Core_deque -> "core.deque"
+    | Core_fdeque -> "core.fdeque"
+    | Core_doubly_linked -> "core.doubly_linked"
+    | Core_hash_queue -> "core.hash_queue"
+    | User -> "user"
   ;;
 
-  (* One layer of a DS's internal representation, mirroring the compiler's
-     [Data_structure.layout] with the masks spelled as label lists.
-     [interior] fields point one layer deeper into the structure's own
-     skeleton; [payload] fields hold user data; anything else was bookkeeping
-     and never reached the wire. [Array_elements] is a variable-size block
-     (an array) whose every element is interior. *)
-  module Layer = struct
-    type t =
-      | Fixed of
-          { labels : string list
-          ; interior : string list
-          ; payload : string list
-          }
-      | Array_elements
-  end
+  (* The one thing the wire cannot say. Every field arrives under its own
+     label, and a field holding a walked block reads [Child] — so nothing
+     here needs a layout to name anything. But an EMPTY pointer and the
+     integer zero are the same word in memory, and both arrive as [Int 0]:
+     [l (Int 0)] on a map node is the empty subtree, [d (Int 0)] on the same
+     node is the data zero.
 
-  (* the layers of one DS, root first, in the order interior edges meet them;
-     nonempty, and past the last layer the last repeats (an interior chain —
-     a map's l/r spine, a bucket list's next — keeps its own layer forever) *)
-  let layers t : Layer.t list =
+     So these are the labels each structure's own skeleton uses for its
+     internal pointers, and only those — enough to draw an empty slot as an
+     empty box instead of a bare [0]. Deliberately not exhaustive:
+
+     - numeric labels are left out, because an array slot and a payload
+       tuple's field both read ["1"] and only one of them is a pointer;
+     - a label the structure also uses for user data is left out (a stdlib
+       hashtable's root reaches its buckets through [data], and its entries
+       hold their value under the same name — and a bucket array is never
+       empty, so nothing is lost).
+
+     Getting this wrong costs a box, never a wrong name: an unlisted empty
+     slot reads [l=0]. *)
+  let interior_labels t =
     match t with
-    | Map ->
-      [ Fixed
-          { labels = [ "l"; "v"; "d"; "r" ]
-          ; interior = [ "l"; "r" ]
-          ; payload = [ "v"; "d" ]
-          }
-      ]
-    | Set ->
-      [ Fixed
-          { labels = [ "l"; "v"; "r" ]
-          ; interior = [ "l"; "r" ]
-          ; payload = [ "v" ]
-          }
-      ]
-    | Queue ->
-      [ Fixed
-          { labels = [ "length"; "first" ]
-          ; interior = [ "first" ]
-          ; payload = [ "length" ]
-          }
-      ; Fixed
-          { labels = [ "0"; "1" ]; interior = [ "1" ]; payload = [ "0" ] }
-      ]
-    | Hashtbl ->
-      [ Fixed
-          { labels = [ "size"; "data" ]
-          ; interior = [ "data" ]
-          ; payload = [ "size" ]
-          }
-      ; Array_elements
-      ; Fixed
-          { labels = [ "key"; "data"; "next" ]
-          ; interior = [ "next" ]
-          ; payload = [ "key"; "data" ]
-          }
-      ]
+    | Map | Set -> [ "l"; "r" ]
+    | Queue -> [ "first" ]
+    | Hashtbl -> [ "next" ]
+    | Stack -> [ "c" ]
+    | Dynarray -> [ "arr" ]
+    | Core_map | Core_set -> [ "tree"; "l"; "r" ]
+    | Core_hashtbl | Core_hash_set -> [ "table"; "l"; "r" ]
+    | Core_queue | Core_stack -> [ "elts" ]
+    | Core_deque -> [ "arr" ]
+    | Core_fdeque -> [ "front"; "back" ]
+    | Core_doubly_linked -> [ "contents"; "next" ]
+    | Core_hash_queue -> [ "queue"; "contents"; "next" ]
+    (* a user type has no skeleton of its own: its shape came from the schema
+       the instrumentation derived, and every field of it is data *)
+    | User -> []
   ;;
 end
 

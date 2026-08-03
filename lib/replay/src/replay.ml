@@ -75,7 +75,7 @@ let addresses_of_snapshot (snapshot : Snapshot.t) =
         match block with
         | Address address -> Set.add acc address
         | Int _ | Float _ | String _ | Int32 _ | Int64 _ | Nativeint _
-        | Float_array _ | Id _ ->
+        | Float_array _ | Id _ | Child ->
           acc)
     in
     List.fold node.children ~init:acc ~f:(fun acc child -> walk child acc)
