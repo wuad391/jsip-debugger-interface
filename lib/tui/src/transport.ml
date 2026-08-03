@@ -12,14 +12,17 @@ module Button = struct
 end
 
 (* tick strip: one segment per step when they fit, otherwise cells share
-   steps proportionally. Returns [(step, cell_width)] pairs whose widths sum
-   to at most [width - 2]. *)
+   steps proportionally. The cells tile [width] exactly — each boundary is
+   computed from the screen width rather than from a rounded-down cell size,
+   so the remainder is spread through the bar instead of being left as a stub
+   at the right edge, and the bar runs flush to both ends. Returns
+   [(step, cell_width)] pairs whose widths sum to exactly [width]. *)
 let tick_cells ~width ~total =
-  let width = max 1 (width - 2) in
+  let width = max 1 width in
   match total <= width with
   | true ->
-    let cell = max 1 (width / total) in
-    List.init total ~f:(fun index -> index, cell)
+    List.init total ~f:(fun index ->
+      index, ((index + 1) * width / total) - (index * width / total))
   | false -> List.init width ~f:(fun x -> x * total / width, 1)
 ;;
 
@@ -33,31 +36,37 @@ let step_at ~width ~total ~x =
        | true -> Some step
        | false -> scan rest ~column:stop)
   in
-  scan (tick_cells ~width ~total) ~column:1
+  scan (tick_cells ~width ~total) ~column:0
 ;;
 
-let bar ~cell_width =
-  let gap = cell_width > 2 in
+(* cells are separated by a one-column gap, but the last one runs to the edge
+   — a trailing gap there would read as the bar falling short *)
+let bar ~cell_width ~is_last =
+  let gap = (not is_last) && cell_width > 2 in
   String.concat
     (List.init cell_width ~f:(fun i ->
        match gap && i = cell_width - 1 with true -> " " | false -> "▀"))
 ;;
 
 (* a half-height bar hugging the top edge: heavier than a hairline, and it
-   leaves the row under it empty *)
+   leaves the bottom of its row clear *)
 let ticks ~width ~step ~total =
   let row =
+    let cells = tick_cells ~width ~total in
+    let last = List.length cells - 1 in
     let views =
-      List.map (tick_cells ~width ~total) ~f:(fun (cell_step, cell_width) ->
+      List.mapi cells ~f:(fun index (cell_step, cell_width) ->
         let color =
           match Ordering.of_int (compare cell_step step) with
           | Equal -> Theme.highlight
           | Less -> Theme.tick_past
           | Greater -> Theme.hairline
         in
-        View.text ~attrs:(Theme.fg' color) (bar ~cell_width))
+        View.text
+          ~attrs:(Theme.fg' color)
+          (bar ~cell_width ~is_last:(index = last)))
     in
-    Panel.fit (View.hcat (View.text " " :: views)) ~width ~height:1
+    Panel.fit (View.hcat views) ~width ~height:1
   in
   View.vcat (List.init Layout.tick_height ~f:(fun (_ : int) -> row))
 ;;
@@ -139,11 +148,7 @@ let view ~width ~step ~total ~playing =
     ~fg:Theme.text
     ~bg:Theme.bg
     (Panel.fit
-       (View.vcat
-          [ ticks ~width ~step ~total
-          ; View.transparent_rectangle ~width ~height:Layout.tick_gap
-          ; controls ~width ~playing
-          ])
+       (View.vcat [ ticks ~width ~step ~total; controls ~width ~playing ])
        ~width
        ~height:Layout.strip_height)
 ;;

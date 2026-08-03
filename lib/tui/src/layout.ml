@@ -12,22 +12,25 @@ type t =
   ; heap : Region.t
   ; column_divider : Region.t
   ; row_divider : Region.t
+  ; bottom_divider : Region.t
   ; session : Region.t
   }
 
 let tick_height = 1
 
-(* rows of the transport strip: the bar, a space under it, the controls, and
-   a space before the divider that closes the strip off *)
-let tick_gap = 1
-let controls_gap = 1
-let strip_height = tick_height + tick_gap + 1 + controls_gap
+(* rows of the transport strip: the bar, then the controls, then the divider
+   that closes the strip off — no blank rows between them. The bar is a
+   half-height glyph hugging the top of its row, so it already leaves air
+   underneath without a whole row spent on it. *)
+let strip_height = tick_height + 1
 
 let compute ({ height; width } : Dimensions.t) =
-  let controls_y = tick_height + tick_gap in
+  let controls_y = tick_height in
   let top_divider_y = strip_height in
   let main_y = top_divider_y + 1 in
-  let main_height = max 6 (height - main_y - 1) in
+  (* two rows go below the panes: the session bar and the rule fencing it off
+     from them *)
+  let main_height = max 6 (height - main_y - 2) in
   (* the left column and the heap split the width; the stack and source split
      the left column; a divider line sits along every seam *)
   let left_width = max 34 (width * 50 / 100) in
@@ -53,6 +56,7 @@ let compute ({ height; width } : Dimensions.t) =
       { x = pane_width; y = main_y; width = 1; height = main_height }
   ; row_divider =
       { x = 0; y = row_divider_y; width = pane_width; height = 1 }
+  ; bottom_divider = { x = 0; y = height - 2; width; height = 1 }
   ; session = { x = 0; y = height - 1; width; height = 1 }
   }
 ;;

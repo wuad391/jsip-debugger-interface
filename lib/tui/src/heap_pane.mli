@@ -23,7 +23,7 @@
     across steps ({!Fold.t}: structure id, or structure id + edge path).
 
     Each node is a card — the structure's name (or [#id]) riding the border's
-    top left, its meaning up top ([{"a" ↦ 2}] for a map binding, the element
+    top left, its meaning up top ([{"a" → 2}] for a map binding, the element
     for a set, [length n] for a queue root, the content for a cell, the
     joined positions for a walked value block), its full address in small
     type below — outlined in blue; a card allocated at this step carries a
@@ -34,13 +34,13 @@
     {v
     ▾ m · map ⟨string ⇒ int⟩
     ▾┌ m ──────────── new ┐
-     │ "a" ↦ 1            │
+     │ "a" → 1            │
      │ 0x763be65ee878     │
      └────────────────────┘
       ┌─────────┴────────┐
       l                  r
       ∅        ▸┌ ───────── new ┐
-                │ "b" ↦ 2       │
+                │ "b" → 2       │
                 │ 0x763be65ee8a8│
                 └───────────────┘
                     ⋯ 2 hidden

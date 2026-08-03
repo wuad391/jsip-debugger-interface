@@ -29,14 +29,14 @@ let highlight_deep = color 0xa6d2ff
 
 (* heap node cards outline in a calmer blue than the selection *)
 let card_border = color 0x5d8cc2
-let text = color 0xe6e1dc
-let secondary = color 0xcbc6c0
-let muted = color 0xaba59e
-let faint = color 0x928c86
-let ghost = color 0x716c66
-let border = color 0x5e5952
-let border_strong = color 0x726d65
-let hairline = color 0x3b3834
+let text = color 0xefebe6
+let secondary = color 0xd8d3cd
+let muted = color 0xbbb5ad
+let faint = color 0xa39d95
+let ghost = color 0x847e76
+let border = color 0x6f6a62
+let border_strong = color 0x847e75
+let hairline = color 0x4a4640
 let tick_past = color 0x2e5578
 let app_purple = color 0xc39ae2
 let keyword = color 0xc39ae2

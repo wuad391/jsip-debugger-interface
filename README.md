@@ -15,31 +15,29 @@ bright blue across all panes, and one surface — no boxes, just a
 divider line along each seam:
 
 ```
- ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-
-                                              ◂ back  ·  step ▸  ·  [space] play  ·  q quit
-
-─────────────────────────────────────────────┬──────────────────────────────────────────────
- CALL STACK                 5 calls · 1 live │ HEAP                2 live · 3 nodes · 2 new
-      M.add "b" 2 M.empty      map_fold.ml:8 │ ▾ #1 · map ⟨string ⇒ int⟩
- ▎▾ M.add "a" 1 (M.add "b" 2   map_fold.ml:8 │  ┌ #1 ────────────┐
- ▎    M.empty)                               │  │ "b" ↦ 2        │
-      M.add k (v * 2) acc     map_fold.ml:12 │  │ 0x75101a3f23a0 │
-      M.add k (v * 2) acc     map_fold.ml:12 │  └────────────────┘
-    M.fold (fun k v acc ->    map_fold.ml:10 │
-      M.add k (v * 2) acc) m M.empty         │ ▾ m · map ⟨string ⇒ int⟩
-                                             │       ▾┌ m ──────── new ┐
-                                             │        │ "b" ↦ 2        │
-                                             │        │ 0x75101a3ee970 │
-─────────────────────────────────────────────┤        └────────────────┘
- SOURCE               map_fold.ml · 15 lines │          ┌─────┴──────┐
-  ▾  5 module M = Map.Make (String)          │          l            r
-     6                                       │  ┌─────────── new ┐   ∅
-  ▾  7 let () =                              │  │ "a" ↦ 1        │
- ▎   8   let m = M.add "a" 1 (M.add "b" 2 M  │  │ 0x75101a3ee9a0 │
- ▎         .empty) in                        │  └────────────────┘
-     9   let doubled =                       │
-    10     M.fold                            │
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                             ◂ back  ·  step ▸  ·  [space] play  ·  q quit
+────────────────────────────────────────────┬──────────────────────────────────────────────
+ CALL STACK                5 calls · 1 live │ HEAP                2 live · 3 nodes · 2 new
+      M.add "b" 2 M.empty     map_fold.ml:8 │ ▾ #1 · map ⟨string ⇒ int⟩
+ ▎▾ M.add "a" 1 (M.add "b" 2  map_fold.ml:8 │  ┌ #1 ────────────┐
+ ▎    M.empty)                              │  │ "b" → 2        │
+      M.add k (v * 2) acc    map_fold.ml:12 │  │ 0x75101a3f23a0 │
+      M.add k (v * 2) acc    map_fold.ml:12 │  └────────────────┘
+    M.fold (fun k v acc ->   map_fold.ml:10 │
+      M.add k (v * 2) acc) m M.empty        │ ▾ m · map ⟨string ⇒ int⟩
+                                            │       ▾┌ m ──────── new ┐
+                                            │        │ "b" → 2        │
+────────────────────────────────────────────┤        │ 0x75101a3ee970 │
+ SOURCE              map_fold.ml · 15 lines │        └────────────────┘
+  ▾  5 module M = Map.Make (String)         │          ┌─────┴──────┐
+     6                                      │          l            r
+  ▾  7 let () =                             │  ┌─────────── new ┐   ∅
+ ▎   8   let m = M.add "a" 1 (M.add "b" 2   │  │ "a" → 1        │
+ ▎         M.empty) in                      │  │ 0x75101a3ee9a0 │
+     9   let doubled =                      │  └────────────────┘
+    10     M.fold                           │
+────────────────────────────────────────────┴──────────────────────────────────────────────
  ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay
 ```
 

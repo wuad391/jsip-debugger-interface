@@ -225,7 +225,7 @@ let node_edges
   List.rev edges @ unclaimed, hidden
 ;;
 
-(* what the card says, per layer: [key ↦ data] where the layer holds a pair
+(* what the card says, per layer: [key → data] where the layer holds a pair
    of payload fields, [length n]/[size n] for counters, the bare value for
    single-payload layers, joined positions for user data *)
 let summary_spans (node : Snapshot.Node.t) ~(mode : Mode.t) ~hidden_labels =
@@ -252,7 +252,7 @@ let summary_spans (node : Snapshot.Node.t) ~(mode : Mode.t) ~hidden_labels =
     let main =
       match payload_fields with
       | [ ((_ : string), key); ((_ : string), data) ] ->
-        [ `Key, key; `Arrow, " ↦ "; `Value, data ]
+        [ `Key, key; `Arrow, " → "; `Value, data ]
       | [ ((("length" | "size") as label), value) ] ->
         [ `Label, [%string "%{label} "]; `Value, value ]
       | [ ((_ : string), value) ] -> [ `Value, value ]
@@ -320,7 +320,7 @@ let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
    is washed in the highlight background.
    {v
    ┌ m ──────────── new ┐
-   │ "a" ↦ 2            │
+   │ "a" → 2             │
    │ 0x763be65ee878     │
    └────────────────────┘
         ⋯ 3 hidden

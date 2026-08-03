@@ -262,9 +262,18 @@ let render
           ~t:layout.row_divider.y
           (Panel.junction ~color:Theme.border "┤")
       ; View.pad
+          ~l:layout.column_divider.x
+          ~t:layout.bottom_divider.y
+          (Panel.junction ~color:Theme.border "┴")
+      ; View.pad
           ~t:layout.top_divider.y
           (Panel.horizontal_rule
              ~width:layout.top_divider.width
+             ~color:Theme.border)
+      ; View.pad
+          ~t:layout.bottom_divider.y
+          (Panel.horizontal_rule
+             ~width:layout.bottom_divider.width
              ~color:Theme.border)
       ; View.pad
           ~t:layout.row_divider.y

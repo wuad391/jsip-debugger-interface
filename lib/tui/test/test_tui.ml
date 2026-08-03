@@ -90,13 +90,13 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
     HEAP                          2 live · 3 nodes · 2 new
     ▾ m · map ⟨string ⇒ int⟩
      ┌ m ─────────────┐
-     │ "a" ↦ 1        │
+     │ "a" → 1        │
      │ 0x779ae8bf23a0 │
      └────────────────┘
 
     ▾ m · map ⟨string ⇒ int⟩
     ▾┌ m ──────── new ┐
-     │ "a" ↦ 1        │
+     │ "a" → 1        │
      │ 0x779ae8bee8d8 │
      └────────────────┘
        ┌─────┴──────┐
@@ -136,13 +136,13 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
     HEAP                          3 live · 5 nodes · 2 new
     ▾ m · map ⟨string ⇒ float⟩
      ┌ m ─────────────┐
-     │ "pi" ↦ 3.14    │
+     │ "pi" → 3.14    │
      │ 0x7799bfbf23a0 │
      └────────────────┘
 
     ▾ #2 · map ⟨string ⇒ float⟩
           ▾┌ #2 ────────────┐
-           │ "pi" ↦ 3.14    │
+           │ "pi" → 3.14    │
            │ 0x7799bfbee258 │
            └────────────────┘
              ┌─────┴──────┐
@@ -163,13 +163,13 @@ let%expect_test "heap pane: a collected structure is simply gone" =
     HEAP                          1 live · 1 nodes · 1 new
     ▾ #1 · map ⟨string ⇒ int⟩
      ┌ #1 ─────── new ┐
-     │ "dead" ↦ 0     │
+     │ "dead" → 0     │
      │ 0x7a7727ff1248 │
      └────────────────┘
     HEAP                          1 live · 1 nodes · 1 new
     ▾ #2 · map ⟨string ⇒ int⟩
      ┌ #2 ─────── new ┐
-     │ "live" ↦ 1     │
+     │ "live" → 1     │
      │ 0x7a7727ffffd8 │
      └────────────────┘
     |}]
@@ -233,9 +233,8 @@ let%expect_test "transport: ticks, then the clickable key legend" =
     (Transport.view ~width:56 ~step:1 ~total:3 ~playing:false);
   [%expect
     {|
-    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-
-             ◂ back  ·  step ▸  ·  [space] play  ·  q quit
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+              ◂ back  ·  step ▸  ·  [space] play  ·  q quit
     |}]
 ;;
 
@@ -371,7 +370,7 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
     HEAP                          2 live · 2 nodes · 1 new
     ▾ m · map ⟨string ⇒ int⟩
      ┌ m ─────────────┐
-     │ "k" ↦ 1        │
+     │ "k" → 1        │
      │ 0x796745df2090 │
      └────────────────┘
 
@@ -405,7 +404,7 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
              ┌─────┴──────┐
              v          next
      ┌ m ─────────────┐   ∅
-     │ "k" ↦ 1        │
+     │ "k" → 1        │
      │ 0x796745df2090 │
      └────────────────┘
     |}]
@@ -431,7 +430,7 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
              │
              1
      ┌─────────── new ┐
-     │ "a" ↦ 1        │
+     │ "a" → 1        │
      │ 0x735168de9570 │
     |}]
 ;;
@@ -561,13 +560,13 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
     HEAP                          2 live · 3 nodes · 2 new
     ▾ m · map ⟨string ⇒ int⟩
      ┌ m ─────────────┐
-     │ "a" ↦ 1        │
+     │ "a" → 1        │
      │ 0x779ae8bf23a0 │
      └────────────────┘
 
     ▾ m · map ⟨string ⇒ int⟩
     ▸┌ m ──────── new ┐
-     │ "a" ↦ 1        │
+     │ "a" → 1        │
     |}]
 ;;
 
@@ -741,9 +740,16 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
 
 (* Every glyph the interface draws must be one terminal cell wide, or the
    text after it slides and a card's wash appears to spill past its border.
-   Notty measures them here; a terminal set to render East Asian Ambiguous
-   characters double-width would disagree — which is exactly what a spilled
-   card background looks like. *)
+   Notty measures them here — but the terminal has the final say, and the two
+   can disagree.
+
+   So the card interior obeys a second rule this list cannot check: it uses
+   only ASCII and glyphs in the same East Asian width class (Ambiguous) as
+   the box-drawing characters that frame it. A terminal that widened those
+   would visibly shred the whole frame, so it cannot quietly widen the
+   contents alone. [→] (U+2192, Ambiguous) is in; [↦] (U+21A6, Neutral) was
+   the one exception and is out — a font fallback rendering it double-width
+   pushed the closing [│] one cell past the wash. *)
 let%expect_test "every drawn glyph is one cell wide" =
   let glyphs =
     [ 0x2500, "─"
@@ -763,7 +769,7 @@ let%expect_test "every drawn glyph is one cell wide" =
     ; 0x23f5, "⏵"
     ; 0x23f8, "⏸"
     ; 0x00b7, "·"
-    ; 0x21a6, "↦"
+    ; 0x2192, "→"
     ; 0x21d2, "⇒"
     ; 0x27e8, "⟨"
     ; 0x27e9, "⟩"
@@ -798,7 +804,7 @@ let%expect_test "delta wire: a revisit stub replays the earlier shape" =
     HEAP                          2 live · 3 nodes · 2 new
     ▾ #1 · map ⟨string ⇒ int⟩
      ┌ #1 ────────────┐
-     │ "a" ↦ 1        │
+     │ "a" → 1        │
      │ 0x723b2a1f23a0 │
      └────────────────┘
 
@@ -856,37 +862,37 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
     HEAP                                  2 live · 6 nodes · 3 new
     ▾ m · map ⟨string ⇒ int⟩
                      ▾┌ m ─────────────┐
-                      │ "f" ↦ 6        │
+                      │ "f" → 6        │
                       │ 0x7ce0fc0996a8 │
                       └────────────────┘
                    ┌──────────┴──────────┐
                    l                     r
           ▾┌────────────────┐   ▾┌────────────────┐
-           │ "d" ↦ 4        │    │ "h" ↦ 8        │
+           │ "d" → 4        │    │ "h" → 8        │
            │ 0x7ce0ebfe28a8 │    │ 0x7ce0ebfdbe60 │
            └────────────────┘    └────────────────┘
              ┌─────┴──────┐        ┌─────┴──────┐
              l            r        l            r
      ┌────────────────┐   ∅        ∅    ┌────────────────┐
-     │ "b" ↦ 2        │                 │ "j" ↦ 10       │
+     │ "b" → 2        │                 │ "j" → 10       │
      │ 0x7ce0ebfe28d8 │                 │ 0x7ce0ebfdbe90 │
      └────────────────┘                 └────────────────┘
 
     ▾ bigger · map ⟨string ⇒ int⟩
        ▾┌ bigger ─── new ┐
-        │ "f" ↦ 6        │
+        │ "f" → 6        │
         │ 0x7ce0ebffff78 │
         └────────────────┘
       ┌─────────┴──────────┐
       l                    r
     ↗ #7          ▾┌─────────── new ┐
-                   │ "h" ↦ 8        │
+                   │ "h" → 8        │
                    │ 0x7ce0ebffffa8 │
                    └────────────────┘
                     ┌──────┴───────┐
                     l              r
             ┌─────────── new ┐   ↗ #11
-            │ "g" ↦ 7        │
+            │ "g" → 7        │
             │ 0x7ce0ebffffd8 │
             └────────────────┘
     |}]
@@ -935,19 +941,19 @@ let%expect_test "delta wire: version chains share their spines" =
     HEAP                                  2 live · 8 nodes · 4 new
     ▾ #7 · map ⟨string ⇒ int⟩
                ▾┌ #7 ────────────┐
-                │ "b" ↦ 2        │
+                │ "b" → 2        │
                 │ 0x7b7f1dc87708 │
                 └────────────────┘
              ┌──────────┴──────────┐
              l                     r
      ┌────────────────┐   ▾┌────────────────┐
-     │ "a" ↦ 1        │    │ "c" ↦ 3        │
+     │ "a" → 1        │    │ "c" → 3        │
      │ 0x7b7f0dbe2080 │    │ 0x7b7f0dbe20e0 │
      └────────────────┘    └────────────────┘
                              ┌─────┴──────┐
                              l            r
                              ∅    ┌────────────────┐
-                                  │ "d" ↦ 4        │
+                                  │ "d" → 4        │
                                   │ 0x7b7f0dbe2110 │
                                   └────────────────┘
 
