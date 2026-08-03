@@ -71,9 +71,13 @@ end
 
     They coexist: [selected] stays blue while [cursor] moves in orange, so
     you can see where you came from and where [Enter] would take you.
-    Committing makes the cursor the selection and clears it. Geometry depends
-    on [selected] — that card is a row taller and several columns wider,
-    since it is the one showing its address. *)
+    Committing makes the cursor the selection and clears it.
+
+    Both are geometry: the two picked-out cards are a row taller and several
+    columns wider than the rest, being the only ones that spell out an
+    address. {!move_cursor} therefore reads the tree rather than the
+    drawing, so aiming does not depend on where the last press left the
+    picture. *)
 module Selection : sig
   type t =
     { selected : Snapshot.Address.t option
@@ -105,10 +109,17 @@ val view
   -> View.t
 
 (** Where [wasd] lands from wherever the cursor is (or, failing that, the
-    selection): the nearest card in that direction, weighting the along-axis
-    gap so a press of [w] cannot drift sideways into a nearer neighbour.
+    selection). The cursor walks the tree rather than the picture: [Up] and
+    [Down] climb to a card's parent and descend to its first child, [Left]
+    and [Right] run along the layer it sits on — cousins included, since a
+    layer is a depth in one tree, not one parent's children. Empty slots and
+    [↗ #n] pointers place no card and so are skipped.
+
+    Structures stack down the canvas, so the ends join up: [Up] from a root
+    climbs to the tree above it, [Down] from a leaf drops into the one below.
+
     [None] when nothing lies that way; with no cursor and no selection, the
-    topmost card, so the first keypress always lands somewhere. *)
+    first tree's root, so the first keypress always lands somewhere. *)
 val move_cursor
   :  structures:Replay.Structure.t list
   -> nodes:Replay.Nodes.t

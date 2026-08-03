@@ -993,42 +993,57 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
   [%expect
     {|
     HEAP                                  2 live · 6 nodes · 3 new
+          │ "d" → 4 │         │ "h" → 8 │
+          └─────────┘         └─────────┘
+          ┌────┴─────┐       ┌─────┴─────┐
+          l          r       l           r
+     ┌─────────┐   ┌┄┄┄┐   ┌┄┄┄┐    ┌──────────┐
      │ "b" → 2 │   ┆ ∅ ┆   ┆ ∅ ┆    │ "j" → 10 │
      └─────────┘   └┄┄┄┘   └┄┄┄┘    └──────────┘
 
     ▾ bigger · map ⟨string ⇒ int⟩
-       ▾┌ bigger ─── new ┐
-        │ "f" → 6        │
-        │ 0x7ce0ebffff78 │
-        └────────────────┘
-      ┌─────────┴──────────┐
-      l                    r
-    ↗ #7             ▾┌──── new ┐
-                      │ "h" → 8 │
-                      └─────────┘
-                    ┌──────┴───────┐
-                    l              r
-            ┌─────────── new ┐   ↗ #11
-            │ "g" → 7        │
-            │ 0x7ce0ebffffd8 │
-            └────────────────┘
+     ▾┌ bigger ─── new ┐
+      │ "f" → 6        │
+      │ 0x7ce0ebffff78 │
+      └────────────────┘
+      ┌───────┴───────┐
+      l               r
+    ↗ #7     ▾┌─────────── new ┐
+              │ "h" → 8        │
+              │ 0x7ce0ebffffa8 │
+              └────────────────┘
     |}]
 ;;
 
-let%expect_test "selection: [wasd] walks the cards, and stops at the edges" =
-  (* every step of a walk across map_spine_sharing's canvas, printed as the
-     card each key lands on — the arithmetic the orange highlight follows *)
+let%expect_test "selection: [wasd] walks the tree, not the picture" =
+  (* map_spine_sharing's last step draws [m]'s five-node tree over the
+     version derived from it. [s] descends, [a]/[d] run along a layer — "b"
+     and "j" are cousins, two subtrees apart, but they share a depth — and
+     [s] off a leaf drops into the tree below. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step
   in
+  (* name a card the way the screen does: its structure's name if it is a
+     root, otherwise the map key it holds. The delta wire keeps interior
+     nodes in the id table rather than inline under the root, so that is
+     where the keys are looked up. *)
   let label address =
-    List.find structures ~f:(fun (structure : Replay.Structure.t) ->
-      Snapshot.Address.equal structure.address address)
-    |> function
+    match
+      List.find structures ~f:(fun (structure : Replay.Structure.t) ->
+        Snapshot.Address.equal structure.address address)
+    with
     | Some structure -> Replay.Structure.display structure
-    | None -> Snapshot.Address.display address
+    | None ->
+      Map.data nodes
+      |> List.find ~f:(fun (node : Snapshot.Node.t) ->
+        Snapshot.Address.equal node.virtual_address address)
+      |> Option.bind ~f:(fun (node : Snapshot.Node.t) ->
+        List.Assoc.find node.block "v" ~equal:String.equal)
+      |> Option.value_map
+           ~default:(Snapshot.Address.display address)
+           ~f:Snapshot.Block.display
   in
   let selection =
     ref
@@ -1038,9 +1053,12 @@ let%expect_test "selection: [wasd] walks the cards, and stops at the edges" =
   in
   List.iter
     [ Heap_pane.Direction.Up, "w"
+    ; Down, "s"
+    ; Right, "d"
+    ; Down, "s"
+    ; Left, "a"
     ; Left, "a"
     ; Up, "w"
-    ; Right, "d"
     ; Down, "s"
     ; Down, "s"
     ; Down, "s"
@@ -1067,13 +1085,16 @@ let%expect_test "selection: [wasd] walks the cards, and stops at the edges" =
       print_endline [%string "%{key} -> %{landed}"]);
   [%expect
     {|
-    w -> 0x7ce0ebfe28a8
-    a -> 0x7ce0ebfe28d8
-    w -> 0x7ce0ebfe28a8
-    d -> m
-    s -> 0x7ce0ebfdbe60
-    s -> 0x7ce0ebfdbe90
-    s -> 0x7ce0ebffffa8
+    w -> m
+    s -> "d"
+    d -> "h"
+    s -> "j"
+    a -> "b"
+    a -> (nothing that way)
+    w -> "d"
+    s -> "b"
+    s -> bigger
+    s -> "h"
     |}]
 ;;
 

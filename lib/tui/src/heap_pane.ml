@@ -37,7 +37,10 @@ module Direction = struct
   [@@deriving sexp_of, equal]
 end
 
-(* where a node's card landed on the tree canvas, for click-to-jump *)
+(* where a node's card landed on the tree canvas — for click-to-jump, and for
+   the cursor, which walks the tree rather than the picture: [depth] and
+   [parent] are the diagram's own structure, so aiming does not shift when
+   the drawing does *)
 module Placed = struct
   type t =
     { x : int
@@ -45,6 +48,8 @@ module Placed = struct
     ; width : int
     ; height : int
     ; address : Snapshot.Address.t
+    ; depth : int (** card rows between this one and its tree's root *)
+    ; parent : Snapshot.Address.t option (** [None] on a section's root *)
     }
 
   let contains t ~x ~y =
@@ -574,6 +579,8 @@ let rec tree
   ~folds
   ~structure_id
   ~path
+  ~depth
+  ~parent
   : View.t * int * Placed.t list * Toggle.t list
   =
   let edges, hidden_labels = node_edges node ~mode ~context in
@@ -609,6 +616,8 @@ let rec tree
         ; width = box_width
         ; height = View.height box
         ; address = node.virtual_address
+        ; depth
+        ; parent
         }
       ]
     , [] )
@@ -642,7 +651,9 @@ let rec tree
               ~context
               ~folds
               ~structure_id
-              ~path:(index :: path) )
+              ~path:(index :: path)
+              ~depth:(depth + 1)
+              ~parent:(Some node.virtual_address) )
         | Edge.Ref (structure : Replay.Structure.t) ->
           ( label
           , tree
@@ -653,7 +664,9 @@ let rec tree
               ~context
               ~folds
               ~structure_id:structure.id
-              ~path:[] ))
+              ~path:[]
+              ~depth:(depth + 1)
+              ~parent:(Some node.virtual_address) ))
     in
     (* children lay out even when folded: their claims must hold (a folded
        queue cell keeps its map hidden), their card count is the [⋯ n hidden]
@@ -718,6 +731,8 @@ let rec tree
       ; width = View.width box
       ; height = box_height
       ; address = node.virtual_address
+      ; depth
+      ; parent
       }
     in
     let box_toggles = [ { Toggle.x = 0; y = 0; fold } ] in
@@ -872,6 +887,8 @@ let layout ~structures ~nodes ~new_addresses ~folds ~selection =
           ~folds
           ~structure_id:structure.id
           ~path:[]
+          ~depth:0
+          ~parent:None
       in
       (match folded with
        | true ->
@@ -1027,11 +1044,18 @@ let cards ~structures ~nodes ~new_addresses ~folds ~selection =
   placed
 ;;
 
-(* Where a card sits for the purpose of aiming at it: its center. Cards are
-   wide and short, so a plain euclidean nearest-neighbour drifts sideways
-   when you press [w] — the along-axis gap is weighted so the direction you
-   asked for dominates, and the cross-axis gap only breaks ties between
-   candidates the same distance away. *)
+(* The cursor walks the tree, not the picture: [w]/[s] climb and descend it,
+   [a]/[d] run along a layer. Reading the diagram's own structure rather than
+   card positions means aiming stays put even though the drawing shifts a
+   little as cards gain and lose their address line — and it means [d] from a
+   left child reaches its cousin on the right instead of whatever card
+   happens to be nearest.
+
+   Empty slots and [↗ #n] pointers place no card, so a layer skips over them;
+   there is nothing to aim at there.
+
+   The trees are stacked in one canvas, so the ends connect: [w] from a root
+   climbs to the tree above, [s] from a leaf drops to the one below. *)
 let move_cursor
   ~structures
   ~nodes
@@ -1041,40 +1065,80 @@ let move_cursor
   ~(direction : Direction.t)
   =
   let placed = cards ~structures ~nodes ~new_addresses ~folds ~selection in
-  let center (card : Placed.t) =
-    card.x + (card.width / 2), card.y + (card.height / 2)
+  let address_of (card : Placed.t) = card.address in
+  let find address =
+    List.find placed ~f:(fun (card : Placed.t) ->
+      Snapshot.Address.equal card.address address)
+  in
+  let by_x = List.sort ~compare:(fun (a : Placed.t) b -> compare a.x b.x) in
+  let roots =
+    List.filter placed ~f:(fun (card : Placed.t) ->
+      Option.is_none card.parent)
+    |> List.sort ~compare:(fun (a : Placed.t) b -> compare a.y b.y)
+  in
+  let rec root_of (card : Placed.t) =
+    match Option.bind card.parent ~f:find with
+    | None -> card
+    | Some parent -> root_of parent
+  in
+  (* the tree above or below this one, for the climb off either end *)
+  let sibling_tree (card : Placed.t) ~offset =
+    let root = root_of card in
+    match
+      List.findi roots ~f:(fun (_ : int) (other : Placed.t) ->
+        Snapshot.Address.equal other.address root.address)
+    with
+    | None -> None
+    | Some (index, (_ : Placed.t)) -> List.nth roots (index + offset)
+  in
+  let neighbour_in list (card : Placed.t) ~offset =
+    match
+      List.findi list ~f:(fun (_ : int) (other : Placed.t) ->
+        Snapshot.Address.equal other.address card.address)
+    with
+    | None -> None
+    | Some (index, (_ : Placed.t)) -> List.nth list (index + offset)
   in
   let from =
     Option.first_some selection.cursor selection.selected
-    |> Option.bind ~f:(fun address ->
-      List.find placed ~f:(fun (card : Placed.t) ->
-        Snapshot.Address.equal card.address address))
+    |> Option.bind ~f:find
   in
   match from with
   | None ->
-    (* nothing aimed at yet: start at the topmost card *)
-    List.min_elt placed ~compare:(fun a b ->
-      [%compare: int * int] (a.y, a.x) (b.y, b.x))
-    |> Option.map ~f:(fun (card : Placed.t) -> card.address)
-  | Some origin ->
-    let ox, oy = center origin in
-    let scored =
-      List.filter_map placed ~f:(fun (card : Placed.t) ->
-        let x, y = center card in
-        let along, across =
-          match direction with
-          | Up -> oy - y, abs (x - ox)
-          | Down -> y - oy, abs (x - ox)
-          | Left -> ox - x, abs (y - oy)
-          | Right -> x - ox, abs (y - oy)
+    (* nothing aimed at yet: start at the first tree's root *)
+    List.hd roots |> Option.map ~f:address_of
+  | Some card ->
+    let moved =
+      match direction with
+      | Up ->
+        (match Option.bind card.parent ~f:find with
+         | Some parent -> Some parent
+         | None -> sibling_tree card ~offset:(-1))
+      | Down ->
+        let children =
+          List.filter placed ~f:(fun (other : Placed.t) ->
+            match other.parent with
+            | Some parent -> Snapshot.Address.equal parent card.address
+            | None -> false)
+          |> by_x
         in
-        match along > 0 with
-        | false -> None
-        | true -> Some (card.address, (along + (across * 2), along, across)))
+        (match children with
+         | first :: (_ : Placed.t list) -> Some first
+         | [] -> sibling_tree card ~offset:1)
+      | Left | Right ->
+        let root = root_of card in
+        let layer =
+          List.filter placed ~f:(fun (other : Placed.t) ->
+            other.depth = card.depth
+            && Snapshot.Address.equal (root_of other).address root.address)
+          |> by_x
+        in
+        neighbour_in
+          layer
+          card
+          ~offset:(match direction with Left -> -1 | _ -> 1)
     in
-    List.min_elt scored ~compare:(fun (_, a) (_, b) ->
-      [%compare: int * int * int] a b)
-    |> Option.map ~f:fst
+    Option.map moved ~f:address_of
 ;;
 
 (* the canvas row a card starts on, so the app can scroll it into view *)

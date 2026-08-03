@@ -119,9 +119,20 @@ are aiming at goes orange while the one you chose stays blue, so both
 `Enter` commits, which does exactly what clicking there does: a heap
 card jumps the replay to the step that allocated it, a live stack row
 selects that frame, a dimmed one jumps to its call. `WASD` skips the
-aiming step and commits in one keystroke. The chosen and aimed cards
-are the only ones that spell out an address; the rest go without, which
-is what lets a five-node tree fit across the pane.
+aiming step and commits in one keystroke.
+
+In the heap the cursor walks the tree rather than the picture: `w`/`s`
+climb to a card's parent and descend to its first child, `a`/`d` run
+along the layer it sits on. A layer is a depth in one tree, not one
+parent's children, so `a` from `"j"` reaches its cousin `"b"` two
+subtrees away. Empty slots and `↗ #n` pointers place no card and are
+skipped. The trees stack down the canvas and the ends join up — `w`
+from a root climbs into the tree above, `s` from a leaf drops into the
+one below.
+
+The chosen and aimed cards are the only ones that spell out an address;
+the rest go without, which is what lets a five-node tree fit across the
+pane.
 
 Beyond the controls row up top, `h`/`l`/`p`/`n` also step, `g`/`G` jump
 to the ends, and `PgUp`/`PgDn` scroll the heap.
