@@ -15,29 +15,27 @@ bright blue across all panes, and one surface — no boxes, just a
 divider line along each seam:
 
 ```
-▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                                             ◂ back  ·  step ▸  ·  [space] play  ·  q quit
-────────────────────────────────────────────┬──────────────────────────────────────────────
- CALL STACK                5 calls · 1 live │ HEAP                2 live · 3 nodes · 2 new
-      M.add "b" 2 M.empty     map_fold.ml:8 │ ▾ #1 · map ⟨string ⇒ int⟩
- ▎▾ M.add "a" 1 (M.add "b" 2  map_fold.ml:8 │  ┌ #1 ─────┐
- ▎    M.empty)                              │  │ "b" → 2 │
-      M.add k (v * 2) acc    map_fold.ml:12 │  └─────────┘
-      M.add k (v * 2) acc    map_fold.ml:12 │
-    M.fold (fun k v acc ->   map_fold.ml:10 │ ▾ m · map ⟨string ⇒ int⟩
-      M.add k (v * 2) acc) m M.empty        │   ▾┌ m ──────── new ┐
-                                            │    │ "b" → 2        │
-                                            │    │ 0x75101a3ee970 │
-────────────────────────────────────────────┤    └────────────────┘
- SOURCE              map_fold.ml · 15 lines │       ┌────┴─────┐
-  ▾  5 module M = Map.Make (String)         │       l          r
-     6                                      │  ┌──── new ┐   ┌┄┄┄┐
-  ▾  7 let () =                             │  │ "a" → 1 │   ┆ ∅ ┆
- ▎   8   let m = M.add "a" 1 (M.add "b" 2   │  └─────────┘   └┄┄┄┘
- ▎         M.empty) in                      │
-     9   let doubled =                      │
-    10     M.fold                           │
-────────────────────────────────────────────┴──────────────────────────────────────────────
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                                              ◂ back  ·  step ▸  ·  [space] play  ·  q quit
+─────────────────────────────┬──────────────────────────────────────────────────────────────
+ CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
+      M.add "b" 2 M.empty    │ ▾ #1 · map ⟨string ⇒ int⟩   ▾ m · map ⟨string ⇒ int⟩
+ ▎▾ M.add "a" 1 (M.add "b" 2 │  ┌ #1 ─────┐                  ▾┌ m ──────── new ┐
+ ▎    M.empty)               │  │ "b" → 2 │                   │ "b" → 2        │
+      M.add k (v * 2) acc    │  └─────────┘                   │ 0x75101a3ee970 │
+      M.add k (v * 2) acc    │                                └────────────────┘
+    M.fold (fun k v acc ->   │                                   ┌────┴─────┐
+      M.add k (v * 2) acc) m │                                   l          r
+      M.empty                │                              ┌──── new ┐   ┌┄┄┄┐
+─────────────────────────────┤                              │ "a" → 1 │   ┆ ∅ ┆
+ SOURCE map_fold.ml · 15 line│                              └─────────┘   └┄┄┄┘
+         (String)            │
+     6                       │
+  ▾  7 let () =              │
+ ▎   8   let m = M.add "a"   │
+ ▎         1 (M.add "b" 2 M  │
+ ▎         .empty) in        │
+─────────────────────────────┴──────────────────────────────────────────────────────────────
  ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay
 ```
 
@@ -45,8 +43,10 @@ divider line along each seam:
   step's live chain renders bright, everything already returned or not yet
   reached is dimmed (click one to jump there). Clicking a live frame
   selects it and the source pane follows, marking the caller's line with
-  `▸`. Long argument lists wrap, and a call's `▾`/`▸` glyph folds its
-  whole range behind a `⋯ n` count without touching any other pane.
+  `▸`. Where a call was written is not repeated here — the source pane
+  below already has that line highlighted. Long argument lists wrap, and
+  a call's `▾`/`▸` glyph folds its whole range behind a `⋯ n` count
+  without touching any other pane.
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
   blank gutter, and top-level definitions fold to their first line plus
@@ -59,8 +59,8 @@ divider line along each seam:
   against the running node table — a referenced structure's whole tree
   links in at the reference site (a map added to a queue hangs off the
   queue's cell), a shared block draws once and later slots point at it
-  with `↗ #n` (which also terminates payload cycles), and a re-observed
-  structure's stub replays the shape its id was defined with. Structures carry
+  with a dashed `↗` card (which also terminates payload cycles), and a
+  re-observed structure's stub replays the shape its id was defined with. Structures carry
   the latest variable name they were observed under (`m ·`, `tbl ·`;
   `#id` when anonymous), root addresses re-stamp from the registry on
   every redraw, and only unreferenced structures get their own section
@@ -80,10 +80,15 @@ divider line along each seam:
   left, the node's meaning underneath), a parent centered above its
   children, siblings sharing a level under a labeled rail, and a dotted
   gray card where an interior slot is empty — a nil pointer is still a
-  slot, so it gets a box like everything else. Cards allocated *at this
-  step* carry a green `new` tag in the border's top right. Clicking a
-  card jumps the replay to the step that allocated it; the wheel
-  scrolls.
+  slot, so it gets a box like everything else. An edge into a card the
+  canvas already drew gets a dashed card too, named by what that card
+  holds rather than by the wire's id (`↗ "d" → 4`, not `↗ #7`) and
+  wearing the same address, so a shared subtree reads as one object
+  drawn twice. Cards allocated *at this step* carry a green `new` tag in
+  the border's top right. Structures lay side by side, up to three to a
+  row, wrapping when the next one would not fit; a tree wider than the
+  pane gets a row to itself. Clicking a card jumps the replay to the
+  step that allocated it; the wheel scrolls.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —
   `◂ back · step ▸ · [space] play · q quit` — every chip clickable. The
@@ -98,9 +103,11 @@ dune exec app/bin/main.exe -- -dump-file testing/expected/map_nested.dump
 `testing/` holds golden dumps of real `-visual-replay` runs, vendored
 verbatim from the compiler repo (see `testing/README.md`) — any of them
 replays. For **structure sharing**, replay `map_spine_sharing` and step
-to the end: a five-node map sits above the version one more `add`
-returned, and the two `↗ #n` arrows in the lower tree are the subtrees
-that `add` did not rebuild — the same allocation, drawn once.
+to the end: a five-node map sits beside the version one more `add`
+returned, and the two `↗` cards in the lower tree are the subtrees that
+`add` did not rebuild. Aim at one with `s` and both it and the card it
+names light up, wearing the same address — the same allocation, drawn
+twice.
 
 ```sh
 dune exec app/bin/main.exe -- -dump-file testing/expected/map_spine_sharing.dump
@@ -125,10 +132,14 @@ In the heap the cursor walks the tree rather than the picture: `w`/`s`
 climb to a card's parent and descend to its first child, `a`/`d` run
 along the layer it sits on. A layer is a depth in one tree, not one
 parent's children, so `a` from `"j"` reaches its cousin `"b"` two
-subtrees away. Empty slots and `↗ #n` pointers place no card and are
-skipped. The trees stack down the canvas and the ends join up — `w`
-from a root climbs into the tree above, `s` from a leaf drops into the
-one below.
+subtrees away. Empty slots place no card and are skipped; an `↗` card
+does place one, wearing its target's address, so aiming at a pointer
+aims at the card it names wherever the pane drew it.
+
+Structures are the outermost layer. From a root, `a`/`d` step to the
+structure beside it and `w` to the one before it, and `s` off a leaf
+falls through to the structure after — so the whole registry is
+reachable without touching the mouse.
 
 The chosen and aimed cards are the only ones that spell out an address;
 the rest go without, which is what lets a five-node tree fit across the
