@@ -35,7 +35,7 @@ end
     inline. [Id] references the node carrying that wire id — a tracked root,
     a shared block dumped by an earlier event, or an earlier node in this
     same walk (sharing, a cycle). [Address] carries only a block the walker
-    did not decode. *)
+    did not decode. [Child] is the walked pointer itself. *)
 module Block : sig
   type t =
     | Int of int
@@ -47,6 +47,14 @@ module Block : sig
     | Float_array of float list
     | Address of Address.t
     | Id of int
+    | Child
+    (** the field the walker descended through; the node it reaches is the
+        next of {!Node.children}, so the two line up in field order:
+
+        {[
+          (block ((l (Int 0)) (v (String a)) (d (Int 1)) (r Child)))
+            (children (<the node r points at>))
+        ]} *)
   [@@deriving sexp, bin_io, compare, equal]
 
   (** Source-ish spelling of the value: [42], ["a"], [0x1a0], [#2],
@@ -64,37 +72,57 @@ module Ds_type : sig
     | Set
     | Queue
     | Hashtbl
+    | Stack
+    | Dynarray
+    | Core_map
+    | Core_set
+    | Core_hashtbl
+    | Core_hash_set
+    | Core_queue
+    | Core_stack
+    | Core_deque
+    | Core_fdeque
+    | Core_doubly_linked
+    | Core_hash_queue
+    | User (** a value of a type the program itself declared *)
   [@@deriving sexp, bin_io, compare, equal]
 
-  (** Lowercase, for header chips: ["map"], ["hashtbl"], ... *)
+  (** For header chips: ["map"], ["hashtbl"], ["Core.Hash_queue"], and
+      ["value"] for {!User}, whose static type says more than a name. *)
   val display : t -> string
 
-  (** One layer of the structure's internal representation, mirroring the
-      compiler's [Data_structure.layout] with the masks spelled as label
-      lists. A node's [block] holds every masked field it kept inline; a
-      masked label absent from it was a walked child, and the k-th such
-      absence is the k-th child — that recovery is per layer:
+  (** What one node of the skeleton is made of. The compiler drops
+      bookkeeping before it dumps, so every label on the wire is one of:
 
-      - [Fixed]: [interior] fields lead one layer deeper into the structure's
-        own skeleton, [payload] fields hold user data (walked payload blocks
-        and everything below them are generic value blocks with numeric
-        positional labels, no masks).
-      - [Array_elements]: a variable-size block whose fields get numeric
-        labels and are all interior. *)
-  module Layer : sig
+      - [interior]: a step deeper into the structure's own skeleton (a map's
+        [l]/[r], a bucket chain's [next]);
+      - [payload]: the user's data ([v]/[d] on a map node).
+
+      [Elements] is a variable-size block — a bucket array, a ring buffer —
+      whose numerically labeled slots are all alike. *)
+  module Shape : sig
     type t =
-      | Fixed of
-          { labels : string list
-          ; interior : string list
+      | Fields of
+          { interior : string list
           ; payload : string list
           }
-      | Array_elements
+      | Elements of { interior : bool }
   end
 
-  (** Root first, in the order interior edges meet them; nonempty, and past
-      the end the last layer repeats (a map's l/r spine, a bucket chain's
-      next). *)
-  val layers : t -> Layer.t list
+  (** The shape of the node carrying exactly [labels]. Identifying a node by
+      its own field names rather than by walk depth is what separates a Core
+      map's [Leaf] from its [Node], and what keeps a subtree readable when it
+      is reached through a shared reference instead of from the root.
+
+      Roles read slots, they do not find them: a walked pointer arrives as
+      {!Block.Child} and its node as the next child, so [interior] only says
+      which [Int 0] is an empty pointer rather than the number zero.
+
+      {[
+        Ds_type.shape Map ~labels:[ "l"; "v"; "d"; "r" ]
+        = Fields { interior = [ "l"; "r" ]; payload = [ "v"; "d" ] }
+      ]} *)
+  val shape : t -> labels:string list -> Shape.t
 end
 
 (** One heap block of the walked structure: its address, its non-pointer

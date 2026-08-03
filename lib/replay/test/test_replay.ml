@@ -82,8 +82,8 @@ let%expect_test "the registry drops structures the GC collected" =
       print_endline [%string "%{step#Int}: registry %{registry}"]);
   [%expect
     {|
-    0: registry #1↦0x7a7727ff1248
-    1: registry #2↦0x7a7727ffffd8
+    0: registry #1↦0x78c2451f11f0
+    1: registry #2↦0x78c2451fffd8
     |}]
 ;;
 

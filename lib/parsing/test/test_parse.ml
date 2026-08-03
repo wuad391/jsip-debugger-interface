@@ -8,16 +8,33 @@ open Jsip_parsing
 let fixture name = [%string "../../../testing/expected/%{name}.dump"]
 
 let all_fixtures =
-  [ "hashtbl_basic"
+  [ "core_deque_basic"
+  ; "core_doubly_linked"
+  ; "core_fdeque_basic"
+  ; "core_hash_queue"
+  ; "core_hash_set_basic"
+  ; "core_hashtbl_basic"
+  ; "core_linked_queue"
+  ; "core_map_basic"
+  ; "core_map_legacy"
+  ; "core_queue_wrap"
+  ; "core_set_basic"
+  ; "core_stack_basic"
+  ; "dynarray_basic"
+  ; "hashtbl_basic"
   ; "map_alias_open"
+  ; "map_array_payload"
   ; "map_basic"
   ; "map_data_kinds"
   ; "map_fold"
+  ; "map_list_payload"
   ; "map_nested"
   ; "map_partial_neg"
+  ; "map_record_nested"
   ; "map_registry_gc"
   ; "map_rewalk"
   ; "map_shared_payload"
+  ; "map_spine_sharing"
   ; "map_versions"
   ; "map_wide_payload"
   ; "neg_plain"
@@ -32,7 +49,10 @@ let all_fixtures =
   ; "queue_wide_tuple"
   ; "set_basic"
   ; "set_ops"
+  ; "stack_basic"
   ; "stdout_mixed"
+  ; "user_floats"
+  ; "user_types"
   ]
 ;;
 
@@ -51,12 +71,12 @@ let%expect_test "unsexp one real event line" =
       (args
        ((No_label (expression (Unnamed "\"a\"")))
         (No_label (expression (Unnamed 1))) (No_label (expression (Unnamed m)))))
-      (registry ((1 0x779ae8bf23a0 m)))
+      (registry ((1 0x7fa801ff2348 m)))
       (ty ((printed "int M.t") (params ((key string) (data int)))))
       (snapshot
        ((ds_type Map)
         (root_node
-         ((id 1) (virtual_address 0x779ae8bf23a0)
+         ((id 1) (virtual_address 0x7fa801ff2348)
           (block ((l (Int 0)) (v (String a)) (d (Int 1)) (r (Int 0))))
           (children ())))))))
     |}]
@@ -122,22 +142,39 @@ let%expect_test "every golden dump parses end to end" =
     print_endline [%string "%{name}: %{!events#Int} events"]);
   [%expect
     {|
+    core_deque_basic: 5 events
+    core_doubly_linked: 4 events
+    core_fdeque_basic: 3 events
+    core_hash_queue: 4 events
+    core_hash_set_basic: 4 events
+    core_hashtbl_basic: 4 events
+    core_linked_queue: 3 events
+    core_map_basic: 4 events
+    core_map_legacy: 3 events
+    core_queue_wrap: 8 events
+    core_set_basic: 3 events
+    core_stack_basic: 5 events
+    dynarray_basic: 5 events
     hashtbl_basic: 6 events
     map_alias_open: 1 events
+    map_array_payload: 1 events
     map_basic: 3 events
     map_data_kinds: 3 events
     map_fold: 5 events
+    map_list_payload: 1 events
     map_nested: 2 events
     map_partial_neg: 0 events
+    map_record_nested: 1 events
     map_registry_gc: 2 events
     map_rewalk: 3 events
-    map_shared_payload: 3 events
+    map_shared_payload: 4 events
+    map_spine_sharing: 6 events
     map_versions: 5 events
     map_wide_payload: 1 events
     neg_plain: 0 events
     neg_untracked: 0 events
     queue_basic: 5 events
-    queue_cycle: 2 events
+    queue_cycle: 3 events
     queue_mixed: 8 events
     queue_of_closures: 3 events
     queue_of_maps: 3 events
@@ -146,7 +183,10 @@ let%expect_test "every golden dump parses end to end" =
     queue_wide_tuple: 2 events
     set_basic: 3 events
     set_ops: 5 events
+    stack_basic: 4 events
     stdout_mixed: 3 events
+    user_floats: 2 events
+    user_types: 3 events
     |}]
 ;;
 

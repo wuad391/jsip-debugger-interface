@@ -370,7 +370,7 @@ let%expect_test "heap clicks land on cards, not the space between" =
   print_endline (at ~x:10 ~y:8);
   print_endline (at ~x:30 ~y:5);
   [%expect {|
-    0x779ae8bf23a0
+    0x7fa801ff2348
     ·
     ·
     |}]
@@ -506,7 +506,7 @@ let%expect_test "heap pane: closures stay opaque" =
               │
             first
      ┌───────────── new ┐
-     │ ⟨0x75946a5efbf0⟩ │
+     │ ⟨0x73a5227efa18⟩ │
      └──────────────────┘
     |}]
 ;;
@@ -822,36 +822,36 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  3 live · 7 nodes · 3 new
-    ▾ #1 · map ⟨string ⇒ point⟩
-            ▾┌ #1 ─┐
-             │ "p" │
-             └─────┘
-      ┌─────────┼─────────┐
-      l         d         r
-    ┌┄┄┄┐    ┌──────┐   ┌┄┄┄┐
-    ┆ ∅ ┆    │ 1, 2 │   ┆ ∅ ┆
-    └┄┄┄┘    └──────┘   └┄┄┄┘
+    HEAP                                  4 live · 7 nodes · 3 new
+    ▾ #2 · map ⟨string ⇒ point⟩
+             ▾┌ #2 ─┐
+              │ "p" │
+              └─────┘
+      ┌──────────┴┬──────────┐
+      l           d          r
+    ┌┄┄┄┐    ┌ p ──────┐   ┌┄┄┄┐
+    ┆ ∅ ┆    │ x=1 y=2 │   ┆ ∅ ┆
+    └┄┄┄┘    └─────────┘   └┄┄┄┘
 
     ▾ m · map ⟨string ⇒ point⟩
-                ▾┌ m ──┐
-                 │ "p" │
-                 └─────┘
-      ┌─────────┬───┴─────────────┐
-      l         d                 r
-    ┌┄┄┄┐   ┌ ↗ ┄┄┄┐          ▾┌─────┐
-    ┆ ∅ ┆   ┆ 1, 2 ┆           │ "q" │
-    └┄┄┄┘   └┄┄┄┄┄┄┘           └─────┘
-                         ┌────────┴┬────────┐
-                         l         d        r
-                       ┌┄┄┄┐   ┌ ↗ ┄┄┄┐   ┌┄┄┄┐
-                       ┆ ∅ ┆   ┆ 1, 2 ┆   ┆ ∅ ┆
-                       └┄┄┄┘   └┄┄┄┄┄┄┘   └┄┄┄┘
+                  ▾┌ m ──┐
+                   │ "p" │
+                   └─────┘
+      ┌──────────┬────┴────────────────┐
+      l          d                     r
+    ┌┄┄┄┐   ┌ ↗ ┄┄┄┄┄┄┐            ▾┌─────┐
+    ┆ ∅ ┆   ┆ x=1 y=2 ┆             │ "q" │
+    └┄┄┄┘   └┄┄┄┄┄┄┄┄┄┘             └─────┘
+                            ┌──────────┼──────────┐
+                            l          d          r
+                          ┌┄┄┄┐   ┌ ↗ ┄┄┄┄┄┄┐   ┌┄┄┄┐
+                          ┆ ∅ ┆   ┆ x=1 y=2 ┆   ┆ ∅ ┆
+                          └┄┄┄┘   └┄┄┄┄┄┄┄┄┄┘   └┄┄┄┘
 
     ▾ #5 · map ⟨string ⇒ point⟩
-                ▾┌ #5  new ┐
-                 │ "p"     │
-                 └─────────┘
+                   ▾┌ #5  new ┐
+                    │ "p"     │
+                    └─────────┘
     |}]
 ;;
 
@@ -900,31 +900,21 @@ let%expect_test "delta wire: a payload cycle terminates" =
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  1 live · 4 nodes · 3 new
+    HEAP                                  2 live · 3 nodes · 1 new
     ▾ q · queue ⟨cyc⟩
-        ▾┌ q ───────┐
-         │ length 1 │
-         └──────────┘
-              │
-            first
-          ▾┌ new ┐
-           │ ·   │
-           └─────┘
-         ┌────┴─────┐
-         v        next
-    ▾┌─── new ┐   ┌┄┄┄┐
-     │ "loop" │   ┆ ∅ ┆
-     └────────┘   └┄┄┄┘
-         │
-         1
-     ▾┌ new ┐
-      │ ·   │
-      └─────┘
-         │
-         0
-    ┌ ↗ ┄┄┄┄┄┐
-    ┆ "loop" ┆
-    └┄┄┄┄┄┄┄┄┘
+                 ▾┌ q ───────┐
+                  │ length 1 │
+                  └──────────┘
+                       │
+                     first
+                   ▾┌ new ┐
+                    │ ·   │
+                    └─────┘
+               ┌───────┴────────┐
+               v              next
+     ┌ r ─────────────────┐   ┌┄┄┄┐
+     │ name="loop" self=0 │   ┆ ∅ ┆
+     └────────────────────┘   └┄┄┄┘
     |}]
 ;;
 
@@ -1003,13 +993,13 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
     ▾ bigger · map ⟨string ⇒ int⟩
                 ▾┌ bigger ─── new ┐
                  │ "f" → 6        │
-                 │ 0x7ce0ebffff78 │
+                 │ 0x7fbcdcffff78 │
                  └────────────────┘
              ┌───────────┴────────────┐
              l                        r
     ┌ ↗ ┄┄┄┄┄┄┄┄┄┄┄┄┄┐          ▾┌──── new ┐
     ┆ "d" → 4        ┆           │ "h" → 8 │
-    ┆ 0x7ce0ebfe28a8 ┆           └─────────┘
+    ┆ 0x7fbcdcfe1d20 ┆           └─────────┘
     └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         ┌──────┴───────┐
     |}]
 ;;
@@ -1165,7 +1155,7 @@ let%expect_test "selection: committing a link follows the node to its step" =
                 l                 r
        ▾┌─────────── new ┐   ┌ ↗ ┄┄┄┄┄┄┐
         │ "d" → 4        │   ┆ "h" → 8 ┆
-        │ 0x7ce0ebfe28a8 │   └┄┄┄┄┄┄┄┄┄┘
+        │ 0x7fbcdcfe1d20 │   └┄┄┄┄┄┄┄┄┄┘
         └────────────────┘
            ┌────┴─────┐
            l          r
@@ -1211,5 +1201,158 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
           M.add k (v * 2) acc
         M.fold (fun k v acc -> M.add k (v * 2) acc) m
           M.empty
+    |}]
+;;
+
+(* The catalogue past the stdlib four. Each of these dumps was produced by
+   the compiler's own golden run against the real (or mock-shaped) library,
+   so what draws here is what a program using Core draws. *)
+let%expect_test "heap pane: a Core map is a wrapper over a weight-balanced \
+                 tree"
+  =
+  let replay = replay_of_fixture "core_map_basic" in
+  heap_view ~width:56 ~height:14 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                         4 live · 10 nodes · 2 new
+    ▾ m · Core.Map ⟨string ⇒ int⟩
+       ▾┌ m ┐
+        │ · │
+        └───┘
+          │
+        tree
+     ┌─────────┐
+     │ "b" → 2 │
+     └─────────┘
+
+    ▾ m · Core.Map ⟨string ⇒ int⟩
+            ▾┌ m ┐
+             │ · │
+    |}]
+;;
+
+let%expect_test "heap pane: a Core hashtable is buckets over AVL trees" =
+  let replay = replay_of_fixture "core_hashtbl_basic" in
+  heap_view ~width:56 ~height:16 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                          1 live · 5 nodes · 1 new
+    ▾ t · Core.Hashtbl ⟨string ⇒ int⟩
+                ▾┌ t ───────┐
+                 │ length 3 │
+                 └──────────┘
+                      │
+                    table
+                ▾┌─────────┐
+                 │ slots 4 │
+                 └─────────┘
+            ┌─────────┴──────────┐
+            1                    2
+      ▾┌─────────┐          ┌──── new ┐
+       │ "a" → 1 │          │ "c" → 3 │
+       └─────────┘          └─────────┘
+      ┌─────┴─────┐
+    |}]
+;;
+
+let%expect_test "heap pane: a Core queue is a window on a ring buffer" =
+  let replay = replay_of_fixture "core_queue_wrap" in
+  heap_view ~width:56 ~height:12 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                                  1 live · 2 nodes
+    ▾ q · Core.Queue ⟨int⟩
+    ▾┌ q ───────┐
+     │ length 3 │
+     └──────────┘
+          │
+        elts
+     ┌─────────┐
+     │ 3, 4, 5 │
+     └─────────┘
+    |}]
+;;
+
+let%expect_test "heap pane: a hash queue keeps its elements in queue order" =
+  let replay = replay_of_fixture "core_hash_queue" in
+  heap_view ~width:60 ~height:20 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                              1 live · 9 nodes · 2 new
+    ▾ q · Core.Hash_queue ⟨string ⇒ int⟩
+                   ▾┌ q ┐
+                    │ · │
+                    └───┘
+                      │
+                    queue
+                   ▾┌───┐
+                    │ · │
+                    └───┘
+                      │
+                  contents
+                   ▾┌───┐
+                    │ · │
+                    └───┘
+                      │
+                      0
+                   ▾┌───┐
+                    │ · │
+                    └───┘
+    |}]
+;;
+
+(* A value of a type the program declared: no catalogue skeleton, so every
+   field is data and the card keeps the names the schema gave it. *)
+let%expect_test "heap pane: the program's own records name their fields" =
+  let replay = replay_of_fixture "user_types" in
+  heap_view ~width:56 ~height:14 replay ~step:1;
+  [%expect
+    {|
+    HEAP                          2 live · 4 nodes · 3 new
+    ▾ p · value ⟨point⟩   ▾ t · value ⟨trade⟩
+     ┌ p ──────┐                    ▾┌ t ─── new ┐
+     │ x=3 y=4 │                     │ price=101 │
+     └─────────┘                     └───────────┘
+                                   ┌───────┴────────┐
+                                 tags             span
+                           ┌─────────── new ┐    ┌─ new ┐
+                           │ "buy", "limit" │    │ 1, 9 │
+                           └────────────────┘    └──────┘
+    |}]
+;;
+
+let%expect_test "heap pane: a stdlib Stack is a list behind a counter" =
+  let replay = replay_of_fixture "stack_basic" in
+  heap_view ~width:56 ~height:16 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                                  1 live · 2 nodes
+    ▾ s · stack ⟨int⟩
+    ▾┌ s ────┐
+     │ len 1 │
+     └───────┘
+         │
+         c
+       ┌───┐
+       │ 1 │
+       └───┘
+    |}]
+;;
+
+let%expect_test "heap pane: a Dynarray shows only its live prefix" =
+  let replay = replay_of_fixture "dynarray_basic" in
+  heap_view ~width:56 ~height:12 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP                                  1 live · 2 nodes
+    ▾ d · dynarray ⟨string⟩
+    ▾┌ d ───────┐
+     │ length 2 │
+     └──────────┘
+          │
+         arr
+     ┌──────────┐
+     │ "a", "b" │
+     └──────────┘
     |}]
 ;;
