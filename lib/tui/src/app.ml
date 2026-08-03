@@ -166,7 +166,20 @@ let apply_action
       | Some step -> move ~playing:false step
       | None -> model
     in
-    { stepped with heap_selected = Some spot; heap_cursor = None }
+    (* the jump lands on a different canvas, where this node may be drawn
+       somewhere else entirely — follow it there rather than losing it *)
+    let { Replay.Step.structures; nodes; new_addresses; _ } =
+      Replay.step_exn replay ~step:stepped.step
+    in
+    let selected =
+      Heap_pane.resolve_spot
+        ~structures
+        ~nodes
+        ~new_addresses
+        ~folds:stepped.heap_folds
+        spot
+    in
+    { stepped with heap_selected = selected; heap_cursor = None }
   in
   let commit (model : Model.t) =
     match model.focus with

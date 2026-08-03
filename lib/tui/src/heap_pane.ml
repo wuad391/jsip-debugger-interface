@@ -97,6 +97,9 @@ module Placed = struct
     ; site : Site.t (** this card, as opposed to any other drawing of it *)
     ; depth : int (** card rows between this one and its tree's root *)
     ; parent : Site.t option (** [None] on a section's root *)
+    ; is_pointer : bool
+    (** a [↗] at the node rather than the node's own card. Both are places
+        the cursor can stand; only one of them is where the node lives. *)
     }
 
   let spot t = { Spot.address = t.address; site = t.site }
@@ -830,6 +833,7 @@ let rec tree
         ; site
         ; depth
         ; parent
+        ; is_pointer = false
         }
       ]
     , [] )
@@ -871,6 +875,7 @@ let rec tree
                 ; site = stub_site
                 ; depth = depth + 1
                 ; parent = Some site
+                ; is_pointer = true
                 }
               ]
           in
@@ -967,6 +972,7 @@ let rec tree
       ; site
       ; depth
       ; parent
+      ; is_pointer = false
       }
     in
     let box_toggles = [ { Toggle.x = 0; y = 0; fold } ] in
@@ -1355,6 +1361,39 @@ let spot_of_structure (structure : Replay.Structure.t) =
 let cards ~structures ~nodes ~new_addresses ~folds ~selection =
   sections ~structures ~nodes ~new_addresses ~folds ~selection
   |> List.concat_map ~f:(fun (section : Section.t) -> section.placed)
+;;
+
+(* A spot picked at one step can name a card another step does not draw:
+   [Enter] on a [↗] pointer jumps the replay to where that node was
+   allocated, and the structure the pointer lived in need not have existed
+   back there. The node itself usually survives the jump, so re-point the
+   spot at whatever card draws it now — [None] only when nothing on the
+   canvas is that node at all, and the pane falls back to the walked
+   structure. *)
+let resolve_spot
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ({ Spot.address; site } as spot)
+  =
+  let placed =
+    cards ~structures ~nodes ~new_addresses ~folds ~selection:Selection.none
+  in
+  match card_at placed site with
+  | Some (_ : Placed.t) -> Some spot
+  | None ->
+    (* the node's own card if it has one, since that is where it lives; a
+       pointer at it only if nothing else on the canvas draws it *)
+    let drawings =
+      List.filter placed ~f:(fun (card : Placed.t) ->
+        Snapshot.Address.equal card.address address)
+    in
+    (match
+       List.find drawings ~f:(fun (card : Placed.t) -> not card.is_pointer)
+     with
+     | Some card -> Some (Placed.spot card)
+     | None -> List.hd drawings |> Option.map ~f:Placed.spot)
 ;;
 
 (* The cursor walks the tree, not the picture: [w]/[s] climb and descend it,

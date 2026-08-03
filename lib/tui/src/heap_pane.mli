@@ -142,6 +142,18 @@ val view
   -> selection:Selection.t
   -> View.t
 
+(** A spot picked at one step, re-pointed at whatever card draws that node at
+    this one — committing a [↗] pointer jumps the replay back to where the
+    node was allocated, and the structure the pointer lived in need not have
+    existed then. [None] when nothing on the canvas is that node. *)
+val resolve_spot
+  :  structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
+  -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
+  -> Spot.t
+  -> Spot.t option
+
 (** Where [wasd] lands from wherever the cursor is (or, failing that, the
     selection). The cursor walks the tree rather than the picture: [Up] and
     [Down] climb to a card's parent and descend to its first child, [Left]

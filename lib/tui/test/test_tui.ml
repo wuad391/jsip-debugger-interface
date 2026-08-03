@@ -34,6 +34,7 @@ let replay_of_fixture name =
 let heap_view
   ?(width = 56)
   ?(height = 15)
+  ?(scroll = 0)
   ?(selection = Heap_pane.Selection.none)
   replay
   ~step
@@ -51,7 +52,7 @@ let heap_view
        ~nodes
        ~new_addresses
        ~folds:(Set.empty (module Heap_pane.Fold))
-       ~scroll:0
+       ~scroll
        ~selection)
 ;;
 
@@ -1103,6 +1104,74 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
     s -> "d"
     d -> "h"
     w -> bigger
+    |}]
+;;
+
+let%expect_test "selection: committing a link follows the node to its step" =
+  (* [Enter] on a [↗] pointer jumps the replay to where that node was
+     allocated — a step at which the structure the pointer lived in does not
+     exist yet, so the site it named is gone. The chosen card has to follow
+     the node to whatever tree draws it there rather than vanishing — to the
+     node's own card, not to another pointer at it. [add "b" 2 m3] rebuilt
+     the spine, so the "d" node the pointer named was allocated here, in the
+     structure at the bottom: that is the card wearing the address. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  let last = Replay.length replay - 1 in
+  let folds = Set.empty (module Heap_pane.Fold) in
+  let pointer =
+    let { Replay.Step.structures; nodes; new_addresses; _ } =
+      Replay.step_exn replay ~step:last
+    in
+    Heap_pane.move_cursor
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~selection:
+        { Heap_pane.Selection.selected = current_spot replay ~step:last
+        ; cursor = None
+        }
+      ~direction:Down
+    |> Option.value_exn
+  in
+  let birth =
+    List.init (Replay.length replay) ~f:Fn.id
+    |> List.find_exn ~f:(fun step ->
+      Set.mem
+        (Replay.step_exn replay ~step).new_addresses
+        pointer.Heap_pane.Spot.address)
+  in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step:birth
+  in
+  let resolved =
+    Heap_pane.resolve_spot ~structures ~nodes ~new_addresses ~folds pointer
+  in
+  print_s [%message (birth : int)];
+  heap_view
+    ~width:64
+    ~height:14
+    ~scroll:22
+    ~selection:{ Heap_pane.Selection.selected = resolved; cursor = None }
+    replay
+    ~step:birth;
+  [%expect
+    {|
+    (birth 3)
+     HEAP                                  4 live · 8 nodes · 3 new
+                    │ "f" → 6 │
+                    └─────────┘
+                ┌────────┴────────┐
+                l                 r
+       ▾┌─────────── new ┐   ┌ ↗ ┄┄┄┄┄┄┐
+        │ "d" → 4        │   ┆ "h" → 8 ┆
+        │ 0x7ce0ebfe28a8 │   └┄┄┄┄┄┄┄┄┄┘
+        └────────────────┘
+           ┌────┴─────┐
+           l          r
+      ┌──── new ┐   ┌┄┄┄┐
+      │ "b" → 2 │   ┆ ∅ ┆
+      └─────────┘   └┄┄┄┘
     |}]
 ;;
 
