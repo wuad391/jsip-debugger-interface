@@ -226,15 +226,15 @@ let%expect_test "source pane: a missing file renders its error" =
     |}]
 ;;
 
-let%expect_test "footer: ticks mark past, current, future" =
+let%expect_test "transport: ticks, then the clickable key legend" =
   print_view
     ~height:3
-    (Footer.view ~width:56 ~step:1 ~total:3 ~playing:false);
+    (Transport.view ~width:56 ~step:1 ~total:3 ~playing:false);
   [%expect
     {|
-    ────────────────────────────────────────────────────────
      ━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━ ━━━━━━━━━━━━━━━━━
-     ◂ back  step ▸  ⏵ play   ◂ ▸ step · space play · ↑ ↓ fr
+              ◂ back  ·  step ▸  ·  [space] play  ·  q quit
+    ────────────────────────────────────────────────────────
     |}]
 ;;
 
@@ -258,7 +258,7 @@ let%expect_test "tick hit-testing round-trips" =
   let width = 26 in
   let total = 3 in
   let hits =
-    List.init width ~f:(fun x -> Footer.step_at ~width ~total ~x)
+    List.init width ~f:(fun x -> Transport.step_at ~width ~total ~x)
     |> List.filter_map ~f:Fn.id
   in
   print_s [%sexp (List.dedup_and_sort hits ~compare : int list)];
@@ -520,5 +520,30 @@ let%expect_test "heap pane: closures stay opaque" =
     │ │ 0x724d0fdef940        │                                │
     │ └───────────────────────┘                                │
     └──────────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "control chips hit-test exactly where they render" =
+  let width = 56 in
+  let hits =
+    List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
+      Transport.control_at ~width ~playing:false ~x
+      |> Option.map ~f:(fun button -> x, button))
+  in
+  let groups =
+    List.group hits ~break:(fun ((_ : int), a) ((_ : int), b) ->
+      not (Transport.Button.equal a b))
+  in
+  List.iter groups ~f:(fun group ->
+    let first, button = List.hd_exn group in
+    let last, (_ : Transport.Button.t) = List.last_exn group in
+    print_s
+      [%sexp (button : Transport.Button.t), (first : int), (last : int)]);
+  [%expect
+    {|
+    (Back 10 15)
+    (Step 21 26)
+    (Play 32 43)
+    (Quit 49 54)
     |}]
 ;;

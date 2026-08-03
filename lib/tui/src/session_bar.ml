@@ -3,11 +3,7 @@ module View = Bonsai_term.View
 
 let divider = View.text ~attrs:(Theme.fg' Theme.border) " │ "
 
-let label text =
-  View.text ~attrs:(Theme.fg' Theme.faint) (String.uppercase text)
-;;
-
-let view ~width ~dump_name ~structure ~step ~total =
+let view ~width ~dump_name ~structure =
   let left =
     View.hcat
       [ View.text " "
@@ -21,22 +17,9 @@ let view ~width ~dump_name ~structure ~step ~total =
           [%string "%{structure} · replay"]
       ]
   in
-  let right =
-    View.hcat
-      [ label "step "
-      ; View.text ~attrs:(Theme.fg' Theme.text) (Int.to_string step)
-      ; View.text ~attrs:(Theme.fg' Theme.faint) [%string "/%{total#Int}"]
-      ; View.text " "
-      ]
-  in
-  let gap = max 1 (width - View.width left - View.width right) in
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
     ~bg:Theme.panel_bg
-    (Panel.fit
-       (View.hcat
-          [ left; View.transparent_rectangle ~width:gap ~height:1; right ])
-       ~width
-       ~height:1)
+    (Panel.fit left ~width ~height:1)
 ;;

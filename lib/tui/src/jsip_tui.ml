@@ -1,5 +1,4 @@
 module App = App
-module Footer = Footer
 module Heap_pane = Heap_pane
 module Layout = Layout
 module Panel = Panel
@@ -7,5 +6,6 @@ module Source_pane = Source_pane
 module Stack_pane = Stack_pane
 module Syntax = Syntax
 module Theme = Theme
-module Top_bar = Top_bar
+module Session_bar = Session_bar
+module Transport = Transport
 module Wrap = Wrap

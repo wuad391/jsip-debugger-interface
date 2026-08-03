@@ -33,7 +33,6 @@ module Action = struct
     | Tick
     | Toggle_play
     | Select_frame of int
-    | Move_frame of int
     | Scroll_heap of int
   [@@deriving sexp_of]
 end
@@ -75,13 +74,6 @@ let apply_action
   | Toggle_play -> { model with playing = not model.playing }
   | Select_frame index ->
     { model with selected_frame = Some (clamp_frame index) }
-  | Move_frame delta ->
-    let current =
-      Option.value
-        model.selected_frame
-        ~default:(frame_count replay ~step:model.step - 1)
-    in
-    { model with selected_frame = Some (clamp_frame (current + delta)) }
   | Scroll_heap delta ->
     { model with heap_scroll = Int.max 0 (model.heap_scroll + delta) }
 ;;
@@ -101,7 +93,7 @@ let birth_steps replay =
 module Computed = struct
   type t =
     { view : View.t
-    ; on_click : Position.t -> Action.t option
+    ; on_click : Position.t -> [ `Act of Action.t | `Quit ] option
     ; on_scroll : Position.t -> [ `Up | `Down ] -> Action.t option
     }
 end
@@ -164,14 +156,11 @@ let render
   in
   let view =
     View.zcat
-      [ place
-          layout.top_bar
-          (Top_bar.view
-             ~width:layout.top_bar.width
-             ~dump_name
-             ~structure:(Snapshot.Ds_type.display snapshot.ds_type)
-             ~step:(model.step + 1)
-             ~total:(Replay.length replay))
+      [ Transport.view
+          ~width:dimensions.Dimensions.width
+          ~step:model.step
+          ~total:(Replay.length replay)
+          ~playing:model.playing
       ; place
           layout.stack
           (Stack_pane.view
@@ -199,12 +188,11 @@ let render
              ~new_addresses
              ~scroll:model.heap_scroll)
       ; View.pad
-          ~t:(layout.ticks.y - 1)
-          (Footer.view
-             ~width:dimensions.Dimensions.width
-             ~step:model.step
-             ~total:(Replay.length replay)
-             ~playing:model.playing)
+          ~t:layout.session.y
+          (Session_bar.view
+             ~width:dimensions.width
+             ~dump_name
+             ~structure:(Snapshot.Ds_type.display snapshot.ds_type))
       ; View.rectangle
           ~attrs:[ Attr.bg Theme.bg ]
           ~width:dimensions.width
@@ -212,23 +200,28 @@ let render
           ()
       ]
   in
-  let on_click (position : Position.t) : Action.t option =
+  let on_click (position : Position.t) : [ `Act of Action.t | `Quit ] option =
+    let act action = `Act action in
     match Region.contains layout.controls position with
     | true ->
-      Footer.button_at ~x:position.x
+      Transport.control_at
+        ~width:layout.controls.width
+        ~playing:model.playing
+        ~x:position.x
       |> Option.map ~f:(fun button ->
-        match (button : Footer.Button.t) with
-        | Back -> Action.Step_delta (-1)
-        | Step -> Action.Step_delta 1
-        | Play -> Action.Toggle_play)
+        match (button : Transport.Button.t) with
+        | Back -> act (Action.Step_delta (-1))
+        | Step -> act (Action.Step_delta 1)
+        | Play -> act Action.Toggle_play
+        | Quit -> `Quit)
     | false ->
       (match Region.contains layout.ticks position with
        | true ->
-         Footer.step_at
+         Transport.step_at
            ~width:layout.ticks.width
            ~total:(Replay.length replay)
            ~x:position.x
-         |> Option.map ~f:(fun step -> Action.Step_to step)
+         |> Option.map ~f:(fun step -> act (Action.Step_to step))
        | false ->
          (match Layout.inner_position layout.stack position with
           | Some { x = _; y } ->
@@ -241,8 +234,8 @@ let render
               ~row:y
             |> Option.map ~f:(fun target ->
               match (target : Stack_pane.Target.t) with
-              | Frame index -> Action.Select_frame index
-              | Step step -> Action.Step_to step)
+              | Frame index -> act (Action.Select_frame index)
+              | Step step -> act (Action.Step_to step))
           | None ->
             (match Layout.inner_position layout.heap position with
              | Some { x; y } ->
@@ -255,7 +248,7 @@ let render
                  ~x:(max 0 (x - 1))
                  ~y
                |> Option.bind ~f:(Map.find births)
-               |> Option.map ~f:(fun step -> Action.Step_to step)
+               |> Option.map ~f:(fun step -> act (Action.Step_to step))
              | None -> None)))
   in
   let on_scroll (position : Position.t) direction : Action.t option =
@@ -311,6 +304,12 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
       | Some action -> inject action
       | None -> Effect.Ignore
     in
+    let click_or_ignore click =
+      match click with
+      | Some (`Act action) -> inject action
+      | Some `Quit -> exit ()
+      | None -> Effect.Ignore
+    in
     fun (event : Event.t) ->
       match event with
       | Key_press { key; mods } ->
@@ -324,15 +323,13 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
          | (Arrow `Right | ASCII ('l' | 'n')), [] -> inject (Step_delta 1)
          | (Arrow `Left | ASCII ('h' | 'p')), [] -> inject (Step_delta (-1))
          | ASCII ' ', [] -> inject Toggle_play
-         | Arrow `Up, [] -> inject (Move_frame (-1))
-         | Arrow `Down, [] -> inject (Move_frame 1)
          | (Home | ASCII 'g'), [] -> inject (Step_to 0)
          | (End | ASCII 'G'), [] -> inject (Step_to Int.max_value)
          | Page `Up, [] -> inject (Scroll_heap (-3))
          | Page `Down, [] -> inject (Scroll_heap 3)
          | _ -> Effect.Ignore)
       | Mouse { kind = Left; position; mods = _ } ->
-        inject_or_ignore (on_click position)
+        click_or_ignore (on_click position)
       | Mouse { kind = Scroll direction; position; mods = _ } ->
         inject_or_ignore (on_scroll position direction)
       | Mouse _ | Paste _ -> Effect.Ignore

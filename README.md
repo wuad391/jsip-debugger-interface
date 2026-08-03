@@ -14,7 +14,9 @@ palette re-pitched for dark terminals — selection and position in one
 bright blue across all panes, the gold reserved for the heap's cards:
 
 ```
- ● ocaml-debug │ set_ops.dump │ set · replay                                       STEP 3/5
+ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━
+                                       ◂ back  ·  step ▸  ·  [space] play  ·  q quit
+────────────────────────────────────────────────────────────────────────────────────────────
 ┌ CALL STACK ────────────── 5 calls · 1 live ┐┌ HEAP ───────────── set · 4 nodes · 4 new ┐
 │  S.of_list [1; 2; 3]          set_ops.ml:6 ││            ┌────────────────┐            │
 │  S.of_list [3; 4]             set_ops.ml:7 ││            │ 3  new         │            │
@@ -34,16 +36,14 @@ bright blue across all panes, the gold reserved for the heap's cards:
 │ ▎  8   ignore (S.union a b);               ││ └────────────────┘                       │
 │    9   ignore (S.inter a b);               ││                                          │
 └────────────────────────────────────────────┘└──────────────────────────────────────────┘
-────────────────────────────────────────────────────────────────────────────────────────────
- ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━ ━━━━━━━━━━━━
- ◂ back  step ▸  ⏵ play              ◂ ▸ step · space play · ↑ ↓ frame · click jumps · q quit
+ ● ocaml-debug │ set_ops.dump │ set · replay
 ```
 
 - **Call stack** — every call in the run, indented by depth: the current
   step's live chain renders bright, everything already returned or not yet
-  reached is dimmed (click one to jump there). `↑`/`↓` (or a click) selects
-  a live frame and the source pane follows it, marking the caller's line
-  with `▸`. Long argument lists wrap.
+  reached is dimmed (click one to jump there). Clicking a live frame
+  selects it and the source pane follows, marking the caller's line with
+  `▸`. Long argument lists wrap.
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
   blank gutter.
@@ -65,7 +65,10 @@ bright blue across all panes, the gold reserved for the heap's cards:
   labeled rail, `∅` where an interior slot is empty. Cards allocated *at
   this step* get the brighter fresh border and a `new` chip. Clicking a
   card jumps the replay to the step that allocated it; the wheel scrolls.
-- **Timeline** — one tick per event; click to jump, `space` to play.
+- **Transport** — across the top: one tick per event (click to jump)
+  over the controls, right-aligned chips that double as the key legend —
+  `◂ back · step ▸ · [space] play · q quit` — every chip clickable. The
+  session bar (dump name, structure) sits along the bottom.
 
 ## Run it
 
@@ -77,9 +80,9 @@ dune exec app/bin/main.exe -- -dump-file testing/expected/map_nested.dump
 verbatim from the compiler repo (see `testing/README.md`) — any of them
 replays. `-source-root DIR` says where the dump's relative source paths
 live (default: the current directory; the golden dumps' paths resolve
-from the repo root). Keys: `◂`/`▸` (also `h`/`l`, `p`/`n`)
-step · `space` play/pause · `↑`/`↓` frame · `g`/`G` ends · `PgUp`/`PgDn`
-scroll heap · `q` quit.
+from the repo root). The controls row up top is the key legend; beyond
+it, `h`/`l`/`p`/`n` also step, `g`/`G` jump to the ends, and
+`PgUp`/`PgDn` scroll the heap.
 
 ## Toolchain
 
