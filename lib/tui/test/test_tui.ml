@@ -705,3 +705,60 @@ let%expect_test "source fold: a definition folds to its first line" =
     └──────────────────────────────────────────────────────┘
     |}]
 ;;
+
+let%expect_test "heap fold keeps the rest of the diagram still" =
+  (* set a's spine: 1 → r → 2 → r → 3. Folding the "2" card hides "3";
+     everything else — the "a · 1" card centered above, the rail, the ∅ —
+     must not move a cell, because the folded card keeps its expanded
+     footprint *)
+  let replay = replay_of_fixture "set_ops" in
+  let { Replay.Step.structures; new_addresses; _ } =
+    Replay.step_exn replay ~step:2
+  in
+  let render folds =
+    print_view
+      ~width:60
+      ~height:14
+      (Heap_pane.view
+         ~width:60
+         ~height:14
+         ~structures
+         ~new_addresses
+         ~folds
+         ~scroll:0)
+  in
+  render (Set.empty (module Heap_pane.Fold));
+  render
+    (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Node (1, [ 1 ]) ]);
+  [%expect
+    {|
+    ┌ HEAP ────────────────────────── 3 live · 9 nodes · 4 new ┐
+    │ ▾ a · set ⟨int⟩                                          │
+    │ ▾┌────────────────┐                                      │
+    │  │ a · 1          │                                      │
+    │  │ 0x7fa2171f22c8 │                                      │
+    │  └────────────────┘                                      │
+    │    ┌─────┴──────┐                                        │
+    │    l            r                                        │
+    │    ∅   ▾┌────────────────┐                               │
+    │         │ 2              │                               │
+    │         │ 0x7fa2171f22f0 │                               │
+    │         └────────────────┘                               │
+    │           ┌─────┴──────┐                                 │
+    └──────────────────────────────────────────────────────────┘
+    ┌ HEAP ────────────────────────── 3 live · 9 nodes · 4 new ┐
+    │ ▾ a · set ⟨int⟩                                          │
+    │ ▾┌────────────────┐                                      │
+    │  │ a · 1          │                                      │
+    │  │ 0x7fa2171f22c8 │                                      │
+    │  └────────────────┘                                      │
+    │    ┌─────┴──────┐                                        │
+    │    l            r                                        │
+    │    ∅   ▸┌──── ⋯ 1 hidden ┐                               │
+    │         │ 2              │                               │
+    │         │ 0x7fa2171f22f0 │                               │
+    │         └────────────────┘                               │
+    │                                                          │
+    └──────────────────────────────────────────────────────────┘
+    |}]
+;;
