@@ -17,8 +17,8 @@ val tick_height : int
 (** Blank rows under the bar, before the controls. *)
 val tick_gap : int
 
-(** Rows of chrome above the panes: the bar, a space, the controls, the
-    gap. {!Transport} fills the whole strip so it reads as one surface. *)
+(** Rows of chrome above the panes: the bar, a space, the controls, the gap.
+    {!Transport} fills the whole strip so it reads as one surface. *)
 val strip_height : int
 
 type t =

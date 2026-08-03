@@ -30,7 +30,6 @@ let vertical_rule ~height ~color =
        View.text ~attrs:(divider_attrs color) "│"))
 ;;
 
-
 let header_height = 1
 let inner_width ~width = max 0 (width - 2)
 

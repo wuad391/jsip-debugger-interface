@@ -18,9 +18,9 @@ module Button : sig
   [@@deriving sexp_of, equal]
 end
 
-(** [Layout.strip_height] rows tall — the bar, a space, the controls,
-    and the gap before the panes, all on the pane surface so the strip
-    reads as one piece with them. [step] is 0-based. *)
+(** [Layout.strip_height] rows tall — the bar, a space, the controls, and the
+    gap before the panes, all on the pane surface so the strip reads as one
+    piece with them. [step] is 0-based. *)
 val view : width:int -> step:int -> total:int -> playing:bool -> View.t
 
 (** Which step a click at column [x] of the tick row jumps to. *)
