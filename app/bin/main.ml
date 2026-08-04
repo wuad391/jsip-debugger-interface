@@ -36,18 +36,28 @@ let load_sources replay ~source_root =
   |> String.Map.of_alist_exn
 ;;
 
-let main ~dump_file ~source_root =
+let main ~dump_file ~source_root ~perf_file =
   let open Deferred.Or_error.Let_syntax in
   let%bind replay = Deferred.return (load_replay ~dump_file) in
+  (* loaded once up front like the sources; a bad heat file is this command's
+     error, not a mystery of an uncolored pane *)
+  let%bind profile =
+    match perf_file with
+    | None -> return None
+    | Some path ->
+      Deferred.return (Or_error.map (Heat_reader.load path) ~f:Option.some)
+  in
   match Replay.length replay with
   | 0 ->
     Deferred.Or_error.error_s
       [%message "the dump has no events to replay" (dump_file : string)]
   | _ ->
     App.run
+      ?profile
       ~dump_name:(Filename.basename dump_file)
       ~replay
       ~sources:(load_sources replay ~source_root)
+      ()
 ;;
 
 let command =
@@ -74,8 +84,16 @@ let command =
          ~doc:
            "DIR directory the dump's source paths resolve against (default: \
             the current directory)"
+     and perf_file =
+       flag
+         "-perf-file"
+         (optional string)
+         ~doc:
+           "FILE a heat profile (heat.sexp) the pipeline's perf stage \
+            wrote; colors the call stack by each function's share of \
+            sampled compute"
      in
-     fun () -> main ~dump_file ~source_root)
+     fun () -> main ~dump_file ~source_root ~perf_file)
 ;;
 
 let () = Command_unix.run command

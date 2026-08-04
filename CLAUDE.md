@@ -82,14 +82,20 @@ Formatting is checked in CI, so run `dune fmt` before pushing.
 lib/types/     wire-shaped data: calls, locations, snapshots, the call stack
 lib/parsing/   dump reader (depth markers + event sexps) and source loader
 lib/replay/    the replay model: per-step frames, fresh addresses, captions
-lib/tui/       the bonsai_term interface: panes, theme, layout, app
+app/tui/       the bonsai_term interface
+  components/  reusable building blocks: panes, bars, panel, theme, layout
+  src/         the app itself: state machine, event loop, wiring
+  test/        picture tests over the components and app pieces
 app/bin/       the executable (Command_unix, -dump-file / -source-root)
 testing/       golden dumps + their programs, vendored from the compiler repo
 ```
 
 Each `lib/<x>/` has `src/` and `test/`. New code goes in one of those, or in
 a new `lib/<new>/{src,test}` — not loose at the top of an existing
-directory.
+directory. UI code goes under `app/tui`: a reusable view builder belongs in
+`components/` (the `jsip_tui_components` library), app state and wiring in
+`src/` (`jsip_tui`, which re-exports the components so `app/bin` and the
+tests have one entry point).
 
 The pipeline, in dependency order:
 
@@ -99,9 +105,9 @@ calls back with a `Call.Info.t` → `Call_stack.create` assembles the
 timeline → `Replay.create` walks it once and precomputes every step's view
 (live frames, live structures, which addresses are new at that step, the
 status caption) → `Jsip_tui.App` renders and drives it. The pane modules
-under `lib/tui/src/` are pure view builders over `Replay.Step.t`, themed by
-`Theme` and framed by `Panel`; `Layout` decides where panes sit so drawing
-and mouse hit-testing agree.
+under `app/tui/components/` are pure view builders over `Replay.Step.t`,
+themed by `Theme` and framed by `Panel`; `Layout` decides where panes sit
+so drawing and mouse hit-testing agree.
 
 ## The wire contract
 

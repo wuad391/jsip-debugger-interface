@@ -1,4 +1,3 @@
-module App = App
 module Heap_pane = Heap_pane
 module Layout = Layout
 module Panel = Panel

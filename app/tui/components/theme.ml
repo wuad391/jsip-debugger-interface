@@ -54,5 +54,31 @@ let keyword = app_purple
 let ident = color 0x7fb8dc
 let string_lit = color 0x96c7a2
 let number = color 0xd8a45e
+
+(* the compute-heat ramp, cold to hot: it starts in a cool slate that cannot
+   be confused with the text grays, warms through the accent gold's register,
+   and ends in a red deeper than [cursor]'s orange so the hottest cell and
+   the keyboard cursor never read as one *)
+let heat_ramp =
+  [| color 0x5a6a78
+   ; color 0x8a7a58
+   ; color 0xc09149
+   ; color 0xdf7038
+   ; color 0xe05545
+  |]
+;;
+
+(* compute shares are heavy-tailed — one hot function next to many tepid ones
+   — so the buckets are log-spaced, not linear *)
+let heat_thresholds = [ 0.20, 4; 0.08, 3; 0.03, 2; 0.01, 1 ]
+
+let heat ~share =
+  List.find_map heat_thresholds ~f:(fun (threshold, index) ->
+    match Float.( >= ) share threshold with
+    | true -> Some heat_ramp.(index)
+    | false -> None)
+  |> Option.value ~default:heat_ramp.(0)
+;;
+
 let fg c = Attr.fg c
 let fg' c = [ Attr.fg c ]

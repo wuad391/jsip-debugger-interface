@@ -1,0 +1,6 @@
+(library
+ (name jsip_tui_components)
+ (public_name jsip-debugger-interface.jsip_tui_components)
+ (libraries core bonsai bonsai_term jsip_types jsip_replay)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))

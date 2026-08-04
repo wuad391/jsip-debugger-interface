@@ -60,6 +60,14 @@ val ident : Attr.Color.t
 val string_lit : Attr.Color.t
 val number : Attr.Color.t
 
+(** The compute-heat ramp the stack pane's heat cells draw from, cold to hot;
+    five stops ending in a red deeper than {!cursor}'s orange. *)
+val heat_ramp : Attr.Color.t array
+
+(** The ramp stop for a compute share in [0, 1]. Buckets are log-spaced
+    (≥20%, ≥8%, ≥3%, ≥1%, below) because shares are heavy-tailed. *)
+val heat : share:float -> Attr.Color.t
+
 (** [fg c] and [fg' c] shorthand [Attr.fg c] and [[ Attr.fg c ]]. *)
 val fg : Attr.Color.t -> Attr.t
 

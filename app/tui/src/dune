@@ -1,6 +1,13 @@
 (library
  (name jsip_tui)
  (public_name jsip-debugger-interface.jsip_tui)
- (libraries core async bonsai bonsai_term jsip_types jsip_replay)
+ (libraries
+  core
+  async
+  bonsai
+  bonsai_term
+  jsip_types
+  jsip_replay
+  jsip_tui_components)
  (preprocess
   (pps ppx_jane bonsai.ppx_bonsai)))
