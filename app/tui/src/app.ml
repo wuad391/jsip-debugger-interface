@@ -2,6 +2,7 @@ open! Core
 open Bonsai.Let_syntax
 open Jsip_types
 open Jsip_replay
+open Jsip_tui_components
 module Attr = Bonsai_term.Attr
 module Effect = Bonsai_term.Effect
 module Event = Bonsai_term.Event

@@ -9,11 +9,10 @@ program replays that log: step through the run and watch the call stack,
 the source position, and the allocated data structures evolve.
 
 Pass `-perf-file heat.sexp` (the per-function compute profile the
-visual-debugger pipeline's perf stage writes) and the call stack grows a
-heat cell per row: the glyph's height says how often the trace calls
-that function, its color the function's share of the sampled compute —
-cold slate through gold to red, with a ghost `·` for calls the profile
-has no data on. The session bar carries the legend.
+visual-debugger pipeline's perf stage writes) and the call stack renders
+each callee's name in its function's share of the sampled compute — cold
+slate through gold to red; a call the profile has no data on keeps its
+ordinary color. The session bar carries the legend.
 
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells, its warm-gray

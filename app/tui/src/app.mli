@@ -15,6 +15,7 @@
 
 open! Core
 open Jsip_replay
+open Jsip_tui_components
 module View := Bonsai_term.View
 module Event := Bonsai_term.Event
 module Effect := Bonsai_term.Effect
