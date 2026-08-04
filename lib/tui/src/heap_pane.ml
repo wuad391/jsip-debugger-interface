@@ -360,15 +360,17 @@ let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
    aiming at, and the calmer card blue everywhere else; the same three states
    pick the wash.
 
-   Only the selected card spells out its address. Every card carrying twelve
-   hex digits set the whole diagram's width from a string nobody was reading;
-   showing it on the one card whose identity is actually in question buys
-   three columns and a row back on all the others.
+   Only the picked cards spell out their address, and it rides the BOTTOM
+   border rather than taking a row of its own. A row would make every card
+   the cursor touches a row taller, and card heights are what the tree and
+   the columns are laid out from — so aiming would shuffle the whole canvas
+   about. On the border it costs nothing vertical, and [show_address:false]
+   measures the card as if it were not picked, which is what everything
+   geometric uses.
    {v
-   ┌ m ──────────── new ┐
-   │ "a" → 2            │
-   │ 0x763be65ee878     │   ← selected only
-   └────────────────────┘
+   ┌ m ──────── new ┐
+   │"a" → 2         │
+   └ 0x763be65ee878 ┘   ← picked only
         ⋯ 3 hidden
    v} *)
 let node_box
@@ -379,6 +381,7 @@ let node_box
   ~site
   ~fold_glyph
   ~hidden_count
+  ~show_address
   =
   let is_new = Set.mem context.new_addresses node.virtual_address in
   let root_structure = Map.find context.by_address node.virtual_address in
@@ -398,16 +401,17 @@ let node_box
   (* both picked-out cards spell their address out: the blue one because it
      is the chosen one, the orange one because knowing what you are about to
      choose is the point of aiming. A card merely linked to one of them does
-     not — it is not where you are, and a second wide card would move the
-     drawing for nothing. *)
+     not — it is not where you are. *)
   let address =
-    match (mark : Selection.Mark.t) with
-    | Linked_to_selected | Linked_to_cursor | Plain -> None
-    | Selected | Cursor ->
+    match show_address, (mark : Selection.Mark.t) with
+    | `Never, _
+    | `When_picked, (Linked_to_selected | Linked_to_cursor | Plain) ->
+      None
+    | `Always, _ | `When_picked, (Selected | Cursor) ->
       Some
         (View.text
            ~attrs:(Theme.fg' Theme.secondary)
-           (Snapshot.Address.display node.virtual_address))
+           [%string " %{Snapshot.Address.display node.virtual_address} "])
   in
   (* border riders: the structure's name left, a fresh allocation right *)
   let name_tag =
@@ -434,40 +438,47 @@ let node_box
     List.reduce_exn
       ~f:Int.max
       (View.width summary
-       :: (riders_width - 2)
+       :: riders_width
        :: List.map (Option.to_list address) ~f:View.width)
   in
-  (* every row is exactly [inner + 4] cells, so the wash covers the card and
+  (* every row is exactly [inner + 2] cells, so the wash covers the card and
      nothing else *)
-  let card_width = inner + 4 in
+  let card_width = inner + 2 in
   let top =
     View.hcat
       [ View.text ~attrs:border "┌"
       ; name_tag
       ; View.text
           ~attrs:border
-          (Panel.repeat "─" ~width:(inner + 2 - riders_width))
+          (Panel.repeat "─" ~width:(inner - riders_width))
       ; new_tag
       ; View.text ~attrs:border "┐"
       ]
   in
   let bottom =
-    View.text
-      ~attrs:border
-      [%string "└%{Panel.repeat \"─\" ~width:(inner + 2)}┘"]
+    match address with
+    | None ->
+      View.text
+        ~attrs:border
+        [%string "└%{Panel.repeat \"─\" ~width:inner}┘"]
+    | Some address ->
+      View.hcat
+        [ View.text ~attrs:border "└"
+        ; address
+        ; View.text
+            ~attrs:border
+            (Panel.repeat "─" ~width:(inner - View.width address))
+        ; View.text ~attrs:border "┘"
+        ]
   in
   let content line =
     View.hcat
-      [ View.text ~attrs:border "│ "
+      [ View.text ~attrs:border "│"
       ; Panel.fit line ~width:inner ~height:1
-      ; View.text ~attrs:border " │"
+      ; View.text ~attrs:border "│"
       ]
   in
-  let rows =
-    [ top; content summary ]
-    @ List.map (Option.to_list address) ~f:content
-    @ [ bottom ]
-  in
+  let rows = [ top; content summary; bottom ] in
   let card =
     Panel.fit (View.vcat rows) ~width:card_width ~height:(List.length rows)
   in
@@ -556,6 +567,7 @@ let shared_box
   ~ds_type
   ~(context : Context.t)
   ~site
+  ~show_address
   =
   let mark =
     match target with
@@ -591,13 +603,15 @@ let shared_box
      card does — and here it is the whole argument: two boxes wearing one
      address are one object drawn twice *)
   let address =
-    match (mark : Selection.Mark.t) with
-    | Linked_to_selected | Linked_to_cursor | Plain -> None
-    | Selected | Cursor ->
+    match show_address, (mark : Selection.Mark.t) with
+    | `Never, _
+    | `When_picked, (Linked_to_selected | Linked_to_cursor | Plain) ->
+      None
+    | `Always, _ | `When_picked, (Selected | Cursor) ->
       Option.map target ~f:(fun (node : Snapshot.Node.t) ->
         View.text
           ~attrs:(Theme.fg' Theme.secondary)
-          (Snapshot.Address.display node.virtual_address))
+          [%string " %{Snapshot.Address.display node.virtual_address} "])
   in
   let inner =
     List.reduce_exn
@@ -708,7 +722,7 @@ let rec tree
   ~path
   ~depth
   ~parent
-  : View.t * int * Placed.t list * Toggle.t list
+  : View.t * int * int * Placed.t list * Toggle.t list
   =
   let edges, leaves = node_edges node ~ds_type ~context in
   let edges =
@@ -729,7 +743,7 @@ let rec tree
   let fold_glyph =
     match collapsible with true -> Some folded | false -> None
   in
-  let leaf_box ~hidden_count =
+  let leaf_box ~hidden_count ~show_address =
     node_box
       node
       ~leaves
@@ -738,17 +752,28 @@ let rec tree
       ~site
       ~fold_glyph
       ~hidden_count
+      ~show_address
+  in
+  (* Geometry measures every card with room for an address, drawn or not. A
+     card only shows one while it is picked, but reserving the space on all
+     of them is what lets the cursor move without the diagram shuffling
+     about: the card grows into space that was already set aside for it, and
+     nothing beside it has to shift. Height never enters into it — the
+     address rides the bottom border rather than taking a row. *)
+  let reserved_box ~hidden_count =
+    leaf_box ~hidden_count ~show_address:`Always
   in
   Hash_set.add context.drawn_nodes node.id;
   match edges with
   | [] ->
-    let box = leaf_box ~hidden_count:0 in
-    let box_width = View.width box in
+    let box = leaf_box ~hidden_count:0 ~show_address:`When_picked in
+    let box_width = View.width (reserved_box ~hidden_count:0) in
     ( box
     , box_width / 2
+    , box_width
     , [ { Placed.x = 0
         ; y = 0
-        ; width = box_width
+        ; width = View.width box
         ; height = View.height box
         ; address = node.virtual_address
         ; site
@@ -762,7 +787,8 @@ let rec tree
     let rendered =
       List.mapi edges ~f:(fun index (label, edge) ->
         match edge with
-        | Edge.Nil -> label, (nil_box, View.width nil_box / 2, [], [])
+        | Edge.Nil ->
+          label, (nil_box, View.width nil_box / 2, View.width nil_box, [], [])
         | Edge.Shared { id; node = target } ->
           (* the node is on the canvas already — point at it, wearing its
              address so that picking either end lights both up. The pointer
@@ -774,7 +800,22 @@ let rec tree
             }
           in
           let stub =
-            shared_box target ~id ~ds_type ~context ~site:stub_site
+            shared_box
+              target
+              ~id
+              ~ds_type
+              ~context
+              ~site:stub_site
+              ~show_address:`When_picked
+          in
+          let plain =
+            shared_box
+              target
+              ~id
+              ~ds_type
+              ~context
+              ~site:stub_site
+              ~show_address:`Always
           in
           let placed =
             match target with
@@ -792,7 +833,7 @@ let rec tree
                 }
               ]
           in
-          label, (stub, View.width stub / 2, placed, [])
+          label, (stub, View.width plain / 2, View.width plain, placed, [])
         | Edge.Child child ->
           ( label
           , tree
@@ -824,9 +865,9 @@ let rec tree
       List.fold_map
         rendered
         ~init:0
-        ~f:(fun x (label, (view, center, placed, toggles)) ->
-          ( x + View.width view + sibling_gap
-          , (label, view, x, x + center, placed, toggles) ))
+        ~f:(fun x (label, (view, center, plain_width, placed, toggles)) ->
+          ( x + plain_width + sibling_gap
+          , (label, view, x, x + center, plain_width, placed, toggles) ))
     in
     let hidden_count =
       match folded with
@@ -841,16 +882,17 @@ let rec tree
               , (_ : View.t)
               , (_ : int)
               , (_ : int)
+              , (_ : int)
               , placed
               , (_ : Toggle.t list) )
             -> List.length placed)
     in
     Hash_set.add context.drawn_nodes node.id;
-    let box = leaf_box ~hidden_count in
-    (* geometry always follows the unfolded card, so folding (whose ⋯ tag can
-       widen the border) never moves the card's center *)
-    let box_width = View.width (leaf_box ~hidden_count:0) in
-    let box_height = View.height box in
+    let box = leaf_box ~hidden_count ~show_address:`When_picked in
+    (* geometry always follows the unfolded, unpicked card, so neither
+       folding (whose ⋯ tag can widen the border) nor aiming moves a center *)
+    let box_width = View.width (reserved_box ~hidden_count:0) in
+    let box_height = View.height (reserved_box ~hidden_count) in
     let centers =
       List.map
         placed_children
@@ -860,6 +902,7 @@ let rec tree
             , (_ : View.t)
             , (_ : int)
             , center
+            , (_ : int)
             , (_ : Placed.t list)
             , (_ : Toggle.t list) )
           -> center)
@@ -897,6 +940,7 @@ let rec tree
                , (_ : View.t)
                , (_ : int)
                , (_ : int)
+               , (_ : int)
                , (_ : Placed.t list)
                , (_ : Toggle.t list) )
              -> label))
@@ -920,7 +964,7 @@ let rec tree
         ~f:
           (fun
             (views, all_placed, all_toggles)
-            ((_ : string), view, x, (_ : int), placed, toggles)
+            ((_ : string), view, x, (_ : int), (_ : int), placed, toggles)
           ->
           let x = x + child_shift in
           ( View.pad ~l:x ~t:children_y view :: views
@@ -936,10 +980,30 @@ let rec tree
             View.pad ~t:(box_height + i) row))
          @ children_views)
     in
+    (* the subtree's footprint, measured off the unpicked cards — what the
+       parent spaces its siblings by, so aiming widens a card into the gap
+       beside it rather than shoving the diagram along *)
+    let plain_width =
+      List.fold
+        placed_children
+        ~init:(parent_x + box_width)
+        ~f:
+          (fun
+            widest
+            ( (_ : string)
+            , (_ : View.t)
+            , x
+            , (_ : int)
+            , child_width
+            , (_ : Placed.t list)
+            , (_ : Toggle.t list) )
+          -> Int.max widest (x + child_shift + child_width))
+    in
     (match folded with
      | false ->
        ( expanded
        , parent_center
+       , plain_width
        , Placed.shift box_placed ~dx:parent_x ~dy:0 :: children_placed
        , List.map box_toggles ~f:(Toggle.shift ~dx:parent_x ~dy:0)
          @ children_toggles )
@@ -951,13 +1015,12 @@ let rec tree
        let canvas =
          View.zcat
            [ View.pad ~l:folded_x box
-           ; View.transparent_rectangle
-               ~width:(View.width expanded)
-               ~height:1
+           ; View.transparent_rectangle ~width:plain_width ~height:1
            ]
        in
        ( canvas
        , parent_center
+       , plain_width
        , [ Placed.shift box_placed ~dx:folded_x ~dy:0 ]
        , List.map box_toggles ~f:(Toggle.shift ~dx:folded_x ~dy:0) ))
 ;;
@@ -995,8 +1058,11 @@ let structure_header (structure : Replay.Structure.t) ~folded =
 module Section = struct
   type t =
     { view : View.t
-    ; width : int
-    ; height : int
+    ; height : int (** as drawn, folds and all *)
+    ; reserved_width : int
+    ; reserved_height : int
+    (** the footprint with the structure expanded — what {!pack} chooses a
+        column from, so collapsing one does not move the others sideways *)
     ; placed : Placed.t list
     ; toggles : Toggle.t list
     }
@@ -1037,7 +1103,7 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
       in
       (* the tree lays out either way so its reference claims hold — a folded
          structure keeps what it references hidden with it *)
-      let canvas, (_ : int), placed, toggles =
+      let canvas, (_ : int), plain_width, placed, toggles =
         tree
           (Replay.Structure.current_root structure)
           ~ds_type:structure.snapshot.ds_type
@@ -1048,19 +1114,25 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
           ~depth:0
           ~parent:None
       in
+      (* the tree is laid out either way, so its footprint is known even when
+         the header is hiding it *)
+      let reserved_width = Int.max (View.width header) plain_width in
+      let reserved_height = 1 + View.height canvas in
       let block =
         match folded with
         | true ->
           (* the header is the whole summary *)
           { Section.view = header
-          ; width = View.width header
           ; height = 1
+          ; reserved_width
+          ; reserved_height
           ; placed = []
           ; toggles = [ header_toggle ]
           }
         | false ->
           { Section.view = View.zcat [ View.pad ~t:1 canvas; header ]
-          ; width = Int.max (View.width header) (View.width canvas)
+          ; reserved_width
+          ; reserved_height
           ; height = 1 + View.height canvas
           ; placed = List.map placed ~f:(Placed.shift ~dx:0 ~dy:1)
           ; toggles =
@@ -1089,47 +1161,69 @@ let row_gap = 1
    beside the queue holding it beside the version one more [add] returned is
    the comparison the pane exists to make.
 
-   Each section drops into the shortest run of columns wide enough to hold
-   it, keeping registry order; one too wide for a single column claims the
-   neighbours it needs, up to the whole pane. Filling by column bottom rather
-   than by rows is what keeps the canvas dense: a dump with a thousand
-   structures has them in every size, and a row-at-a-time layout is as tall
-   as its tallest member every time, which on the real thing left more blank
-   canvas than diagram. *)
+   They pack bottom-left against a skyline rather than into rows or into
+   fixed columns. Rows were as tall as their tallest member, which on a dump
+   with a thousand structures left more blank canvas than diagram; fixed
+   columns made a section a shade too wide claim two of them and waste the
+   rest. A section takes the width it actually needs, floored at a third of
+   the pane so no more than three ever sit abreast, and drops into the
+   highest place it fits.
+
+   x is chosen against the RESERVED skyline — heights as if nothing were
+   folded — so collapsing a structure moves it up its column without moving
+   anything sideways. y then comes from the real one, so the space a collapse
+   frees is actually freed. *)
 let pack sections ~body_width =
+  let body_width = Int.max 1 body_width in
   let column_width =
     Int.max 1 ((body_width - ((columns - 1) * column_gap)) / columns)
   in
-  let run_width span = (span * column_width) + ((span - 1) * column_gap) in
-  let bottoms = Array.create ~len:columns 0 in
-  let lowest ~start ~span =
-    List.init span ~f:(fun index -> bottoms.(start + index))
-    |> List.reduce_exn ~f:Int.max
+  let slot (section : Section.t) =
+    Int.min body_width (Int.max column_width section.reserved_width)
+    + column_gap
   in
-  let place (views, all_placed, all_toggles) (section : Section.t) =
-    let span =
-      List.init columns ~f:(fun index -> index + 1)
-      |> List.find ~f:(fun span -> run_width span >= section.width)
-      |> Option.value ~default:columns
-    in
-    let start =
-      List.init (columns - span + 1) ~f:Fn.id
-      |> List.min_elt ~compare:(fun left right ->
-        [%compare: int * int]
-          (lowest ~start:left ~span, left)
-          (lowest ~start:right ~span, right))
-      |> Option.value ~default:0
-    in
-    let y = lowest ~start ~span in
-    let x = start * (column_width + column_gap) in
-    List.iter (List.init span ~f:Fn.id) ~f:(fun index ->
-      bottoms.(start + index) <- y + section.height + row_gap);
+  (* height of the tallest thing already occupying [x, x + width) *)
+  let ceiling skyline ~x ~width =
+    let stop = Int.min body_width (x + width) in
+    List.range x stop
+    |> List.fold ~init:0 ~f:(fun tallest at -> Int.max tallest skyline.(at))
+  in
+  let raise_to skyline ~x ~width ~y =
+    let stop = Int.min body_width (x + width) in
+    List.range x stop |> List.iter ~f:(fun at -> skyline.(at) <- y)
+  in
+  (* the highest place a run of [width] fits, leftmost among ties *)
+  let settle skyline ~width =
+    let last = Int.max 0 (body_width - width) in
+    List.range 0 (last + 1)
+    |> List.map ~f:(fun x -> ceiling skyline ~x ~width, x)
+    |> List.min_elt ~compare:[%compare: int * int]
+    |> Option.value ~default:(0, 0)
+  in
+  (* pass one places against reserved heights and keeps only the column it
+     chose; pass two drops each section into that column at its real height *)
+  let reserved = Array.create ~len:body_width 0 in
+  let columns_chosen =
+    List.map sections ~f:(fun (section : Section.t) ->
+      let width = slot section in
+      let y, x = settle reserved ~width in
+      raise_to reserved ~x ~width ~y:(y + section.reserved_height + row_gap);
+      x)
+  in
+  let skyline = Array.create ~len:body_width 0 in
+  let place (views, all_placed, all_toggles) ((section : Section.t), x) =
+    let width = slot section in
+    let y = ceiling skyline ~x ~width in
+    raise_to skyline ~x ~width ~y:(y + section.height + row_gap);
     ( View.pad ~l:x ~t:y section.view :: views
     , List.map section.placed ~f:(Placed.shift ~dx:x ~dy:y) @ all_placed
     , List.map section.toggles ~f:(Toggle.shift ~dx:x ~dy:y) @ all_toggles )
   in
   let views, placed, toggles =
-    List.fold sections ~init:([], [], []) ~f:place
+    List.fold
+      (List.zip_exn sections columns_chosen)
+      ~init:([], [], [])
+      ~f:place
   in
   View.zcat views, placed, toggles
 ;;

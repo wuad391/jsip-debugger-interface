@@ -109,19 +109,19 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
     {|
     HEAP                          2 live · 3 nodes · 2 new
     ▾ m · map ⟨string ⇒ int⟩
-     ┌ m ──────┐
-     │ "a" → 1 │
-     └─────────┘
+     ┌ m ────┐
+     │"a" → 1│
+     └───────┘
 
     ▾ m · map ⟨string ⇒ int⟩
-      ▾┌ m ─ new ┐
-       │ "a" → 1 │
-       └─────────┘
-      ┌─────┴─────┐
-      l           r
-    ┌┄┄┄┐    ┌──── new ┐
-    ┆ ∅ ┆    │ "b" → 2 │
-    └┄┄┄┘    └─────────┘
+    ▾┌ m  new ┐
+     │"a" → 1 │
+     └────────┘
+      ┌──────┴───────┐
+      l              r
+    ┌┄┄┄┐    ┌── new ┐
+    ┆ ∅ ┆    │"b" → 2│
+    └┄┄┄┘    └───────┘
     |}]
 ;;
 
@@ -132,19 +132,19 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
     {|
     HEAP                          1 live · 3 nodes · 1 new
     ▾ q · queue ⟨string⟩
-    ▾┌ q ───────┐
-     │ length 2 │
-     └──────────┘
-          │
-        first
-      ▾┌─────┐
-       │ "x" │
-       └─────┘
-          │
-          1
-       ┌ new ┐
-       │ "y" │
-       └─────┘
+    ▾┌ q ─────┐
+     │length 2│
+     └────────┘
+             │
+           first
+    ▾┌───┐
+     │"x"│
+     └───┘
+             │
+             1
+     ┌ new ┐
+     │"y"  │
+     └─────┘
     |}]
 ;;
 
@@ -155,19 +155,19 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
     {|
     HEAP                          3 live · 5 nodes · 2 new
     ▾ m · map ⟨string ⇒ float⟩
-     ┌ m ──────────┐
-     │ "pi" → 3.14 │
-     └─────────────┘
+     ┌ m ────────┐
+     │"pi" → 3.14│
+     └───────────┘
 
     ▾ #2 · map ⟨string ⇒ float⟩
-         ▾┌ #2 ─────────┐
-          │ "pi" → 3.14 │
-          └─────────────┘
-           ┌─────┴──────┐
-           l            r
-     ┌────────────┐   ┌┄┄┄┐
-     │ "e" → 2.71 │   ┆ ∅ ┆
-     └────────────┘   └┄┄┄┘
+           ▾┌ #2 ───────┐
+            │"pi" → 3.14│
+            └───────────┘
+             ┌──────┴───────┐
+             l              r
+     ┌──────────┐         ┌┄┄┄┐
+     │"e" → 2.71│         ┆ ∅ ┆
+     └──────────┘         └┄┄┄┘
     |}]
 ;;
 
@@ -182,14 +182,14 @@ let%expect_test "heap pane: a collected structure is simply gone" =
     {|
     HEAP                          1 live · 1 nodes · 1 new
     ▾ #1 · map ⟨string ⇒ int⟩
-     ┌ #1 ─── new ┐
-     │ "dead" → 0 │
-     └────────────┘
+     ┌ #1 ─ new ┐
+     │"dead" → 0│
+     └──────────┘
     HEAP                          1 live · 1 nodes · 1 new
     ▾ #2 · map ⟨string ⇒ int⟩
-     ┌ #2 ─── new ┐
-     │ "live" → 1 │
-     └────────────┘
+     ┌ #2 ─ new ┐
+     │"live" → 1│
+     └──────────┘
     |}]
 ;;
 
@@ -204,14 +204,14 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
     {|
     HEAP                              3 live · 8 nodes · 3 new
     ▾ m · core.map ⟨string ⇒ int⟩
-       ▾┌ m ┐
-        │ · │
-        └───┘
-          │
-        tree
-     ┌─────────┐
-     │ "b" → 2 │
-     └─────────┘
+    ▾┌ m ┐
+     │·  │
+     └───┘
+             │
+           tree
+     ┌───────┐
+     │"b" → 2│
+     └───────┘
 
     ▾ m · core.map ⟨string ⇒ int⟩
     |}]
@@ -227,26 +227,26 @@ let%expect_test "heap pane: a Core hash queue chains through its elements" =
     {|
     HEAP                                  1 live · 9 nodes · 2 new
     ▾ q · core.hash_queue ⟨string ⇒ int⟩
-                   ▾┌ q ┐
-                    │ · │
-                    └───┘
-                      │
-                    queue
-                   ▾┌───┐
-                    │ · │
-                    └───┘
-                      │
-                  contents
-                   ▾┌───┐
-                    │ · │
-                    └───┘
-                      │
-                      0
-                   ▾┌───┐
-                    │ · │
-                    └───┘
-          ┌───────────┴────────────┐
-          v                      next
+                       ▾┌ q ┐
+                        │·  │
+                        └───┘
+                                │
+                              queue
+                       ▾┌─┐
+                        │·│
+                        └─┘
+                                │
+                            contents
+                       ▾┌─┐
+                        │·│
+                        └─┘
+                                │
+                                0
+                       ▾┌─┐
+                        │·│
+                        └─┘
+             ┌──────────────────┴──────────────────┐
+             v                                   next
     |}]
 ;;
 
@@ -260,18 +260,18 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
     {|
     HEAP                              3 live · 5 nodes · 1 new
     ▾ p · user ⟨point⟩
-     ┌ p ───────┐
-     │ x=3  y=4 │
-     └──────────┘
+     ┌ p ─────┐
+     │x=3  y=4│
+     └────────┘
 
     ▾ ts · user ⟨trades⟩
                ▾┌ ts  new ┐
-                │ 0       │
+                │0        │
                 └─────────┘
-                     │
-                    hd
-                 ▾┌ t ──┐
-                  │ 101 │
+                        │
+                       hd
+               ▾┌ t ┐
+                │101│
     |}]
 ;;
 
@@ -415,20 +415,20 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
   [%expect
     {|
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩                         ▾ b · set ⟨int⟩
-         ▾┌ a ┐                                ▾┌ b ┐
-          │ 1 │                                 │ 3 │
-          └───┘                                 └───┘
-      ┌─────┴─────┐                           ┌───┴────┐
-      l           r                           l        r
-    ┌┄┄┄┐      ▾┌───┐                       ┌┄┄┄┐    ┌───┐
-    ┆ ∅ ┆       │ 2 │                       ┆ ∅ ┆    │ 4 │
-    └┄┄┄┘       └───┘                       └┄┄┄┘    └───┘
-              ┌───┴────┐
-              l        r
-            ┌┄┄┄┐    ┌───┐
-            ┆ ∅ ┆    │ 3 │
-            └┄┄┄┘    └───┘
+    ▾ a · set ⟨int⟩
+    ▾┌ a ┐
+     │1  │
+     └───┘
+      ┌──────┴───────┐
+      l              r
+    ┌┄┄┄┐   ▾┌─┐
+    ┆ ∅ ┆    │2│
+    └┄┄┄┘    └─┘
+              ┌──────┴───────┐
+              l              r
+            ┌┄┄┄┐    ┌─┐
+            ┆ ∅ ┆    │3│
+            └┄┄┄┘    └─┘
     |}]
 ;;
 
@@ -471,15 +471,10 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
   [%expect
     {|
     HEAP                          2 live · 2 nodes · 1 new
-    ▾ m · map ⟨string ⇒ int⟩
-     ┌ m ──────┐
-     │ "k" → 1 │
-     └─────────┘
-
-    ▾ q · queue ⟨int M.t⟩
-     ┌ q ── new ┐
-     │ length 0 │
-     └──────────┘
+    ▾ m · map ⟨string ⇒ int⟩   ▾ q · queue ⟨int M.t⟩
+     ┌ m ────┐                  ┌ q  new ┐
+     │"k" → 1│                  │length 0│
+     └───────┘                  └────────┘
     |}]
 ;;
 
@@ -492,19 +487,19 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
     {|
     HEAP                          2 live · 3 nodes · 1 new
     ▾ q · queue ⟨int M.t⟩
-    ▾┌ q ───────┐
-     │ length 1 │
-     └──────────┘
-          │
-        first
-    ▾┌──── new ┐
-     │ slots 2 │
-     └─────────┘
-          │
-          0
-     ┌ m ──────┐
-     │ "k" → 1 │
-     └─────────┘
+    ▾┌ q ─────┐
+     │length 1│
+     └────────┘
+             │
+           first
+    ▾┌── new ┐
+     │slots 2│
+     └───────┘
+             │
+             0
+     ┌ m ────┐
+     │"k" → 1│
+     └───────┘
     |}]
 ;;
 
@@ -515,19 +510,19 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
     {|
     HEAP                              1 live · 3 nodes · 1 new
     ▾ tbl · hashtbl ⟨string ⇒ int⟩
-     ▾┌ tbl ───┐
-      │ size 1 │
-      └────────┘
-          │
-        data
-    ▾┌──────────┐
-     │ slots 16 │
-     └──────────┘
-          │
-          1
-     ┌──── new ┐
-     │ "a" → 1 │
-     └─────────┘
+    ▾┌ tbl ─┐
+     │size 1│
+     └──────┘
+             │
+           data
+    ▾┌────────┐
+     │slots 16│
+     └────────┘
+             │
+             1
+     ┌── new ┐
+     │"a" → 1│
+     └───────┘
     |}]
 ;;
 
@@ -569,19 +564,19 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
     {|
     HEAP                              2 live · 3 nodes · 1 new
     ▾ qq · queue ⟨'a Queue.t⟩
-    ▾┌ qq ──────┐
-     │ length 1 │
-     └──────────┘
-          │
-        first
-    ▾┌──── new ┐
-     │ slots 2 │
-     └─────────┘
-          │
-          0
-     ┌ q1 ──────┐
-     │ length 0 │
-     └──────────┘
+    ▾┌ qq ────┐
+     │length 1│
+     └────────┘
+             │
+           first
+    ▾┌── new ┐
+     │slots 2│
+     └───────┘
+             │
+             0
+     ┌ q1 ────┐
+     │length 0│
+     └────────┘
     |}]
 ;;
 
@@ -592,14 +587,14 @@ let%expect_test "heap pane: closures stay opaque" =
     {|
     HEAP                              1 live · 2 nodes · 2 new
     ▾ q · queue ⟨int -> int⟩
-        ▾┌ q ───────┐
-         │ length 1 │
-         └──────────┘
-              │
-            first
-     ┌───────────── new ┐
-     │ ⟨0x73a5227efa18⟩ │
-     └──────────────────┘
+    ▾┌ q ─────┐
+     │length 1│
+     └────────┘
+             │
+           first
+     ┌─────────── new ┐
+     │⟨0x73a5227efa18⟩│
+     └────────────────┘
     |}]
 ;;
 
@@ -651,14 +646,14 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
     {|
     HEAP                          2 live · 3 nodes · 2 new
     ▾ m · map ⟨string ⇒ int⟩
-     ┌ m ──────┐
-     │ "a" → 1 │
-     └─────────┘
+     ┌ m ────┐
+     │"a" → 1│
+     └───────┘
 
     ▾ m · map ⟨string ⇒ int⟩
-      ▸┌ m ─ new ┐
-       │ "a" → 1 │
-       └─────────┘
+    ▸┌ m  new ┐
+     │"a" → 1 │
+     └────────┘
     |}]
 ;;
 
@@ -685,6 +680,139 @@ let%expect_test "heap fold: a structure collapses to its header" =
     {|
     HEAP                          2 live · 3 nodes · 1 new
     ▸ q · queue ⟨int M.t⟩
+    |}]
+;;
+
+(* render the heap body as lines, for comparing two states cell by cell *)
+let heap_lines
+  ?(width = 64)
+  ?(height = 20)
+  ?(folds = None)
+  ~selection
+  replay
+  ~step
+  =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let folds =
+    Option.value folds ~default:(Set.empty (module Heap_pane.Fold))
+  in
+  Bonsai_term.View.Private.notty_image
+    (Heap_pane.view
+       ~width
+       ~height
+       ~structures
+       ~nodes
+       ~new_addresses
+       ~folds
+       ~scroll:0
+       ~selection)
+  |> fun image ->
+  let buffer = Buffer.create 1024 in
+  Notty.Render.to_buffer buffer Notty.Cap.dumb (0, 0) (width, height) image;
+  Buffer.contents buffer |> String.split_lines |> List.map ~f:String.rstrip
+;;
+
+let%expect_test "aiming moves the card, not the diagram" =
+  (* The address rides the bottom border rather than taking a row, and every
+     card is spaced as though it were showing one — so picking a card widens
+     that card into room already set aside for it. Nothing else may move a
+     cell, which is what these line numbers are: only the three rows of the
+     card being aimed at differ. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  let step = Replay.length replay - 1 in
+  let at_rest =
+    heap_lines ~selection:Heap_pane.Selection.none replay ~step
+  in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let aim cursor =
+    Heap_pane.move_cursor
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~selection:{ Heap_pane.Selection.selected = None; cursor }
+      ~direction:Down
+  in
+  let root = aim None in
+  let child = aim root in
+  List.iter
+    [ "root", root; "its child", child ]
+    ~f:(fun (name, cursor) ->
+      let aimed =
+        heap_lines
+          ~selection:{ Heap_pane.Selection.selected = None; cursor }
+          replay
+          ~step
+      in
+      let moved =
+        List.filter_mapi (List.zip_exn at_rest aimed) ~f:(fun row (a, b) ->
+          match String.equal a b with true -> None | false -> Some row)
+      in
+      print_s [%message name ~rows_that_changed:(moved : int list)]);
+  [%expect
+    {|
+    (root (rows_that_changed (2 3 4)))
+    ("its child" (rows_that_changed (7 8 9)))
+    |}]
+;;
+
+let%expect_test "collapsing a structure keeps the others in their column" =
+  (* [pack] chooses a column from the footprint a structure has EXPANDED, so
+     folding one moves it up its own column and leaves the rest where they
+     are. The freed space is still freed — only the sideways placement is
+     pinned, which is why the columns below are identical and the rows are
+     not. *)
+  let replay = replay_of_fixture "set_ops" in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step:2
+  in
+  (* each section's header glyph, found where the pane says a click on it
+     would toggle that structure *)
+  let headers folds =
+    List.cartesian_product (List.range 0 40) (List.range 0 60)
+    |> List.filter_map ~f:(fun (y, x) ->
+      match
+        Heap_pane.toggle_at
+          ~structures
+          ~nodes
+          ~new_addresses
+          ~folds
+          ~scroll:0
+          ~selection:Heap_pane.Selection.none
+          ~width:60
+          ~height:40
+          ~x
+          ~y
+      with
+      | Some (Heap_pane.Fold.Structure id) -> Some (id, (x, y))
+      | Some (Heap_pane.Fold.Node _) | None -> None)
+    |> List.sort ~compare:[%compare: int * (int * int)]
+  in
+  let expanded = headers (Set.empty (module Heap_pane.Fold)) in
+  let folded =
+    headers
+      (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 1 ])
+  in
+  let column (id, (x, (_ : int))) = id, x in
+  let row ((_ : int), ((_ : int), y)) = y in
+  let columns_expanded = List.map expanded ~f:column in
+  let columns_folded = List.map folded ~f:column in
+  let rows_expanded = List.map expanded ~f:row in
+  let rows_folded = List.map folded ~f:row in
+  print_s
+    [%message
+      (columns_expanded : (int * int) list)
+        (columns_folded : (int * int) list)
+        (rows_expanded : int list)
+        (rows_folded : int list)];
+  [%expect
+    {|
+    ((columns_expanded ((1 0) (4 0) (6 0))) (columns_folded ((1 0) (4 0) (6 0)))
+     (rows_expanded (0 15 25)) (rows_folded (0 2 12)))
     |}]
 ;;
 
@@ -718,7 +846,7 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
   [%expect {|
     (Structure 1)
     ·
-    ·
+    (Node 2())
     ·
     ·
     |}]
@@ -804,33 +932,33 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
   [%expect
     {|
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩                         ▾ b · set ⟨int⟩
-         ▾┌ a ┐                                ▾┌ b ┐
-          │ 1 │                                 │ 3 │
-          └───┘                                 └───┘
-      ┌─────┴─────┐                           ┌───┴────┐
-      l           r                           l        r
-    ┌┄┄┄┐      ▾┌───┐                       ┌┄┄┄┐    ┌───┐
-    ┆ ∅ ┆       │ 2 │                       ┆ ∅ ┆    │ 4 │
-    └┄┄┄┘       └───┘                       └┄┄┄┘    └───┘
-              ┌───┴────┐
-              l        r
-            ┌┄┄┄┐    ┌───┐
-            ┆ ∅ ┆    │ 3 │
+    ▾ a · set ⟨int⟩
+    ▾┌ a ┐
+     │1  │
+     └───┘
+      ┌──────┴───────┐
+      l              r
+    ┌┄┄┄┐   ▾┌─┐
+    ┆ ∅ ┆    │2│
+    └┄┄┄┘    └─┘
+              ┌──────┴───────┐
+              l              r
+            ┌┄┄┄┐    ┌─┐
+            ┆ ∅ ┆    │3│
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩                         ▾ b · set ⟨int⟩
-         ▾┌ a ┐                                ▾┌ b ┐
-          │ 1 │                                 │ 3 │
-          └───┘                                 └───┘
-      ┌─────┴─────┐                           ┌───┴────┐
-      l           r                           l        r
-    ┌┄┄┄┐      ▸┌───┐                       ┌┄┄┄┐    ┌───┐
-    ┆ ∅ ┆       │ 2 │                       ┆ ∅ ┆    │ 4 │
-    └┄┄┄┘       └───┘                       └┄┄┄┘    └───┘
-                ⋯ 1 hidden
+    ▾ a · set ⟨int⟩
+    ▾┌ a ┐
+     │1  │
+     └───┘
+      ┌──────┴───────┐
+      l              r
+    ┌┄┄┄┐   ▸┌─┐
+    ┆ ∅ ┆    │2│
+    └┄┄┄┘    └─┘
+             ⋯ 1 hidden
 
-    ▾ #6 · set ⟨int⟩
-             ▾┌ #6  new ┐
+    ▾ b · set ⟨int⟩
+    ▾┌ b ┐
     |}]
 ;;
 
@@ -902,13 +1030,13 @@ let%expect_test "delta wire: a revisit stub replays the earlier shape" =
     {|
     HEAP                          2 live · 3 nodes · 2 new
     ▾ #1 · map ⟨string ⇒ int⟩
-     ┌ #1 ─────┐
-     │ "a" → 1 │
-     └─────────┘
+     ┌ #1 ───┐
+     │"a" → 1│
+     └───────┘
 
     ▾ m · map ⟨string ⇒ int⟩
-      ▾┌ m ─ new ┐
-       │ "a" → 1 │
+    ▾┌ m  new ┐
+     │"a" → 1 │
     |}]
 ;;
 
@@ -920,34 +1048,34 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
     {|
     HEAP                                  4 live · 7 nodes · 3 new
     ▾ #2 · map ⟨string ⇒ point⟩
-              ▾┌ #2 ─┐
-               │ "p" │
-               └─────┘
-      ┌───────────┼───────────┐
-      l           d           r
-    ┌┄┄┄┐    ┌ p ───────┐   ┌┄┄┄┐
-    ┆ ∅ ┆    │ x=1  y=2 │   ┆ ∅ ┆
-    └┄┄┄┘    └──────────┘   └┄┄┄┘
+            ▾┌ #2 ┐
+             │"p" │
+             └────┘
+      ┌──────────────┼──────────────┐
+      l              d              r
+    ┌┄┄┄┐    ┌ p ─────┐           ┌┄┄┄┐
+    ┆ ∅ ┆    │x=1  y=2│           ┆ ∅ ┆
+    └┄┄┄┘    └────────┘           └┄┄┄┘
 
     ▾ m · map ⟨string ⇒ point⟩
-                   ▾┌ m ──┐
-                    │ "p" │
-                    └─────┘
-      ┌───────────┬────┴────────────────┐
-      l           d                     r
-    ┌┄┄┄┐   ┌ ↗ ┄┄┄┄┄┄┄┐            ▾┌─────┐
-    ┆ ∅ ┆   ┆ x=1  y=2 ┆             │ "q" │
-    └┄┄┄┘   └┄┄┄┄┄┄┄┄┄┄┘             └─────┘
-                             ┌──────────┴┬──────────┐
-                             l           d          r
-                           ┌┄┄┄┐   ┌ ↗ ┄┄┄┄┄┄┄┐   ┌┄┄┄┐
-                           ┆ ∅ ┆   ┆ x=1  y=2 ┆   ┆ ∅ ┆
-                           └┄┄┄┘   └┄┄┄┄┄┄┄┄┄┄┘   └┄┄┄┘
+                    ▾┌ m ┐
+                     │"p"│
+                     └───┘
+      ┌───────────────┬──────┴──────────────────────┐
+      l               d                             r
+    ┌┄┄┄┐   ┌ ↗ ┄┄┄┄┄┄┄┐                   ▾┌───┐
+    ┆ ∅ ┆   ┆ x=1  y=2 ┆                    │"q"│
+    └┄┄┄┘   └┄┄┄┄┄┄┄┄┄┄┘                    └───┘
+                                     ┌──────────────┴┬────────────
+                                     l               d
+                                   ┌┄┄┄┐   ┌ ↗ ┄┄┄┄┄┄┄┐
+                                   ┆ ∅ ┆   ┆ x=1  y=2 ┆
+                                   └┄┄┄┘   └┄┄┄┄┄┄┄┄┄┄┘
 
     ▾ #5 · map ⟨string ⇒ point⟩
-                    ▾┌ #5  new ┐
-                     │ "p"     │
-                     └─────────┘
+                        ▾┌ #5  new ┐
+                         │"p"      │
+                         └─────────┘
     |}]
 ;;
 
@@ -960,34 +1088,34 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
     {|
     HEAP                                  2 live · 6 nodes · 3 new
     ▾ m · map ⟨string ⇒ int⟩
-                   ▾┌ m ──────┐
-                    │ "f" → 6 │
-                    └─────────┘
-               ┌─────────┴─────────┐
-               l                   r
-         ▾┌─────────┐        ▾┌─────────┐
-          │ "d" → 4 │         │ "h" → 8 │
-          └─────────┘         └─────────┘
-          ┌────┴─────┐       ┌─────┴─────┐
-          l          r       l           r
-     ┌─────────┐   ┌┄┄┄┐   ┌┄┄┄┐    ┌──────────┐
-     │ "b" → 2 │   ┆ ∅ ┆   ┆ ∅ ┆    │ "j" → 10 │
-     └─────────┘   └┄┄┄┘   └┄┄┄┘    └──────────┘
+                      ▾┌ m ────┐
+                       │"f" → 6│
+                       └───────┘
+                    ┌──────────┴───────────┐
+                    l                      r
+           ▾┌───────┐             ▾┌───────┐
+            │"d" → 4│              │"h" → 8│
+            └───────┘              └───────┘
+             ┌──────┴───────┐       ┌──────┴───────┐
+             l              r       l              r
+     ┌───────┐            ┌┄┄┄┐   ┌┄┄┄┐    ┌────────┐
+     │"b" → 2│            ┆ ∅ ┆   ┆ ∅ ┆    │"j" → 10│
+     └───────┘            └┄┄┄┘   └┄┄┄┘    └────────┘
 
     ▾ bigger · map ⟨string ⇒ int⟩
-            ▾┌ bigger  new ┐
-             │ "f" → 6     │
-             └─────────────┘
-         ┌──────────┴──────────┐
-         l                     r
-    ┌ ↗ ┄┄┄┄┄┄┐          ▾┌──── new ┐
-    ┆ "d" → 4 ┆           │ "h" → 8 │
-    └┄┄┄┄┄┄┄┄┄┘           └─────────┘
-                        ┌──────┴───────┐
-                        l              r
-                   ┌──── new ┐   ┌ ↗ ┄┄┄┄┄┄┄┐
-                   │ "g" → 7 │   ┆ "j" → 10 ┆
-                   └─────────┘   └┄┄┄┄┄┄┄┄┄┄┘
+                     ▾┌ bigger  new ┐
+                      │"f" → 6      │
+                      └─────────────┘
+              ┌───────────────┴────────────────┐
+              l                                r
+    ┌ ↗ ┄┄┄┄┄┄┐                       ▾┌── new ┐
+    ┆ "d" → 4 ┆                        │"h" → 8│
+    └┄┄┄┄┄┄┄┄┄┘                        └───────┘
+                                    ┌──────────┴───────────┐
+                                    l                      r
+                            ┌── new ┐            ┌ ↗ ┄┄┄┄┄┄┄┐
+                            │"g" → 7│            ┆ "j" → 10 ┆
+                            └───────┘            └┄┄┄┄┄┄┄┄┄┄┘
     |}]
 ;;
 
@@ -998,19 +1126,19 @@ let%expect_test "delta wire: a payload cycle terminates" =
     {|
     HEAP                                  2 live · 3 nodes · 1 new
     ▾ q · queue ⟨cyc⟩
-          ▾┌ q ───────┐
-           │ length 1 │
-           └──────────┘
-                │
-              first
-          ▾┌──── new ┐
-           │ slots 2 │
-           └─────────┘
-                │
-                0
-     ┌ r ──────────────────┐
-     │ name="loop"  self=0 │
-     └─────────────────────┘
+      ▾┌ q ─────┐
+       │length 1│
+       └────────┘
+               │
+             first
+      ▾┌── new ┐
+       │slots 2│
+       └───────┘
+               │
+               0
+     ┌ r ────────────────┐
+     │name="loop"  self=0│
+     └───────────────────┘
     |}]
 ;;
 
@@ -1021,24 +1149,24 @@ let%expect_test "delta wire: version chains share their spines" =
     {|
     HEAP                                  2 live · 8 nodes · 4 new
     ▾ #7 · map ⟨string ⇒ int⟩
-            ▾┌ #7 ─────┐
-             │ "b" → 2 │
-             └─────────┘
-          ┌───────┴────────┐
-          l                r
-     ┌─────────┐     ▾┌─────────┐
-     │ "a" → 1 │      │ "c" → 3 │
-     └─────────┘      └─────────┘
-                     ┌─────┴─────┐
-                     l           r
-                   ┌┄┄┄┐    ┌─────────┐
-                   ┆ ∅ ┆    │ "d" → 4 │
-                   └┄┄┄┘    └─────────┘
+               ▾┌ #7 ───┐
+                │"b" → 2│
+                └───────┘
+             ┌──────────┴──────────┐
+             l                     r
+     ┌───────┐            ▾┌───────┐
+     │"a" → 1│             │"c" → 3│
+     └───────┘             └───────┘
+                            ┌──────┴───────┐
+                            l              r
+                          ┌┄┄┄┐    ┌───────┐
+                          ┆ ∅ ┆    │"d" → 4│
+                          └┄┄┄┘    └───────┘
 
     ▾ #11 · map ⟨string ⇒ int⟩
-            ▾┌ #11  new ┐
-             │ "b" → 2  │
-             └──────────┘
+                ▾┌ #11  new ┐
+                 │"b" → 2   │
+                 └──────────┘
     |}]
 ;;
 
@@ -1072,31 +1200,31 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
   [%expect
     {|
     HEAP                                              2 live · 6 nodes · 3 new
-                   ▾┌ m ──────┐
-                    │ "f" → 6 │
-                    └─────────┘
-               ┌─────────┴─────────┐
-               l                   r
-         ▾┌─────────┐        ▾┌─────────┐
-          │ "d" → 4 │         │ "h" → 8 │
-          └─────────┘         └─────────┘
-          ┌────┴─────┐       ┌─────┴─────┐
-          l          r       l           r
-     ┌─────────┐   ┌┄┄┄┐   ┌┄┄┄┐    ┌──────────┐
-     │ "b" → 2 │   ┆ ∅ ┆   ┆ ∅ ┆    │ "j" → 10 │
-     └─────────┘   └┄┄┄┘   └┄┄┄┘    └──────────┘
+    ▾ m · map ⟨string ⇒ int⟩
+                      ▾┌ m ────┐
+                       │"f" → 6│
+                       └───────┘
+                    ┌──────────┴───────────┐
+                    l                      r
+           ▾┌───────┐             ▾┌───────┐
+            │"d" → 4│              │"h" → 8│
+            └───────┘              └───────┘
+             ┌──────┴───────┐       ┌──────┴───────┐
+             l              r       l              r
+     ┌───────┐            ┌┄┄┄┐   ┌┄┄┄┐    ┌────────┐
+     │"b" → 2│            ┆ ∅ ┆   ┆ ∅ ┆    │"j" → 10│
+     └───────┘            └┄┄┄┘   └┄┄┄┘    └────────┘
 
     ▾ bigger · map ⟨string ⇒ int⟩
-                ▾┌ bigger ─── new ┐
-                 │ "f" → 6        │
-                 │ 0x78de5b5fff78 │
-                 └────────────────┘
-             ┌───────────┴────────────┐
-             l                        r
-    ┌ ↗ ┄┄┄┄┄┄┄┄┄┄┄┄┄┐          ▾┌──── new ┐
-    ┆ "d" → 4        ┆           │ "h" → 8 │
-    ┆ 0x78de5b5e1d10 ┆           └─────────┘
-    └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘         ┌──────┴───────┐
+                     ▾┌ bigger ─── new ┐
+                      │"f" → 6         │
+                      └ 0x78de5b5fff78 ┘
+              ┌───────────────┴────────────────┐
+              l                                r
+    ┌ ↗ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ▾┌── new ┐
+    ┆ "d" → 4          ┆               │"h" → 8│
+    ┆  0x78de5b5e1d10  ┆               └───────┘
+    └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘            ┌──────────┴───────────┐
     |}]
 ;;
 
@@ -1245,19 +1373,19 @@ let%expect_test "selection: committing a link follows the node to its step" =
     {|
     (birth 3)
      HEAP                                  4 live · 8 nodes · 3 new
-     ┆ "d" → 4 ┆    │ "h" → 8 │
-     └┄┄┄┄┄┄┄┄┄┘    └─────────┘
-
-     ▾ #6 · map ⟨string ⇒ int⟩
-                   ▾┌ #6  new ┐
-                    │ "f" → 6 │
-                    └─────────┘
-                ┌────────┴────────┐
-                l                 r
-       ▾┌─────────── new ┐   ┌ ↗ ┄┄┄┄┄┄┐
-        │ "d" → 4        │   ┆ "h" → 8 ┆
-        │ 0x78de5b5e1d10 │   └┄┄┄┄┄┄┄┄┄┘
-        └────────────────┘
+                        ▾┌ #6  new ┐
+                         │"f" → 6  │
+                         └─────────┘
+                     ┌───────────┴───────────┐
+                     l                       r
+            ▾┌─────────── new ┐    ┌ ↗ ┄┄┄┄┄┄┐
+             │"d" → 4         │    ┆ "h" → 8 ┆
+             └ 0x78de5b5e1d10 ┘    └┄┄┄┄┄┄┄┄┄┘
+              ┌──────┴───────┐
+              l              r
+      ┌── new ┐            ┌┄┄┄┐
+      │"b" → 2│            ┆ ∅ ┆
+      └───────┘            └┄┄┄┘
     |}]
 ;;
 

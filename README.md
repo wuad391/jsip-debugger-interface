@@ -20,15 +20,15 @@ divider line along each seam:
 ─────────────────────────────┬──────────────────────────────────────────────────────────────
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
       M.add "b" 2 M.empty    │ ▾ #1 · map ⟨string ⇒ int⟩   ▾ m · map ⟨string ⇒ int⟩
- ▎▾ M.add "a" 1 (M.add "b" 2 │  ┌ #1 ─────┐                  ▾┌ m ──────── new ┐
- ▎    M.empty)               │  │ "b" → 2 │                   │ "b" → 2        │
-      M.add k (v * 2) acc    │  └─────────┘                   │ 0x75101a3ee970 │
-      M.add k (v * 2) acc    │                                └────────────────┘
-    M.fold (fun k v acc ->   │                                   ┌────┴─────┐
-      M.add k (v * 2) acc) m │                                   l          r
-      M.empty                │                              ┌──── new ┐   ┌┄┄┄┐
-─────────────────────────────┤                              │ "a" → 1 │   ┆ ∅ ┆
- SOURCE map_fold.ml · 15 line│                              └─────────┘   └┄┄┄┘
+ ▎▾ M.add "a" 1 (M.add "b" 2 │  ┌ #1 ───┐                         ▾┌ m ──────── new ┐
+ ▎    M.empty)               │  │"b" → 2│                          │"b" → 2         │
+      M.add k (v * 2) acc    │  └───────┘                          └ 0x77127f3ee7e8 ┘
+      M.add k (v * 2) acc    │                                      ┌──────┴───────┐
+    M.fold (fun k v acc ->   │                                      l              r
+      M.add k (v * 2) acc) m │                              ┌── new ┐            ┌┄┄┄┐
+      M.empty                │                              │"a" → 1│            ┆ ∅ ┆
+─────────────────────────────┤                              └───────┘            └┄┄┄┘
+ SOURCE map_fold.ml · 15 line│
          (String)            │
      6                       │
   ▾  7 let () =              │
@@ -36,8 +36,7 @@ divider line along each seam:
  ▎         1 (M.add "b" 2 M  │
  ▎         .empty) in        │
 ─────────────────────────────┴──────────────────────────────────────────────────────────────
- ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay
-```
+ ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay```
 
 - **Call stack** — every call in the run, indented by depth: the current
   step's live chain renders bright, everything already returned or not yet
@@ -90,8 +89,9 @@ divider line along each seam:
   either one tints the other's border to match, so a shared subtree
   reads as one object drawn twice. Cards allocated *at this step* carry a green `new` tag in
   the border's top right. Structures lay side by side, up to three to a
-  row, wrapping when the next one would not fit; a tree wider than the
-  pane gets a row to itself. Clicking a card jumps the replay to the
+  row, packed bottom-left so a collapse frees real space; a structure's
+  column is chosen from its expanded footprint, so collapsing one leaves
+  the others where they are. Clicking a card jumps the replay to the
   step that allocated it; the wheel scrolls.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —
@@ -144,9 +144,15 @@ structure beside it and `w` to the one before it, and `s` off a leaf
 falls through to the structure after — so the whole registry is
 reachable without touching the mouse.
 
-The chosen and aimed cards are the only ones that spell out an address;
-the rest go without, which is what lets a five-node tree fit across the
-pane.
+The chosen and aimed cards are the only ones that spell out an address,
+and it rides the bottom border rather than taking a row. Every card is
+spaced as though it were showing one, so picking a card widens that card
+into room already set aside for it and nothing else on the canvas moves
+— a diagram that reshuffled under every keypress would be unreadable.
+
+The heap pane pans sideways to keep the card you are pointing at in
+view; a tree wider than the pane would otherwise keep its right-hand
+cards off screen for good.
 
 Beyond the controls row up top, `h`/`l`/`p`/`n` also step, `g`/`G` jump
 to the ends, and `PgUp`/`PgDn` scroll the heap.

@@ -13,10 +13,12 @@
     [Queue.add m q] runs, the map's tree hangs off the queue cell's [v→]
     edge.
 
-    Structures lay side by side rather than stacking, up to three to a row,
-    wrapping when the next one would not fit and giving a tree wider than the
-    pane a row to itself. Two versions of a map beside each other is the
-    comparison this pane exists to make.
+    Structures lay side by side rather than stacking — packed bottom-left
+    against a skyline, each taking the width it needs, floored at a third of
+    the pane so no more than three sit abreast. Two versions of a map beside
+    each other is the comparison this pane exists to make. A structure's
+    column is chosen from its EXPANDED footprint, so collapsing one moves it
+    up its own column and leaves the rest where they are.
 
     Any node folds: a [▾]/[▸] glyph sits in the column before each card with
     something below it (and before each section header); clicking the glyph
@@ -44,23 +46,27 @@
     reading — and the one the keyboard is aiming at is orange. Everything
     else outlines in the calmer card blue.
 
+    The address rides the bottom border rather than taking a row, and every
+    card is spaced as though it were showing one. So picking a card widens
+    that card into room already set aside for it, and nothing else on the
+    canvas moves a cell — which matters, because the alternative is a diagram
+    that reshuffles under every keypress.
+
     Because a [↗] pointer and the card it names are one node, picking either
     tints the other's border to match — the border only, so the card you are
-    actually on is still the one wearing the wash and the address, and the
-    drawing does not shift to make room for a second wide card.
+    actually on is still the one wearing the wash and the address.
 
     {v
     ▾ m · map ⟨string ⇒ int⟩            ▾ bigger · map ⟨string ⇒ int⟩
-    ▾┌ m ──────────── new ┐             ▾┌ bigger ─────── new ┐
-     │ "a" → 1            │              │ "c" → 3            │
-     │ 0x763be65ee878     │  ← selected  │ 0x763be65ee9a8     │
-     └────────────────────┘              └────────────────────┘
-      ┌─────────┴────────┐                 ┌────────┴───────┐
-      l                  r                 l                r
-    ┌┄┄┄┐       ┌ ───── new ┐         ┌┄ ↗ ┄┄┄┄┄┐         ┌┄┄┄┐
-    ┆ ∅ ┆       │ "b" → 2   │  ← its  ┆ "b" → 2 ┆ ← aimed ┆ ∅ ┆
-    └┄┄┄┘       └───────────┘  border └┄┄┄┄┄┄┄┄┄┘   at    └┄┄┄┘
-                               turns
+    ▾┌ m ──────── new ┐                 ▾┌ bigger ─── new ┐
+     │"a" → 1         │                  │"c" → 3         │
+     └ 0x763be65ee878 ┘  ← selected      └────────────────┘
+       ┌──────┴───────┐                    ┌──────┴──────┐
+       l              r                    l             r
+     ┌┄┄┄┐        ┌───────┐            ┌┄ ↗ ┄┄┄┐       ┌┄┄┄┐
+     ┆ ∅ ┆        │"b" → 2│  ← its     ┆"b" → 2┆       ┆ ∅ ┆
+     └┄┄┄┘        └───────┘    border  └┄┄┄┄┄┄┄┘       └┄┄┄┘
+                                turns
     v} *)
 
 open! Core
@@ -104,10 +110,10 @@ end
     you can see where you came from and where [Enter] would take you.
     Committing makes the cursor the selection and clears it.
 
-    Both are geometry: the two picked-out cards are a row taller and several
-    columns wider than the rest, being the only ones that spell out an
-    address. {!move_cursor} therefore reads the tree rather than the drawing,
-    so aiming does not depend on where the last press left the picture. *)
+    Neither is geometry: cards are laid out with room for an address whether
+    they are showing one or not, so picking one moves nothing. {!move_cursor}
+    reads the tree rather than the drawing besides, so aiming does not depend
+    on where the last press left the picture. *)
 module Selection : sig
   type t =
     { selected : Spot.t option
