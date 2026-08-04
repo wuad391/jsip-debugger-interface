@@ -1862,7 +1862,7 @@ let%expect_test "stack pane: heat colors the callee names, layout untouched" =
      ▾ M.add "a" 1 (M.add "b" 2 M.empty)
     ▎    M.add k (v * 2) acc
          M.add k (v * 2) acc
-       M.fold (fun k v acc -> M.add k (v * 2) acc) m
+     ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
          M.empty
     |}]
 ;;
