@@ -21,47 +21,7 @@ module Row = struct
     }
 end
 
-module Heat = struct
-  type t =
-    { share : float option
-    ; rank : int
-    }
-  [@@deriving sexp_of, equal]
-end
-
-(* frequency rank 0-4 as a rising bar; the color says compute share *)
-let heat_glyphs = [| "▁"; "▂"; "▄"; "▆"; "█" |]
-
-(* the one-column heat cell between the bar and the indent, plus its gap;
-   [None] rows show a neutral dot — "no perf data" is a different fact from
-   "cold". Continuation lines keep the column but stay blank. *)
-let heat_cell heat ~step ~first_line =
-  match Array.exists heat ~f:Option.is_some with
-  | false -> []
-  | true ->
-    (match first_line with
-     | false -> [ View.text "  " ]
-     | true ->
-       (match heat.(step) with
-        | None -> [ View.text ~attrs:(Theme.fg' Theme.ghost) "· " ]
-        | Some { Heat.share; rank } ->
-          let glyph =
-            heat_glyphs.(Int.max
-                           0
-                           (Int.min rank (Array.length heat_glyphs - 1)))
-          in
-          let color =
-            match share with
-            | None -> Theme.ghost
-            | Some share -> Theme.heat ~share
-          in
-          [ View.text ~attrs:(Theme.fg' color) glyph; View.text " " ]))
-;;
-
-(* how many columns [heat_cell] occupies *)
-let heat_width heat =
-  match Array.exists heat ~f:Option.is_some with false -> 0 | true -> 2
-;;
+let has_heat heat = Array.exists heat ~f:Option.is_some
 
 (* call [i]'s descendants are exactly the calls inside its event range — the
    depth bookkeeping Call_stack already did *)
@@ -113,15 +73,28 @@ let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
         | false, true -> Some Theme.highlight_bg
         | false, false -> None
       in
-      let fn_attrs, args_color =
+      let fn_color, fn_bold, args_color =
         match is_cursor, live_index, is_selected with
-        | true, _, _ ->
-          [ Theme.fg Theme.cursor_deep; Attr.bold ], Theme.secondary
+        | true, _, _ -> Theme.cursor_deep, true, Theme.secondary
         | false, (Some _ | None), true ->
-          [ Theme.fg Theme.highlight_deep; Attr.bold ], Theme.secondary
-        | false, Some _, false ->
-          [ Theme.fg Theme.text; Attr.bold ], Theme.secondary
-        | false, None, false -> [ Theme.fg Theme.ghost ], Theme.ghost
+          Theme.highlight_deep, true, Theme.secondary
+        | false, Some _, false -> Theme.text, true, Theme.secondary
+        | false, None, false -> Theme.ghost, false, Theme.ghost
+      in
+      (* heat rides on the callee's name itself: its color becomes the
+         function's share of sampled compute. The cursor and selection keep
+         their own text colors — their washes already say where you are — and
+         a call the profile has no data on keeps the state color it would
+         have had. *)
+      let fn_color =
+        match is_cursor || is_selected, heat.(step) with
+        | false, Some share -> Theme.heat ~share
+        | true, _ | _, None -> fn_color
+      in
+      let fn_attrs =
+        match fn_bold with
+        | true -> [ Theme.fg fn_color; Attr.bold ]
+        | false -> [ Theme.fg fn_color ]
       in
       let indent = 2 * (call.info.depth - 1) in
       let folded = Set.mem folds step in
@@ -146,7 +119,7 @@ let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
          already on screen, highlighted, in the source pane below — a
          [file.ml:line] chip on every row said it a second time and cost the
          column a third of its width *)
-      let available = width - 1 - heat_width heat - indent - 2 in
+      let available = width - 1 - indent - 2 in
       let wrapped =
         Wrap.spans
           ([ `Fn, fn; `Args, [%string " %{args}"] ] @ hidden_note)
@@ -166,20 +139,18 @@ let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
         | `Hidden ->
           View.text ~attrs:[ Theme.fg Theme.muted; Attr.italic ] text
       in
-      let glyph_x = 1 + heat_width heat + indent in
+      let glyph_x = 1 + indent in
       let lines =
         List.mapi wrapped ~f:(fun line_index spans ->
           let lead =
             match line_index with
             | 0 ->
-              (bar :: heat_cell heat ~step ~first_line:true)
-              @ [ View.text (String.make indent ' ')
-                ; View.text ~attrs:(Theme.fg' Theme.secondary) glyph
-                ; View.text " "
-                ]
-            | _ ->
-              (bar :: heat_cell heat ~step ~first_line:false)
-              @ [ View.text (String.make (indent + 4) ' ') ]
+              [ bar
+              ; View.text (String.make indent ' ')
+              ; View.text ~attrs:(Theme.fg' Theme.secondary) glyph
+              ; View.text " "
+              ]
+            | _ -> [ bar; View.text (String.make (indent + 4) ' ') ]
           in
           let line = View.hcat (lead @ List.map spans ~f:render_span) in
           let line = Panel.fit line ~width ~height:1 in
@@ -259,7 +230,9 @@ let view ~width ~height ~calls ~heat ~live ~selected ~folds ~cursor =
     List.concat_map rows ~f:(fun (row : Row.t) -> row.lines)
     |> fun lines -> List.drop lines offset
   in
-  let heat_meta = match heat_width heat with 0 -> "" | _ -> " · heat" in
+  let heat_meta =
+    match has_heat heat with false -> "" | true -> " · heat"
+  in
   Panel.view
     ~title:"call stack"
     ~meta:

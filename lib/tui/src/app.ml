@@ -289,38 +289,18 @@ let apply_action
   | Select_heap_node spot -> select_heap_node model spot
 ;;
 
-(* each call's heat, joined once up front: the profile answers "how much
-   compute does this function take up" (color) and the trace itself "how
-   often is it called" (glyph height, bucketed 0-4 against the most-called
-   function). No profile — every entry [None] — collapses the column. *)
+(* each call's share of the profile's sampled compute, joined once up front —
+   the color its name renders in. No profile: every entry [None], and the
+   stack draws exactly as it does without heat. *)
 let heat_of_calls ~profile ~(calls : Call.t array) =
-  match (profile : Heat_profile.t option) with
-  | None -> Array.map calls ~f:(fun (_ : Call.t) -> None)
-  | Some profile ->
-    let counts =
-      Array.fold calls ~init:String.Map.empty ~f:(fun counts call ->
-        Map.update
-          counts
-          (Function_info.display call.info.function_info)
-          ~f:(fun count -> 1 + Option.value count ~default:0))
-    in
-    let max_count =
-      Map.fold counts ~init:1 ~f:(fun ~key:(_ : string) ~data count ->
-        Int.max data count)
-    in
-    Array.map calls ~f:(fun (call : Call.t) ->
-      let share =
+  Array.map calls ~f:(fun (call : Call.t) ->
+    Option.bind
+      (profile : Heat_profile.t option)
+      ~f:(fun profile ->
         Heat_profile.share
           profile
           ~function_info:call.info.function_info
-          ~location:call.info.location
-      in
-      let count =
-        Map.find counts (Function_info.display call.info.function_info)
-        |> Option.value ~default:1
-      in
-      let rank = Int.min 4 (count * 5 / max_count) in
-      Some { Stack_pane.Heat.share; rank })
+          ~location:call.info.location))
 ;;
 
 (* where each address was first seen — what a click on a heap node jumps to *)

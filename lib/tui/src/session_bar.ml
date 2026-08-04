@@ -3,17 +3,14 @@ module View = Bonsai_term.View
 
 let divider = View.text ~attrs:(Theme.fg' Theme.border) " │ "
 
-(* what the stack pane's heat cells mean: the ramp's colors carry compute
-   share, the glyph height call frequency, the dot "no perf data" *)
+(* what the stack pane's colored callee names mean: the ramp's colors carry
+   each function's share of the sampled compute *)
 let heat_legend =
   View.hcat
     ([ View.text ~attrs:(Theme.fg' Theme.muted) "heat " ]
      @ List.map (Array.to_list Theme.heat_ramp) ~f:(fun color ->
        View.text ~attrs:(Theme.fg' color) "█")
-     @ [ View.text ~attrs:(Theme.fg' Theme.muted) " cold→hot  "
-       ; View.text ~attrs:(Theme.fg' Theme.ghost) "·"
-       ; View.text ~attrs:(Theme.fg' Theme.muted) " no data "
-       ])
+     @ [ View.text ~attrs:(Theme.fg' Theme.muted) " cold→hot " ])
 ;;
 
 let view ~width ~dump_name ~structure ~heat =

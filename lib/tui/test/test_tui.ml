@@ -1306,21 +1306,21 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
     |}]
 ;;
 
-let%expect_test "stack pane: heat cells — color says compute, height says \
-                 calls"
-  =
+let%expect_test "stack pane: heat colors the callee names, layout untouched" =
   let replay = replay_of_fixture "map_fold" in
   let calls = calls_of replay in
-  (* a synthetic profile join covering every rank plus both kinds of "no
-     data": a matched-but-unsampled function (ghost glyph) and a call the
-     profile knows nothing about (ghost dot) *)
+  (* a synthetic profile join spanning the ramp, plus a call the profile has
+     no data on (it keeps its ordinary color). Heat lives entirely in the
+     text color, so the dumb-cap picture must match the no-heat layout except
+     for the header's [· heat] — color itself is asserted on [Theme.heat]
+     below. *)
   let heat =
     Array.mapi calls ~f:(fun step (_ : Call.t) ->
       match step with
-      | 0 -> Some { Stack_pane.Heat.share = Some 0.4; rank = 4 }
-      | 1 -> Some { Stack_pane.Heat.share = Some 0.12; rank = 3 }
-      | 2 -> Some { Stack_pane.Heat.share = Some 0.05; rank = 2 }
-      | 3 -> Some { Stack_pane.Heat.share = None; rank = 0 }
+      | 0 -> Some 0.4
+      | 1 -> Some 0.12
+      | 2 -> Some 0.05
+      | 3 -> Some 0.015
       | _ -> None)
   in
   print_view
@@ -1337,12 +1337,12 @@ let%expect_test "stack pane: heat cells — color says compute, height says \
   [%expect
     {|
     CALL STACK                     5 calls · 2 live · heat
-     █     M.add "b" 2 M.empty
-     ▆ ▾ M.add "a" 1 (M.add "b" 2 M.empty)
-    ▎▄     M.add k (v * 2) acc
-     ▁     M.add k (v * 2) acc
-     ·   M.fold (fun k v acc -> M.add k (v * 2) acc) m
-           M.empty
+         M.add "b" 2 M.empty
+     ▾ M.add "a" 1 (M.add "b" 2 M.empty)
+    ▎    M.add k (v * 2) acc
+         M.add k (v * 2) acc
+       M.fold (fun k v acc -> M.add k (v * 2) acc) m
+         M.empty
     |}]
 ;;
 
@@ -1356,7 +1356,7 @@ let%expect_test "session bar: the heat legend appears only with a profile" =
        ~structure:"Map"
        ~heat:true);
   [%expect
-    {| ● ocaml-debug │ greet.dump │ Map · replay       heat █████ cold→hot  · no data |}];
+    {| ● ocaml-debug │ greet.dump │ Map · replay                  heat █████ cold→hot |}];
   print_view
     ~width:80
     ~height:1
