@@ -1518,6 +1518,43 @@ let%expect_test "[h]'s target: the node under the cursor; the whole \
     |}]
 ;;
 
+let%expect_test "[h] on a collapsed structure resolves to its header and \
+                 reopens it"
+  =
+  (* stepping drops the cursor, and [h]'s fallback names the walked
+     structure's ROOT CARD — which a collapsed structure does not draw.
+     Resolving the spot against the canvas lands on the header (the one
+     drawing wearing that address), whose fold is the structure itself, so
+     the second [h] reopens instead of flipping an invisible node fold. *)
+  let replay = replay_of_fixture "queue_basic" in
+  let step = Replay.length replay - 1 in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let root = Option.value_exn (current_spot replay ~step) in
+  let folded =
+    Set.of_list
+      (module Heap_pane.Fold)
+      [ Heap_pane.Fold.Structure (List.hd_exn structures).Replay.Structure.id
+      ]
+  in
+  let resolved =
+    Heap_pane.resolve_spot
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:folded
+      root
+    |> Option.value_exn
+  in
+  print_s [%sexp (Heap_pane.fold_of_spot root : Heap_pane.Fold.t)];
+  print_s [%sexp (Heap_pane.fold_of_spot resolved : Heap_pane.Fold.t)];
+  [%expect {|
+    (Node 1 ())
+    (Structure 1)
+    |}]
+;;
+
 let%expect_test "accordion: the structure the keyboard is in is the open one"
   =
   (* [z]'s fold set, recomputed from the selection: every structure closed

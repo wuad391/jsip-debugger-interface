@@ -358,7 +358,28 @@ let apply_action
        in
        (match Option.first_some cursor selected with
         | None -> model
-        | Some spot -> toggle_heap_fold model (Heap_pane.fold_of_spot spot))
+        | Some spot ->
+          (* the spot can name a card the canvas is not drawing — stepping
+             drops the cursor, and the fallback is the walked structure's
+             root card, which a collapsed structure hides. Fold what is
+             actually on screen: collapsed, the only drawing of that node is
+             the header, so [h] reopens the structure instead of flipping a
+             node fold nobody can see. *)
+          let { Replay.Step.nodes; new_addresses; _ } =
+            Replay.step_exn replay ~step:model.step
+          in
+          let structures, folds = heap_inputs replay model in
+          (match
+             Heap_pane.resolve_spot
+               ~structures
+               ~nodes
+               ~new_addresses
+               ~folds
+               spot
+           with
+           | None -> model
+           | Some spot ->
+             toggle_heap_fold model (Heap_pane.fold_of_spot spot)))
      | Pane.Stack ->
        let live = live_calls replay ~step:model.step in
        (match
