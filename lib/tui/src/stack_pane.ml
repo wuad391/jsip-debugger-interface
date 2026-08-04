@@ -21,6 +21,8 @@ module Row = struct
     }
 end
 
+let has_heat heat = Array.exists heat ~f:Option.is_some
+
 (* call [i]'s descendants are exactly the calls inside its event range — the
    depth bookkeeping Call_stack already did *)
 let descendants (calls : Call.t array) index =
@@ -37,7 +39,7 @@ let is_hidden ~folds ~calls index =
 (* the whole run, one row per visible call: the live chain bright, everything
    else dimmed; a call with descendants gets a fold glyph, and folding tucks
    its range away behind a [⋯ n] count *)
-let rows ~width ~calls ~live ~selected ~folds ~cursor =
+let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
   Array.to_list calls
   |> List.filter_mapi ~f:(fun step (call : Call.t) ->
     match is_hidden ~folds ~calls step with
@@ -71,15 +73,28 @@ let rows ~width ~calls ~live ~selected ~folds ~cursor =
         | false, true -> Some Theme.highlight_bg
         | false, false -> None
       in
-      let fn_attrs, args_color =
+      let fn_color, fn_bold, args_color =
         match is_cursor, live_index, is_selected with
-        | true, _, _ ->
-          [ Theme.fg Theme.cursor_deep; Attr.bold ], Theme.secondary
+        | true, _, _ -> Theme.cursor_deep, true, Theme.secondary
         | false, (Some _ | None), true ->
-          [ Theme.fg Theme.highlight_deep; Attr.bold ], Theme.secondary
-        | false, Some _, false ->
-          [ Theme.fg Theme.text; Attr.bold ], Theme.secondary
-        | false, None, false -> [ Theme.fg Theme.ghost ], Theme.ghost
+          Theme.highlight_deep, true, Theme.secondary
+        | false, Some _, false -> Theme.text, true, Theme.secondary
+        | false, None, false -> Theme.ghost, false, Theme.ghost
+      in
+      (* heat rides on the callee's name itself: its color becomes the
+         function's share of sampled compute. The cursor and selection keep
+         their own text colors — their washes already say where you are — and
+         a call the profile has no data on keeps the state color it would
+         have had. *)
+      let fn_color =
+        match is_cursor || is_selected, heat.(step) with
+        | false, Some share -> Theme.heat ~share
+        | true, _ | _, None -> fn_color
+      in
+      let fn_attrs =
+        match fn_bold with
+        | true -> [ Theme.fg fn_color; Attr.bold ]
+        | false -> [ Theme.fg fn_color ]
       in
       let indent = 2 * (call.info.depth - 1) in
       let folded = Set.mem folds step in
@@ -194,10 +209,12 @@ let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
     (Int.max 0 (total - height))
 ;;
 
-let view ~width ~height ~calls ~live ~selected ~folds ~cursor =
+let view ~width ~height ~calls ~heat ~live ~selected ~folds ~cursor =
   let inner_width = Panel.inner_width ~width in
   let inner_height = height - Panel.header_height in
-  let rows = rows ~width:inner_width ~calls ~live ~selected ~folds ~cursor in
+  let rows =
+    rows ~width:inner_width ~calls ~heat ~live ~selected ~folds ~cursor
+  in
   let offset =
     scroll_offset
       rows
@@ -212,20 +229,37 @@ let view ~width ~height ~calls ~live ~selected ~folds ~cursor =
     List.concat_map rows ~f:(fun (row : Row.t) -> row.lines)
     |> fun lines -> List.drop lines offset
   in
+  let heat_meta =
+    match has_heat heat with false -> "" | true -> " · heat"
+  in
   Panel.view
     ~title:"call stack"
     ~meta:
       [%string
-        "%{Array.length calls#Int} calls · %{List.length live#Int} live"]
+        "%{Array.length calls#Int} calls · %{List.length live#Int} \
+         live%{heat_meta}"]
     ~width
     ~height
     (View.vcat body)
 ;;
 
-let target_at ~width ~height ~calls ~live ~selected ~folds ~cursor ~x ~row =
+let target_at
+  ~width
+  ~height
+  ~calls
+  ~heat
+  ~live
+  ~selected
+  ~folds
+  ~cursor
+  ~x
+  ~row
+  =
   let inner_width = Panel.inner_width ~width in
   let inner_height = height - Panel.header_height in
-  let rows = rows ~width:inner_width ~calls ~live ~selected ~folds ~cursor in
+  let rows =
+    rows ~width:inner_width ~calls ~heat ~live ~selected ~folds ~cursor
+  in
   let offset =
     scroll_offset
       rows

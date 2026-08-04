@@ -26,15 +26,20 @@ module Target : sig
   [@@deriving sexp_of, equal]
 end
 
-(** [calls] is every event's call in step order; [live] the step indices of
-    the current stack, outermost first; [selected] an index into [live];
-    [cursor] the call the keyboard is aiming at, washed orange over whatever
-    the selection's blue is doing, so you can see where [Enter] would go
-    without losing where you are. *)
+(** [calls] is every event's call in step order; [heat] each call's share of
+    the perf profile's sampled compute, same indexing — the share becomes the
+    callee name's text color on {!Theme.heat_ramp} ([None] = no data for that
+    call, which keeps its ordinary state color; an all-[None] array, e.g. no
+    [-perf-file], changes nothing); [live] the step indices of the current
+    stack, outermost first; [selected] an index into [live]; [cursor] the
+    call the keyboard is aiming at, washed orange over whatever the
+    selection's blue is doing, so you can see where [Enter] would go without
+    losing where you are. *)
 val view
   :  width:int
   -> height:int
   -> calls:Call.t array
+  -> heat:float option array
   -> live:int list
   -> selected:int
   -> folds:Int.Set.t
@@ -64,6 +69,7 @@ val target_at
   :  width:int
   -> height:int
   -> calls:Call.t array
+  -> heat:float option array
   -> live:int list
   -> selected:int
   -> folds:Int.Set.t

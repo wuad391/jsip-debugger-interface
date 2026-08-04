@@ -385,6 +385,20 @@ let apply_action
   | Select_heap_node spot -> select_heap_node model spot
 ;;
 
+(* each call's share of the profile's sampled compute, joined once up front —
+   the color its name renders in. No profile: every entry [None], and the
+   stack draws exactly as it does without heat. *)
+let heat_of_calls ~profile ~(calls : Call.t array) =
+  Array.map calls ~f:(fun (call : Call.t) ->
+    Option.bind
+      (profile : Heat_profile.t option)
+      ~f:(fun profile ->
+        Heat_profile.share
+          profile
+          ~function_info:call.info.function_info
+          ~location:call.info.location))
+;;
+
 (* where each address was first seen — what a click on a heap node jumps to *)
 let birth_steps replay =
   List.fold
@@ -406,7 +420,15 @@ module Computed = struct
     }
 end
 
-let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
+let render
+  ~replay
+  ~sources
+  ~dump_name
+  ~calls
+  ~heat
+  ~(model : Model.t)
+  ~dimensions
+  =
   let layout = Layout.compute dimensions in
   let { Replay.Step.call; frames; structures; nodes; new_addresses } =
     Replay.step_exn replay ~step:model.step
@@ -558,6 +580,7 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
                 ~width:layout.stack.width
                 ~height:layout.stack.height
                 ~calls
+                ~heat
                 ~live
                 ~selected
                 ~folds:model.stack_folds
@@ -626,6 +649,7 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
              (Session_bar.view
                 ~width:dimensions.width
                 ~dump_name
+                ~heat:(Array.exists heat ~f:Option.is_some)
                 ~structure:
                   ((* the walked structure's kind, typed when the wire says *)
                    let kind = Snapshot.Ds_type.display snapshot.ds_type in
@@ -673,6 +697,7 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
               ~width:layout.stack.width
               ~height:layout.stack.height
               ~calls
+              ~heat
               ~live
               ~selected
               ~folds:model.stack_folds
@@ -758,12 +783,21 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
   { Computed.view; on_click; on_scroll }
 ;;
 
-let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
+let component
+  ?profile
+  ~replay
+  ~sources
+  ~dump_name
+  ~exit
+  ~dimensions
+  (local_ graph)
+  =
   let births = birth_steps replay in
   let calls =
     Array.init (Replay.length replay) ~f:(fun step ->
       (Replay.step_exn replay ~step).call)
   in
+  let heat = heat_of_calls ~profile ~calls in
   let model, inject =
     Bonsai.state_machine
       ~sexp_of_model:Model.sexp_of_t
@@ -786,7 +820,7 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
     graph;
   let computed =
     let%arr model and dimensions in
-    render ~replay ~sources ~dump_name ~calls ~model ~dimensions
+    render ~replay ~sources ~dump_name ~calls ~heat ~model ~dimensions
   in
   let view =
     let%arr { Computed.view; _ } = computed in
@@ -869,7 +903,7 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
   ~view, ~handler
 ;;
 
-let run ~dump_name ~replay ~sources =
+let run ?profile ~dump_name ~replay ~sources () =
   Bonsai_term.start_with_exit (fun ~exit ~dimensions (local_ graph) ->
-    component ~replay ~sources ~dump_name ~exit ~dimensions graph)
+    component ?profile ~replay ~sources ~dump_name ~exit ~dimensions graph)
 ;;
