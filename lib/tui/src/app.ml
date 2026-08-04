@@ -52,6 +52,14 @@ module Model = struct
         the pane highlighted before selection existed *)
     ; heap_cursor : Heap_pane.Spot.t option
     ; stack_cursor : int option (** a call index *)
+    ; accordion : bool
+    (** [z]: every structure collapsed but the one the keyboard is in *)
+    ; heap_filter : string
+    (** [/]: only structures whose header matches stay on the canvas. Empty =
+        no filter. *)
+    ; typing_filter : bool
+    (** the [/] prompt is open, and keystrokes edit the filter instead of
+        driving the panes *)
     }
   [@@deriving sexp_of, equal]
 
@@ -67,6 +75,9 @@ module Model = struct
     ; heap_selected = None
     ; heap_cursor = None
     ; stack_cursor = None
+    ; accordion = false
+    ; heap_filter = ""
+    ; typing_filter = false
     }
   ;;
 end
@@ -92,6 +103,12 @@ module Action = struct
     | Toggle_focused_fold
     (** [space]: collapse whatever the focused pane is pointing at — the
         structure a heap card belongs to, or a call's descendants *)
+    | Toggle_accordion
+    | Begin_filter (** [/]: open the prompt, starting from empty *)
+    | Filter_input of char
+    | Filter_backspace
+    | Commit_filter (** [Enter]: close the prompt, keep the filter *)
+    | Cancel_filter (** [Escape]: close the prompt, drop the filter *)
   [@@deriving sexp_of]
 end
 
@@ -114,6 +131,30 @@ let heap_selection replay (model : Model.t) =
       |> Option.map ~f:Heap_pane.spot_of_structure
   in
   { Heap_pane.Selection.selected; cursor = model.heap_cursor }
+;;
+
+(* What the heap pane actually draws: the [/] filter thins the registry to
+   the structures whose header matches, and accordion mode closes every
+   structure but the one the keyboard is in. The renderer, the hit-tests and
+   the cursor arithmetic all go through here so they cannot disagree about
+   what is on the canvas. *)
+let heap_inputs replay (model : Model.t) =
+  let structures =
+    List.filter
+      (Replay.step_exn replay ~step:model.step).structures
+      ~f:(fun structure ->
+        Heap_pane.matches_filter structure ~filter:model.heap_filter)
+  in
+  let folds =
+    match model.accordion with
+    | false -> model.heap_folds
+    | true ->
+      Heap_pane.accordion_folds
+        ~structures
+        ~folds:model.heap_folds
+        ~selection:(heap_selection replay model)
+  in
+  structures, folds
 ;;
 
 (* the frame the stack pane treats as selected — the renderer's [selected],
@@ -170,9 +211,15 @@ let apply_action
       | None -> model
     in
     (* the jump lands on a different canvas, where this node may be drawn
-       somewhere else entirely — follow it there rather than losing it *)
-    let { Replay.Step.structures; nodes; new_addresses; _ } =
+       somewhere else entirely — follow it there rather than losing it. It
+       resolves against the manual folds, not the accordion's: the accordion
+       reshapes itself around whatever this lands on, so the structure it
+       opens is exactly the one the resolved spot lives in. *)
+    let { Replay.Step.nodes; new_addresses; _ } =
       Replay.step_exn replay ~step:stepped.step
+    in
+    let structures, (_ : Set.M(Heap_pane.Fold).t) =
+      heap_inputs replay stepped
     in
     let selected =
       Heap_pane.resolve_spot
@@ -210,15 +257,16 @@ let apply_action
   let aim (model : Model.t) ~direction =
     match model.focus with
     | Pane.Heap ->
-      let { Replay.Step.structures; nodes; new_addresses; _ } =
+      let { Replay.Step.nodes; new_addresses; _ } =
         Replay.step_exn replay ~step:model.step
       in
+      let structures, folds = heap_inputs replay model in
       let moved =
         Heap_pane.move_cursor
           ~structures
           ~nodes
           ~new_addresses
-          ~folds:model.heap_folds
+          ~folds
           ~selection:(heap_selection replay model)
           ~direction
       in
@@ -248,6 +296,21 @@ let apply_action
           | None -> model
           | Some call -> { model with stack_cursor = Some call }))
   in
+  (* while the accordion is driving, structure folds are its to decide — a
+     manual toggle would vanish under the override now and pop back as a
+     surprise when the mode goes off. Node folds keep working. *)
+  let toggle_heap_fold (model : Model.t) fold =
+    match model.accordion, (fold : Heap_pane.Fold.t) with
+    | true, Structure (_ : int) -> model
+    | false, Structure (_ : int)
+    | (true | false), Node ((_ : int), (_ : int list)) ->
+      { model with
+        heap_folds =
+          (match Set.mem model.heap_folds fold with
+           | true -> Set.remove model.heap_folds fold
+           | false -> Set.add model.heap_folds fold)
+      }
+  in
   match (action : Action.t) with
   | Step_to step -> move ~playing:false step
   | Step_delta delta ->
@@ -264,13 +327,7 @@ let apply_action
     { model with selected_frame = Some (clamp_frame index) }
   | Scroll_heap delta ->
     { model with heap_scroll = Int.max 0 (model.heap_scroll + delta) }
-  | Toggle_heap_fold fold ->
-    { model with
-      heap_folds =
-        (match Set.mem model.heap_folds fold with
-         | true -> Set.remove model.heap_folds fold
-         | false -> Set.add model.heap_folds fold)
-    }
+  | Toggle_heap_fold fold -> toggle_heap_fold model fold
   | Toggle_stack_fold call ->
     { model with
       stack_folds =
@@ -298,14 +355,7 @@ let apply_action
        in
        (match Option.first_some cursor selected with
         | None -> model
-        | Some spot ->
-          let fold = Heap_pane.fold_of_spot spot in
-          { model with
-            heap_folds =
-              (match Set.mem model.heap_folds fold with
-               | true -> Set.remove model.heap_folds fold
-               | false -> Set.add model.heap_folds fold)
-          })
+        | Some spot -> toggle_heap_fold model (Heap_pane.fold_of_spot spot))
      | Pane.Stack ->
        let live = live_calls replay ~step:model.step in
        (match
@@ -321,6 +371,17 @@ let apply_action
                | true -> Set.remove model.stack_folds call
                | false -> Set.add model.stack_folds call)
           }))
+  | Toggle_accordion -> { model with accordion = not model.accordion }
+  (* [/] always starts from empty: the old filter was shaped around whatever
+     you were hunting last time, and editing it beats out of a prompt this
+     small costs more keys than retyping *)
+  | Begin_filter -> { model with typing_filter = true; heap_filter = "" }
+  | Filter_input char ->
+    { model with heap_filter = model.heap_filter ^ String.of_char char }
+  | Filter_backspace ->
+    { model with heap_filter = String.drop_suffix model.heap_filter 1 }
+  | Commit_filter -> { model with typing_filter = false }
+  | Cancel_filter -> { model with typing_filter = false; heap_filter = "" }
   | Focus_next_pane -> { model with focus = Pane.other model.focus }
   | Move_cursor direction -> aim model ~direction
   | Commit_cursor -> commit model
@@ -405,6 +466,25 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
   in
   let snapshot = call.info.snapshot in
   let selection = heap_selection replay model in
+  let heap_structures, heap_folds = heap_inputs replay model in
+  (* the meta line owns up to the modes shaping the canvas: the filter as
+     typed (a block cursor while the prompt is open), the accordion by name *)
+  let heap_note =
+    let filter =
+      match model.typing_filter with
+      | true -> Some [%string "/%{model.heap_filter}▌"]
+      | false ->
+        (match String.is_empty model.heap_filter with
+         | true -> None
+         | false -> Some [%string "/%{model.heap_filter}"])
+    in
+    let accordion =
+      match model.accordion with true -> Some "accordion" | false -> None
+    in
+    match List.filter_opt [ filter; accordion ] with
+    | [] -> None
+    | parts -> Some (String.concat parts ~sep:" · ")
+  in
   let place (region : Region.t) view =
     View.pad ~l:region.x ~t:region.y view
   in
@@ -513,12 +593,14 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
          ; place
              layout.heap
              (Heap_pane.view
+                ~note:heap_note
+                ~total:(Some (List.length structures))
                 ~width:layout.heap.width
                 ~height:layout.heap.height
-                ~structures
+                ~structures:heap_structures
                 ~nodes
                 ~new_addresses
-                ~folds:model.heap_folds
+                ~folds:heap_folds
                 ~scroll:model.heap_scroll
                 ~selection)
          ; (* junctions ride over the rules they interrupt *)
@@ -643,10 +725,10 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
                   let x = max 0 (x - 1) in
                   (match
                      Heap_pane.toggle_at
-                       ~structures
+                       ~structures:heap_structures
                        ~nodes
                        ~new_addresses
-                       ~folds:model.heap_folds
+                       ~folds:heap_folds
                        ~scroll:model.heap_scroll
                        ~selection
                        ~width:layout.heap.width
@@ -657,10 +739,10 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
                    | Some fold -> Some (act (Action.Toggle_heap_fold fold))
                    | None ->
                      Heap_pane.spot_at
-                       ~structures
+                       ~structures:heap_structures
                        ~nodes
                        ~new_addresses
-                       ~folds:model.heap_folds
+                       ~folds:heap_folds
                        ~scroll:model.heap_scroll
                        ~selection
                        ~width:layout.heap.width
@@ -718,6 +800,7 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
   in
   let handler =
     let%arr { Computed.on_click; on_scroll; view = _ } = computed
+    and { Model.typing_filter; _ } = model
     and inject in
     let inject_or_ignore action =
       match action with
@@ -732,13 +815,25 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
     in
     fun (event : Event.t) ->
       match event with
+      | Key_press { key; mods }
+        when match key with
+             | ASCII ('c' | 'C') ->
+               List.mem mods Event.Modifier.Ctrl ~equal:Event.Modifier.equal
+             | _ -> false ->
+        exit ()
+      (* while the [/] prompt is open it owns the keyboard: the letters that
+         would otherwise aim, play or quit spell the filter instead *)
+      | Key_press { key; mods } when typing_filter ->
+        (match key, mods with
+         | Enter, [] -> inject Commit_filter
+         | Escape, [] -> inject Cancel_filter
+         | Backspace, [] -> inject Filter_backspace
+         | ASCII char, [] when Char.is_print char ->
+           inject (Filter_input char)
+         | _ -> Effect.Ignore)
       | Key_press { key; mods } ->
         (* the key map the footer advertises; anything else is ignored *)
         (match key, mods with
-         | ASCII ('c' | 'C'), mods
-           when List.mem mods Event.Modifier.Ctrl ~equal:Event.Modifier.equal
-           ->
-           exit ()
          | ASCII 'q', [] -> exit ()
          | (Arrow `Right | ASCII ('l' | 'n')), [] -> inject (Step_delta 1)
          | (Arrow `Left | ASCII 'p'), [] -> inject (Step_delta (-1))
@@ -746,6 +841,10 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
          (* [h] gives up stepping back — ← and [p] still do that — to fold
             whatever the focused pane is pointing at *)
          | ASCII 'h', [] -> inject Toggle_focused_fold
+         | ASCII 'z', [] -> inject Toggle_accordion
+         | ASCII '/', [] -> inject Begin_filter
+         (* clears a committed filter without reopening the prompt *)
+         | Escape, [] -> inject Cancel_filter
          | (Home | ASCII 'g'), [] -> inject (Step_to 0)
          | (End | ASCII 'G'), [] -> inject (Step_to Int.max_value)
          | Page `Up, [] -> inject (Scroll_heap (-3))

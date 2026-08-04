@@ -1036,21 +1036,53 @@ let rec tree
        , List.map box_toggles ~f:(Toggle.shift ~dx:folded_x ~dy:0) ))
 ;;
 
-(* the section header over one structure's tree: a fold glyph, then its name
-   (or [#id]) and kind — which is exactly the summary a folded structure
-   collapses to. The one this step's event walked reads in the highlight
-   blue. *)
-let structure_header (structure : Replay.Structure.t) ~folded ~mark =
+let count_nodes structures =
+  let rec count (node : Snapshot.Node.t) =
+    1 + List.sum (module Int) node.children ~f:count
+  in
+  List.sum
+    (module Int)
+    structures
+    ~f:(fun (structure : Replay.Structure.t) ->
+      count structure.snapshot.root_node)
+;;
+
+(* the name · kind · type line — what a structure's header says about it, and
+   so also what [/] lets you filter by *)
+let header_text (structure : Replay.Structure.t) =
   let label =
     [%string
       "%{Replay.Structure.display structure} · %{Snapshot.Ds_type.display \
        structure.snapshot.ds_type}"]
   in
-  let label =
-    match structure.ty with
-    | None -> label
-    | Some ty -> [%string "%{label} %{Type_info.display ty}"]
+  match structure.ty with
+  | None -> label
+  | Some ty -> [%string "%{label} %{Type_info.display ty}"]
+;;
+
+let matches_filter structure ~filter =
+  match String.is_empty filter with
+  | true -> true
+  | false ->
+    String.is_substring
+      (String.lowercase (header_text structure))
+      ~substring:(String.lowercase filter)
+;;
+
+(* the section header over one structure's tree: a fold glyph, then its name
+   (or [#id]), kind and size — which is exactly the summary a folded
+   structure collapses to. The one this step's event walked reads in the
+   highlight blue. *)
+let structure_header (structure : Replay.Structure.t) ~folded ~mark =
+  (* size on the summary line: it is all you see of a collapsed structure,
+     and how big each one is is the thing worth scanning for when hundreds of
+     them are collapsed *)
+  let size =
+    match count_nodes [ structure ] with
+    | 1 -> "1 node"
+    | count -> [%string "%{count#Int} nodes"]
   in
+  let label = [%string "%{header_text structure} · %{size}"] in
   (* standing on the header means the whole structure is what is picked out,
      so it takes the same colours a picked card does. Only an exact match
      counts: the root card shares this address, and a card is not its
@@ -1288,17 +1320,6 @@ let layout ~structures ~nodes ~new_addresses ~folds ~selection ~body_width =
     ~body_width
 ;;
 
-let count_nodes structures =
-  let rec count (node : Snapshot.Node.t) =
-    1 + List.sum (module Int) node.children ~f:count
-  in
-  List.sum
-    (module Int)
-    structures
-    ~f:(fun (structure : Replay.Structure.t) ->
-      count structure.snapshot.root_node)
-;;
-
 (* Bring one span into a window of [size], from an offset of [at].
 
    A card just past the edge takes the smallest adjustment that shows it, so
@@ -1377,6 +1398,8 @@ let resolve_left placed ~width ~selection =
 ;;
 
 let view
+  ~note
+  ~total
   ~width
   ~height
   ~structures
@@ -1401,10 +1424,22 @@ let view
   let live = List.length structures in
   let nodes = count_nodes structures in
   let meta =
-    let base = [%string "%{live#Int} live · %{nodes#Int} nodes"] in
-    match fresh with
-    | 0 -> base
-    | fresh -> [%string "%{base} · %{fresh#Int} new"]
+    (* under a [/] filter the live count owns up to what it is hiding *)
+    let living =
+      match total with
+      | Some total when total <> live ->
+        [%string "%{live#Int} of %{total#Int} live"]
+      | Some (_ : int) | None -> [%string "%{live#Int} live"]
+    in
+    let base = [%string "%{living} · %{nodes#Int} nodes"] in
+    let base =
+      match fresh with
+      | 0 -> base
+      | fresh -> [%string "%{base} · %{fresh#Int} new"]
+    in
+    match note with
+    | None -> base
+    | Some note -> [%string "%{note} · %{base}"]
   in
   Panel.view
     ~title:"heap"
@@ -1477,6 +1512,30 @@ let spot_at
 let fold_of_spot ({ Spot.site; address = (_ : Snapshot.Address.t) } : Spot.t)
   =
   Fold.Structure site.structure
+;;
+
+(* Accordion mode's fold set: every structure closed but the one the keyboard
+   is in. Recomputed from the selection on every render, which is what makes
+   walking [w]/[s] across the registry open each structure on arrival and
+   close it behind you. The manual set passes through underneath — node folds
+   inside the open structure keep working — but structure folds are
+   overridden wholesale while the mode is on: the others forced shut, the
+   open one's cleared so arriving somewhere always opens it. *)
+let accordion_folds ~structures ~folds ~(selection : Selection.t) =
+  let standing_in =
+    Option.first_some selection.cursor selection.selected
+    |> Option.map
+         ~f:(fun { Spot.site; address = (_ : Snapshot.Address.t) } ->
+           site.structure)
+  in
+  List.fold
+    structures
+    ~init:folds
+    ~f:(fun folds (structure : Replay.Structure.t) ->
+      match standing_in with
+      | Some id when id = structure.id ->
+        Set.remove folds (Fold.Structure structure.id)
+      | Some (_ : int) | None -> Set.add folds (Fold.Structure structure.id))
 ;;
 
 (* where the pane starts you off: a structure's own root card *)

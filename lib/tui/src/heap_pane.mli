@@ -143,8 +143,33 @@ module Direction : sig
   [@@deriving sexp_of, equal]
 end
 
+(** Everything folded but the structure the keyboard is in — the fold set
+    accordion mode renders with, recomputed from [selection] every time. That
+    is what makes walking [w]/[s] across the registry open each structure on
+    arrival and close it behind you. [folds] passes through underneath: node
+    folds inside the open structure keep working, structure folds are
+    overridden (the others forced shut, the open one's cleared) while the
+    mode is on and come back untouched when it goes off. *)
+val accordion_folds
+  :  structures:Replay.Structure.t list
+  -> folds:Set.M(Fold).t
+  -> selection:Selection.t
+  -> Set.M(Fold).t
+
+(** Whether the [/] filter keeps a structure: a case-insensitive substring of
+    what its section header says — name, kind, type — so what you can see is
+    what you can filter by ([/map], [/order], [/#12]). The empty filter keeps
+    everything. *)
+val matches_filter : Replay.Structure.t -> filter:string -> bool
+
+(** [note] rides the meta line ahead of the counts — the app's place to say
+    an app-level mode is shaping the canvas (the live [/] filter, the
+    accordion light). [total] is how many structures there were before the
+    filter; the live count reads [n of total] when they differ. *)
 val view
-  :  width:int
+  :  note:string option
+  -> total:int option
+  -> width:int
   -> height:int
   -> structures:Replay.Structure.t list
   -> nodes:Replay.Nodes.t
