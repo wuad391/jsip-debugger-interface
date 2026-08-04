@@ -315,7 +315,12 @@ let is_positional label = String.for_all label ~f:Char.is_digit
    the one that is set under fifteen that are not. That does hide a literal
    zero sitting in a tuple — the same trade the pane has always made, now
    stated where it happens rather than hidden in a layer mask. A card left
-   with nothing to say falls back to how many slots it has. *)
+   with nothing to say falls back to how many slots it has.
+
+   Returns LINES of spans: a record with several fields stacks them one per
+   row — a six-field record read as [a=1  b=2  c=3 …] was a card wider than
+   the pane, and a record reads downward everywhere else OCaml prints one.
+   Everything with one thing to say still says it on one line. *)
 let summary_spans leaves ~arity =
   let kept =
     List.filter leaves ~f:(fun (label, block) ->
@@ -335,20 +340,20 @@ let summary_spans leaves ~arity =
            is_positional label)
   in
   match fields with
-  | [] when positional -> [ `Label, "slots "; `Value, Int.to_string arity ]
-  | [] -> [ `Arrow, "·" ]
+  | [] when positional ->
+    [ [ `Label, "slots "; `Value, Int.to_string arity ] ]
+  | [] -> [ [ `Arrow, "·" ] ]
   | fields when positional ->
-    [ `Value, String.concat (List.map fields ~f:snd) ~sep:", " ]
+    [ [ `Value, String.concat (List.map fields ~f:snd) ~sep:", " ] ]
   | [ (key_label, key); (data_label, data) ]
     when is_binding (key_label, data_label) ->
-    [ `Key, key; `Arrow, " → "; `Value, data ]
+    [ [ `Key, key; `Arrow, " → "; `Value, data ] ]
   | [ ((("length" | "size" | "len" | "num_readers") as label), value) ] ->
-    [ `Label, [%string "%{label} "]; `Value, value ]
-  | [ ((_ : string), value) ] -> [ `Value, value ]
+    [ [ `Label, [%string "%{label} "]; `Value, value ] ]
+  | [ ((_ : string), value) ] -> [ [ `Value, value ] ]
   | fields ->
-    List.concat_mapi fields ~f:(fun index (label, value) ->
-      let lead = match index with 0 -> "" | _ -> "  " in
-      [ `Label, [%string "%{lead}%{label}="]; `Value, value ])
+    List.map fields ~f:(fun (label, value) ->
+      [ `Label, [%string "%{label}="]; `Value, value ])
 ;;
 
 let span_view (tag, text) =
@@ -428,8 +433,9 @@ let node_box
   let border =
     Theme.fg' (Selection.Mark.border mark ~plain:Theme.card_border)
   in
-  let summary =
-    View.hcat (List.map (summary_spans leaves ~arity) ~f:span_view)
+  let summaries =
+    List.map (summary_spans leaves ~arity) ~f:(fun line ->
+      View.hcat (List.map line ~f:span_view))
   in
   (* both picked-out cards spell their address out: the blue one because it
      is the chosen one, the orange one because knowing what you are about to
@@ -463,9 +469,8 @@ let node_box
   let inner =
     List.reduce_exn
       ~f:Int.max
-      (View.width summary
-       :: riders_width
-       :: List.map (Option.to_list address) ~f:View.width)
+      (List.map summaries ~f:View.width
+       @ (riders_width :: List.map (Option.to_list address) ~f:View.width))
   in
   (* every row is exactly [inner + 2] cells, so the wash covers the card and
      nothing else *)
@@ -504,7 +509,7 @@ let node_box
       ; View.text ~attrs:border "│"
       ]
   in
-  let rows = [ top; content summary; bottom ] in
+  let rows = (top :: List.map summaries ~f:content) @ [ bottom ] in
   let card =
     Panel.fit (View.vcat rows) ~width:card_width ~height:(List.length rows)
   in
@@ -595,11 +600,13 @@ let shared_box
       Selection.mark context.selection ~address:node.virtual_address ~site
   in
   let border = Theme.fg' (Selection.Mark.border mark ~plain:Theme.ghost) in
-  let summary =
+  let summaries =
     match target with
     | Some node ->
-      View.hcat (List.map (shared_spans node ~ds_type) ~f:span_view)
-    | None -> View.text ~attrs:(Theme.fg' Theme.muted) [%string "#%{id#Int}"]
+      List.map (shared_spans node ~ds_type) ~f:(fun line ->
+        View.hcat (List.map line ~f:span_view))
+    | None ->
+      [ View.text ~attrs:(Theme.fg' Theme.muted) [%string "#%{id#Int}"] ]
   in
   (* the arrow rides the border where a card's name does, and reads like one
      where the pointer is picked out *)
@@ -624,9 +631,9 @@ let shared_box
   let inner =
     List.reduce_exn
       ~f:Int.max
-      (View.width summary
-       :: (View.width arrow - 2)
-       :: List.map (Option.to_list address) ~f:View.width)
+      (List.map summaries ~f:View.width
+       @ ((View.width arrow - 2)
+          :: List.map (Option.to_list address) ~f:View.width))
   in
   let content line =
     View.hcat
@@ -644,8 +651,8 @@ let shared_box
             (Panel.repeat "┄" ~width:(inner + 2 - View.width arrow))
         ; View.text ~attrs:border "┐"
         ]
-    ; content summary
     ]
+    @ List.map summaries ~f:content
     @ List.map (Option.to_list address) ~f:content
     @ [ View.text
           ~attrs:border
@@ -1355,8 +1362,8 @@ let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
 (* The same thing sideways, and it is not optional: a tree wider than the
    pane keeps its right-hand cards past the edge forever, so without this the
    cursor walks onto cards nobody can see and [wasd] looks broken. [pan] is
-   where the hand left it — [\[]/[\]] and shift+wheel — and the cursor
-   overrides it exactly the way it overrides the scroll: the smallest
+   where the hand left it — [\[]/[\]], or a ctrl- or alt-wheel — and the
+   cursor overrides it exactly the way it overrides the scroll: the smallest
    adjustment that shows the card being pointed at.
 
    It follows the selection once the cursor is committed, so [Enter] on a
@@ -1550,12 +1557,17 @@ let spot_at
   |> Option.map ~f:Placed.spot
 ;;
 
-(* The structure a card belongs to, as the key that folds it. A card inside a
-   referenced structure answers with THAT structure — the tree it is drawn in
-   is the one collapsing round it, which is the one you were looking at. *)
+(* What [h] folds is what the cursor is on — which is exactly what the two
+   glyphs already say: the header's [▾] hides the whole structure, a card's
+   [▾] tucks that card's children behind it. Standing on a card inside a
+   referenced structure folds within THAT structure's tree, because its paths
+   are the ones the drawing is keyed by. Node folds also survive accordion
+   mode, where structure folds are the mode's to decide. *)
 let fold_of_spot ({ Spot.site; address = (_ : Snapshot.Address.t) } : Spot.t)
   =
-  Fold.Structure site.structure
+  match site.is_header with
+  | true -> Fold.Structure site.structure
+  | false -> Fold.Node (site.structure, site.path)
 ;;
 
 (* Accordion mode's fold set: every structure closed but the one the keyboard

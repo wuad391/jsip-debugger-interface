@@ -128,10 +128,10 @@ end
     falls back to before anything is chosen. *)
 val spot_of_structure : Replay.Structure.t -> Spot.t
 
-(** The structure a card belongs to, as the key that folds it — what [h]
-    collapses when the cursor is standing on that card. A card inside a
-    referenced structure answers with that structure, since the tree it is
-    drawn in is the one collapsing round it. *)
+(** What [h] folds from this spot — what the glyph beside it already says: on
+    a structure's header, the whole structure; on a card, that card's
+    children (nothing visible happens on a leaf). Node folds keep working in
+    accordion mode, where structure folds are the mode's to decide. *)
 val fold_of_spot : Spot.t -> Fold.t
 
 module Direction : sig
@@ -162,10 +162,10 @@ val accordion_folds
     everything. *)
 val matches_filter : Replay.Structure.t -> filter:string -> bool
 
-(** [pan] is the manual horizontal offset — [\[]/[\]] and shift+wheel — the
-    sideways twin of [scroll]. The pane still slides on its own to keep the
-    aimed card in view, adjusting from [pan] exactly the way the scroll
-    adjusts to the cursor, and clamps to the canvas.
+(** [pan] is the manual horizontal offset — [\[]/[\]], or the wheel with ctrl
+    or alt held — the sideways twin of [scroll]. The pane still slides on its
+    own to keep the aimed card in view, adjusting from [pan] exactly the way
+    the scroll adjusts to the cursor, and clamps to the canvas.
 
     [note] rides the meta line ahead of the counts — the app's place to say
     an app-level mode is shaping the canvas (the live [/] filter, the

@@ -177,7 +177,7 @@ let selected_frame replay (model : Model.t) =
 
 let live_calls replay ~step =
   List.map (Replay.step_exn replay ~step).frames ~f:(fun (frame : Call.t) ->
-    fst frame.range)
+    snd frame.range)
 ;;
 
 let apply_action
@@ -343,11 +343,12 @@ let apply_action
     { model with stack_folds = toggle model.stack_folds call }
   | Toggle_source_fold fold ->
     { model with source_folds = toggle model.source_folds fold }
-  (* [h] folds what you are pointing at: in the heap the whole structure the
-     cursor's card belongs to, in the stack the aimed call's range. It reads
-     the cursor first and the selection second, so it works before you have
-     aimed at anything — the heap falls back to the structure this step
-     walked, the stack to the selected frame. *)
+  (* [h] folds what you are pointing at: in the heap, the node under the
+     cursor (its children tuck behind the card) or — on a structure's header
+     — the whole structure; in the stack the aimed call's range. It reads the
+     cursor first and the selection second, so it works before you have aimed
+     at anything — the heap falls back to the structure this step walked, the
+     stack to the selected frame. *)
   | Toggle_focused_fold ->
     (match model.focus with
      | Pane.Heap ->
@@ -411,8 +412,8 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
   let { Replay.Step.call; frames; structures; nodes; new_addresses } =
     Replay.step_exn replay ~step:model.step
   in
-  (* a frame's own event index is the start of its range *)
-  let live = List.map frames ~f:(fun (frame : Call.t) -> fst frame.range) in
+  (* a frame's own event index closes its range — its children came first *)
+  let live = List.map frames ~f:(fun (frame : Call.t) -> snd frame.range) in
   let selected = selected_frame replay model in
   let frame = Option.value (List.nth frames selected) ~default:call in
   let location = frame.info.location in
@@ -552,6 +553,7 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
              ~step:model.step
              ~total:(Replay.length replay)
              ~playing:model.playing
+             ~accordion:model.accordion
          ; place
              layout.stack
              (Stack_pane.view
@@ -657,6 +659,9 @@ let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
         | Back -> act (Action.Step_delta (-1))
         | Step -> act (Action.Step_delta 1)
         | Play -> act Action.Toggle_play
+        | Fold -> act Action.Toggle_focused_fold
+        | Accordion -> act Action.Toggle_accordion
+        | Filter -> act Action.Begin_filter
         | Quit -> `Quit)
     | false ->
       (match Region.contains layout.ticks position with

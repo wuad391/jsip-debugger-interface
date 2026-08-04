@@ -78,7 +78,7 @@ let calls_of replay =
 
 let live_of replay ~step =
   let { Replay.Step.frames; _ } = Replay.step_exn replay ~step in
-  List.map frames ~f:(fun (frame : Call.t) -> fst frame.range)
+  List.map frames ~f:(fun (frame : Call.t) -> snd frame.range)
 ;;
 
 let%expect_test "stack pane: every call visible, the live chain lit" =
@@ -103,7 +103,7 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
      ▾ M.add "a" 1 (M.add "b" 2 M.empty)
     ▎    M.add k (v * 2) acc
          M.add k (v * 2) acc
-       M.fold (fun k v acc -> M.add k (v * 2) acc) m
+     ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
          M.empty
     |}]
 ;;
@@ -266,9 +266,10 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
     {|
     HEAP                              3 live · 5 nodes · 1 new
     ▾ p · user ⟨point⟩ · 1 node
-     ┌ p ─────┐
-     │x=3  y=4│
-     └────────┘
+     ┌ p ┐
+     │x=3│
+     │y=4│
+     └───┘
 
     ▾ ts · user ⟨trades⟩ · 1 node
                ▾┌ ts  new ┐
@@ -277,7 +278,45 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
                         │
                        hd
                ▾┌ t ┐
-                │101│
+    |}]
+;;
+
+let%expect_test "multi-file: each live frame knows its own file" =
+  (* the dump spans three modules, and mid-fold the live chain crosses two of
+     them — [Queue.fold] still open in main.ml while [restock]'s add fires in
+     inventory.ml (steps 5 and 6). That per-frame file is what lets the
+     source pane swap files as the blue selection moves up the call stack.
+     Ancestors complete after their children, so the outer frame's own event
+     lies later in the dump than the inner's. *)
+  let replay = replay_of_fixture "multi_file" in
+  print_s [%sexp (Replay.files replay : string list)];
+  List.iter
+    (List.init (Replay.length replay) ~f:Fn.id)
+    ~f:(fun step ->
+      let { Replay.Step.frames; _ } = Replay.step_exn replay ~step in
+      let chain =
+        List.map frames ~f:(fun (frame : Call.t) ->
+          let fn = Function_info.display frame.info.function_info in
+          let file =
+            Filename.basename (Location.file_path frame.info.location)
+          in
+          [%string "%{fn}@%{file}"])
+        |> String.concat ~sep:" > "
+      in
+      print_endline [%string "%{step#Int}: %{chain}"]);
+  [%expect
+    {|
+    (testing/cases/multi_file/inventory.ml testing/cases/multi_file/basket.ml
+     testing/cases/multi_file/main.ml)
+    0: M.add@inventory.ml > M.add@inventory.ml
+    1: M.add@inventory.ml
+    2: Queue.create@basket.ml
+    3: Queue.add@basket.ml
+    4: Queue.add@basket.ml
+    5: Queue.fold@main.ml > M.add@inventory.ml
+    6: Queue.fold@main.ml > M.add@inventory.ml
+    7: Queue.fold@main.ml
+    8: Queue.fold@main.ml
     |}]
 ;;
 
@@ -347,12 +386,18 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
 
 let%expect_test "transport: ticks, then the clickable key legend" =
   print_view
+    ~width:84
     ~height:3
-    (Transport.view ~width:56 ~step:1 ~total:3 ~playing:false);
+    (Transport.view
+       ~width:84
+       ~step:1
+       ~total:3
+       ~playing:false
+       ~accordion:false);
   [%expect
     {|
-    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-              ◂ back  ·  step ▸  ·  [space] play  ·  q quit
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+              ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · q quit
     |}]
 ;;
 
@@ -627,7 +672,7 @@ let%expect_test "heap pane: closures stay opaque" =
 ;;
 
 let%expect_test "control chips hit-test exactly where they render" =
-  let width = 56 in
+  let width = 84 in
   let hits =
     List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
       Transport.control_at ~width ~playing:false ~x
@@ -645,9 +690,12 @@ let%expect_test "control chips hit-test exactly where they render" =
   [%expect
     {|
     (Back 10 15)
-    (Step 21 26)
-    (Play 32 43)
-    (Quit 49 54)
+    (Step 19 24)
+    (Play 28 39)
+    (Fold 43 48)
+    (Accordion 52 62)
+    (Filter 66 73)
+    (Quit 77 82)
     |}]
 ;;
 
@@ -906,9 +954,10 @@ let%expect_test "stack fold: a call's range tucks behind a count" =
   [%expect
     {|
     CALL STACK                            5 calls · 1 live
-         M.add "b" 2 M.empty
-     ▸ M.add "a" 1 (M.add "b" 2 M.empty) ⋯ 2
-    ▎  M.fold (fun k v acc -> M.add k (v * 2) acc) m
+     ▸ M.add "a" 1 (M.add "b" 2 M.empty) ⋯ 1
+         M.add k (v * 2) acc
+         M.add k (v * 2) acc
+    ▎▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
     ▎    M.empty
     |}]
 ;;
@@ -1095,9 +1144,10 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
              └────┘
       ┌──────────────┼──────────────┐
       l              d              r
-    ┌┄┄┄┐    ┌ p ─────┐           ┌┄┄┄┐
-    ┆ ∅ ┆    │x=1  y=2│           ┆ ∅ ┆
-    └┄┄┄┘    └────────┘           └┄┄┄┘
+    ┌┄┄┄┐    ┌ p ┐                ┌┄┄┄┐
+    ┆ ∅ ┆    │x=1│                ┆ ∅ ┆
+    └┄┄┄┘    │y=2│                └┄┄┄┘
+             └───┘
 
     ▾ m · map ⟨string ⇒ point⟩ · 2 nodes
                     ▾┌ m ┐
@@ -1105,19 +1155,18 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
                      └───┘
       ┌───────────────┬──────┴──────────────────────┐
       l               d                             r
-    ┌┄┄┄┐   ┌ ↗ ┄┄┄┄┄┄┄┐                   ▾┌───┐
-    ┆ ∅ ┆   ┆ x=1  y=2 ┆                    │"q"│
-    └┄┄┄┘   └┄┄┄┄┄┄┄┄┄┄┘                    └───┘
-                                     ┌──────────────┴┬────────────
+    ┌┄┄┄┐   ┌ ↗ ┄┄┐                        ▾┌───┐
+    ┆ ∅ ┆   ┆ x=1 ┆                         │"q"│
+    └┄┄┄┘   ┆ y=2 ┆                         └───┘
+            └┄┄┄┄┄┘                  ┌──────────────┴┬────────────
                                      l               d
-                                   ┌┄┄┄┐   ┌ ↗ ┄┄┄┄┄┄┄┐
-                                   ┆ ∅ ┆   ┆ x=1  y=2 ┆
-                                   └┄┄┄┘   └┄┄┄┄┄┄┄┄┄┄┘
+                                   ┌┄┄┄┐   ┌ ↗ ┄┄┐
+                                   ┆ ∅ ┆   ┆ x=1 ┆
+                                   └┄┄┄┘   ┆ y=2 ┆
+                                           └┄┄┄┄┄┘
 
     ▾ #5 · map ⟨string ⇒ point⟩ · 3 nodes
                         ▾┌ #5  new ┐
-                         │"p"      │
-                         └─────────┘
     |}]
 ;;
 
@@ -1168,19 +1217,20 @@ let%expect_test "delta wire: a payload cycle terminates" =
     {|
     HEAP                                  2 live · 3 nodes · 1 new
     ▾ q · queue ⟨cyc⟩ · 2 nodes
-      ▾┌ q ─────┐
-       │length 1│
-       └────────┘
-               │
-             first
-      ▾┌── new ┐
-       │slots 2│
-       └───────┘
-               │
-               0
-     ┌ r ────────────────┐
-     │name="loop"  self=0│
-     └───────────────────┘
+    ▾┌ q ─────┐
+     │length 1│
+     └────────┘
+             │
+           first
+    ▾┌── new ┐
+     │slots 2│
+     └───────┘
+             │
+             0
+     ┌ r ────────┐
+     │name="loop"│
+     │self=0     │
+     └───────────┘
     |}]
 ;;
 
@@ -1379,9 +1429,7 @@ let%expect_test "selection: the cursor can stand on a whole structure" =
       (module Heap_pane.Fold)
       (List.filter_map structures ~f:(fun (structure : Replay.Structure.t) ->
          match String.equal (Replay.Structure.display structure) name with
-         | true ->
-           Some
-             (Heap_pane.fold_of_spot (Heap_pane.spot_of_structure structure))
+         | true -> Some (Heap_pane.Fold.Structure structure.id)
          | false -> None))
   in
   let walk ~folds keys =
@@ -1429,6 +1477,39 @@ let%expect_test "selection: the cursor can stand on a whole structure" =
     (w (landed ((structure 12) (path ()) (is_header true))))
     (w (landed ((structure 9) (path ()) (is_header true))))
     (s (landed ((structure 12) (path ()) (is_header true))))
+    |}]
+;;
+
+let%expect_test "[h]'s target: the node under the cursor; the whole \
+                 structure from its header"
+  =
+  (* the two glyphs stacked at a section's top left are two different folds —
+     the header's hides the structure, the root card's tucks its children —
+     and [h] toggles whichever one the cursor is standing on *)
+  let replay = replay_of_fixture "map_basic" in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step:1
+  in
+  let root =
+    List.find_exn structures ~f:(fun (s : Replay.Structure.t) ->
+      s.is_current)
+    |> Heap_pane.spot_of_structure
+  in
+  print_s [%sexp (Heap_pane.fold_of_spot root : Heap_pane.Fold.t)];
+  let header =
+    Heap_pane.move_cursor
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~selection:{ Heap_pane.Selection.selected = Some root; cursor = None }
+      ~direction:Heap_pane.Direction.Up
+    |> Option.value_exn
+  in
+  print_s [%sexp (Heap_pane.fold_of_spot header : Heap_pane.Fold.t)];
+  [%expect {|
+    (Node 2 ())
+    (Structure 2)
     |}]
 ;;
 
@@ -1735,7 +1816,7 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
      ▎▾ M.add "a" 1 (M.add "b" 2 M.empty)
      ▎    M.add k (v * 2) acc
           M.add k (v * 2) acc
-        M.fold (fun k v acc -> M.add k (v * 2) acc) m
+      ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
           M.empty
     |}]
 ;;
