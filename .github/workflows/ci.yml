@@ -50,6 +50,21 @@ jobs:
             ox: https://github.com/oxcaml/opam-repository.git#d65f081024758576f7a848bbd369863e7f7c1e81
             default: https://github.com/ocaml/opam-repository.git#e991f326d5c14546a2a94b24535cd30397ed8b67
 
+      # setup-ocaml's own cache is saved during the setup step, BEFORE the
+      # install below runs, and it never re-saves an existing key — so the
+      # ~25-minute Jane Street dependency build could never enter it. This
+      # second layer snapshots the opam root again after the install: on a
+      # hit the install step is a no-op and a run takes minutes. Keyed on
+      # the workflow file too, so bumping the repository pins above also
+      # refreshes this layer.
+      - name: Cache installed dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.opam
+          key:
+            deps-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml',
+            'dune-project', '*.opam') }}
+
       - name: Install dependencies
         run: opam install . --deps-only --with-test
 
