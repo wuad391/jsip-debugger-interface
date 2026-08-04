@@ -100,7 +100,9 @@ let%expect_test "an event without a ty field reads as None" =
 ;;
 
 let%expect_test "read a whole real dump into Call.Info values" =
-  Dump_reader.read_until_empty (fixture "map_basic") ~store_data:(fun info ->
+  Dump_reader.read (fixture "map_basic")
+  |> Or_error.ok_exn
+  |> Queue.iter ~f:(fun info ->
     let { Call.Info.depth; id; function_info; location; arguments; _ } =
       info
     in
@@ -120,13 +122,13 @@ let%expect_test "read a whole real dump into Call.Info values" =
 ;;
 
 let%expect_test "nested events carry their marker-derived depths" =
-  Dump_reader.read_until_empty
-    (fixture "map_nested")
-    ~store_data:(fun info ->
-      print_endline
-        [%string
-          "depth %{info.Call.Info.depth#Int}: %{Function_info.display \
-           info.function_info}"]);
+  Dump_reader.read (fixture "map_nested")
+  |> Or_error.ok_exn
+  |> Queue.iter ~f:(fun info ->
+    print_endline
+      [%string
+        "depth %{info.Call.Info.depth#Int}: %{Function_info.display \
+         info.function_info}"]);
   [%expect {|
     depth 2: M.add
     depth 1: M.add
@@ -135,11 +137,10 @@ let%expect_test "nested events carry their marker-derived depths" =
 
 let%expect_test "every golden dump parses end to end" =
   List.iter all_fixtures ~f:(fun name ->
-    let events = ref 0 in
-    Dump_reader.read_until_empty
-      (fixture name)
-      ~store_data:(fun (_ : Call.Info.t) -> incr events);
-    print_endline [%string "%{name}: %{!events#Int} events"]);
+    let events =
+      Queue.length (Dump_reader.read (fixture name) |> Or_error.ok_exn)
+    in
+    print_endline [%string "%{name}: %{events#Int} events"]);
   [%expect
     {|
     core_deque_basic: 5 events
@@ -219,9 +220,10 @@ let%expect_test "a dump that does not return to depth 0 is rejected" =
     |> String.concat ~sep:"\n"
   in
   Out_channel.write_all file ~data:(truncated ^ "\n}}\n");
-  Expect_test_helpers_core.show_raise (fun () ->
-    Dump_reader.read_until_empty
-      file
-      ~store_data:(ignore : Call.Info.t -> unit));
-  [%expect {| (raised (Failure "DUMP READER: Incorrect file ending!")) |}]
+  print_s [%sexp (Dump_reader.read file : Call.Info.t Queue.t Or_error.t)];
+  [%expect
+    {|
+    (Error
+     ((line_number 3) ("dump does not return to depth 0" (depth -1) (line }}))))
+    |}]
 ;;

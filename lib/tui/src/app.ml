@@ -116,6 +116,10 @@ let frame_count replay ~step =
   List.length (Replay.step_exn replay ~step).frames
 ;;
 
+(* Indices into a list that can be empty, so [max] is [-1] there and
+   [Int.clamp_exn] would assert rather than clamp. *)
+let clamp index ~max = Int.max 0 (Int.min max index)
+
 (* the blue card: whatever was last chosen, or — until something is — the
    root of the structure this step walked, which is what the pane highlighted
    before selection existed. Both the renderer and the cursor arithmetic go
@@ -161,11 +165,9 @@ let heap_inputs replay (model : Model.t) =
    recomputed here because cursor movement starts from it *)
 let selected_frame replay (model : Model.t) =
   let count = frame_count replay ~step:model.step in
-  Int.max
-    0
-    (Int.min
-       (count - 1)
-       (Option.value model.selected_frame ~default:(count - 1)))
+  clamp
+    (Option.value model.selected_frame ~default:(count - 1))
+    ~max:(count - 1)
 ;;
 
 let live_calls replay ~step =
@@ -182,9 +184,15 @@ let apply_action
   action
   =
   let last = Replay.length replay - 1 in
-  let clamp_step step = Int.max 0 (Int.min last step) in
+  let clamp_step step = clamp step ~max:last in
   let clamp_frame index =
-    Int.max 0 (Int.min (frame_count replay ~step:model.step - 1) index)
+    clamp index ~max:(frame_count replay ~step:model.step - 1)
+  in
+  (* every fold set is a "click it again to undo it" toggle *)
+  let toggle set x =
+    match Set.mem set x with
+    | true -> Set.remove set x
+    | false -> Set.add set x
   in
   (* any move re-follows the innermost frame and rewinds the heap pane, and
      drops both cursors and the chosen card — at another step those addresses
@@ -304,12 +312,7 @@ let apply_action
     | true, Structure (_ : int) -> model
     | false, Structure (_ : int)
     | (true | false), Node ((_ : int), (_ : int list)) ->
-      { model with
-        heap_folds =
-          (match Set.mem model.heap_folds fold with
-           | true -> Set.remove model.heap_folds fold
-           | false -> Set.add model.heap_folds fold)
-      }
+      { model with heap_folds = toggle model.heap_folds fold }
   in
   match (action : Action.t) with
   | Step_to step -> move ~playing:false step
@@ -329,19 +332,9 @@ let apply_action
     { model with heap_scroll = Int.max 0 (model.heap_scroll + delta) }
   | Toggle_heap_fold fold -> toggle_heap_fold model fold
   | Toggle_stack_fold call ->
-    { model with
-      stack_folds =
-        (match Set.mem model.stack_folds call with
-         | true -> Set.remove model.stack_folds call
-         | false -> Set.add model.stack_folds call)
-    }
+    { model with stack_folds = toggle model.stack_folds call }
   | Toggle_source_fold fold ->
-    { model with
-      source_folds =
-        (match Set.mem model.source_folds fold with
-         | true -> Set.remove model.source_folds fold
-         | false -> Set.add model.source_folds fold)
-    }
+    { model with source_folds = toggle model.source_folds fold }
   (* [h] folds what you are pointing at: in the heap the whole structure the
      cursor's card belongs to, in the stack the aimed call's range. It reads
      the cursor first and the selection second, so it works before you have
@@ -365,12 +358,7 @@ let apply_action
         with
         | None -> model
         | Some call ->
-          { model with
-            stack_folds =
-              (match Set.mem model.stack_folds call with
-               | true -> Set.remove model.stack_folds call
-               | false -> Set.add model.stack_folds call)
-          }))
+          { model with stack_folds = toggle model.stack_folds call }))
   | Toggle_accordion -> { model with accordion = not model.accordion }
   (* [/] always starts from empty: the old filter was shaped around whatever
      you were hunting last time, and editing it beats out of a prompt this
@@ -411,26 +399,12 @@ end
 
 let render ~replay ~sources ~dump_name ~calls ~(model : Model.t) ~dimensions =
   let layout = Layout.compute dimensions in
-  let { Replay.Step.call
-      ; frames
-      ; structures
-      ; nodes
-      ; new_addresses
-      ; description = _
-      }
-    =
+  let { Replay.Step.call; frames; structures; nodes; new_addresses } =
     Replay.step_exn replay ~step:model.step
   in
-  let count = List.length frames in
   (* a frame's own event index is the start of its range *)
   let live = List.map frames ~f:(fun (frame : Call.t) -> fst frame.range) in
-  let selected =
-    Int.max
-      0
-      (Int.min
-         (count - 1)
-         (Option.value model.selected_frame ~default:(count - 1)))
-  in
+  let selected = selected_frame replay model in
   let frame = Option.value (List.nth frames selected) ~default:call in
   let location = frame.info.location in
   let callsite_line =

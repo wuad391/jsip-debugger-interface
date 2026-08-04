@@ -20,21 +20,4 @@ type t =
   }
 [@@deriving sexp_of]
 
-let empty =
-  { info =
-      ({ depth = 0
-       ; id = 0
-       ; function_info = Function_info.Unnamed "default"
-       ; location =
-           Location.create ~file_path:"none" ~line_number:0 ~char_range:(0, 0)
-       ; arguments = []
-       ; registry = []
-       ; ty = None
-       ; snapshot = Snapshot.empty
-       }
-       : Info.t)
-  ; range = 0, 0
-  }
-;;
-
 let create ~info ~range = { info; range }

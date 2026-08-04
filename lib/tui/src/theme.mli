@@ -50,7 +50,6 @@ val muted : Attr.Color.t
 val faint : Attr.Color.t
 val ghost : Attr.Color.t
 val border : Attr.Color.t
-val border_strong : Attr.Color.t
 val hairline : Attr.Color.t
 val tick_past : Attr.Color.t
 val app_purple : Attr.Color.t

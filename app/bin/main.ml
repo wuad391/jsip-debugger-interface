@@ -6,11 +6,8 @@ open Jsip_replay
 open Jsip_tui
 
 let load_replay ~dump_file =
-  Or_error.try_with (fun () ->
-    let parsed_info = Queue.create () in
-    Dump_reader.read_until_empty
-      dump_file
-      ~store_data:(Queue.enqueue parsed_info);
+  Dump_reader.read dump_file
+  |> Or_error.map ~f:(fun parsed_info ->
     Replay.create (Call_stack.create ~parsed_info))
   |> Or_error.tag_s ~tag:[%message "cannot read dump" (dump_file : string)]
 ;;

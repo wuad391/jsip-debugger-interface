@@ -1,6 +1,6 @@
 open! Core
 
-type t = { source : Line.t Array.t }
+type t = { source : string Array.t }
 
 let of_lines lines = { source = Array.of_list lines }
 let length t = Array.length t.source

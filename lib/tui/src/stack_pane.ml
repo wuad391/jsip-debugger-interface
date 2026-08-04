@@ -137,11 +137,10 @@ let rows ~width ~calls ~live ~selected ~folds ~cursor =
               ]
             | _ -> [ bar; View.text (String.make (indent + 4) ' ') ]
           in
-          let line = View.hcat (lead @ List.map spans ~f:render_span) in
-          let line = Panel.fit line ~width ~height:1 in
-          match bg with
-          | Some bg -> View.with_colors' ~fill_backdrop:true ~bg line
-          | None -> line)
+          Panel.row
+            ?bg
+            (View.hcat (lead @ List.map spans ~f:render_span))
+            ~width)
       in
       let target =
         match live_index with

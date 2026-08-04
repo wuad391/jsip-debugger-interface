@@ -45,11 +45,12 @@ let muted = color 0xbbb5ad
 let faint = color 0xa39d95
 let ghost = color 0x847e76
 let border = color 0x6f6a62
-let border_strong = color 0x847e75
 let hairline = color 0x4a4640
 let tick_past = color 0x2e5578
 let app_purple = color 0xc39ae2
-let keyword = color 0xc39ae2
+
+(* the app's purple, in its syntax-highlighting role *)
+let keyword = app_purple
 let ident = color 0x7fb8dc
 let string_lit = color 0x96c7a2
 let number = color 0xd8a45e

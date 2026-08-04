@@ -54,6 +54,43 @@ module Selection = struct
       | Linked_to_cursor
       | Selected
       | Cursor
+
+    (* The card you chose or the one you are aiming at, as opposed to one
+       merely linked to either. Only these two spell their address out. *)
+    let is_picked = function
+      | Selected | Cursor -> true
+      | Linked_to_selected | Linked_to_cursor | Plain -> false
+    ;;
+
+    (* The wash under a picked card. Both card renderers and the section
+       header go through this, so the blue and the orange cannot come out
+       different in different parts of the pane. *)
+    let wash t view =
+      match t with
+      | Cursor ->
+        View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg view
+      | Selected ->
+        View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg view
+      | Linked_to_selected | Linked_to_cursor | Plain -> view
+    ;;
+
+    (* A picked card and anything linked to it share a border color — that is
+       how you find the other drawing of one node. [plain] is what a card of
+       this kind wears when it is neither. *)
+    let border t ~plain =
+      match t with
+      | Cursor | Linked_to_cursor -> Theme.cursor
+      | Selected | Linked_to_selected -> Theme.highlight
+      | Plain -> plain
+    ;;
+
+    (* A card's label reads as the card's own, not as chrome — white and bold
+       where it is picked out, [plain] otherwise. *)
+    let label_attrs t ~plain =
+      match is_picked t with
+      | true -> [ Theme.fg Theme.text; Attr.bold ]
+      | false -> plain
+    ;;
   end
 
   let where spot ~address ~site =
@@ -162,21 +199,16 @@ module Context = struct
 
   (* an [Id] names a node the dump defined earlier — sometimes a tracked
      structure's root, sometimes a shared payload block *)
-  let node t (block : Snapshot.Block.t) =
+  let id_of (block : Snapshot.Block.t) =
     match block with
-    | Id id -> Replay.Nodes.find t.nodes id
+    | Id id -> Some id
     | Address _ | Int _ | Float _ | String _ | Int32 _ | Int64 _
     | Nativeint _ | Float_array _ | Child ->
       None
   ;;
 
-  let structure t (block : Snapshot.Block.t) =
-    match block with
-    | Id id -> Map.find t.by_id id
-    | Address _ | Int _ | Float _ | String _ | Int32 _ | Int64 _
-    | Nativeint _ | Float_array _ | Child ->
-      None
-  ;;
+  let node t block = Option.bind (id_of block) ~f:(Replay.Nodes.find t.nodes)
+  let structure t block = Option.bind (id_of block) ~f:(Map.find t.by_id)
 end
 
 (* one node's outgoing edges and inline fields, straight off the wire *)
@@ -394,11 +426,7 @@ let node_box
     Selection.mark context.selection ~address:node.virtual_address ~site
   in
   let border =
-    Theme.fg'
-      (match (mark : Selection.Mark.t) with
-       | Cursor | Linked_to_cursor -> Theme.cursor
-       | Selected | Linked_to_selected -> Theme.highlight
-       | Plain -> Theme.card_border)
+    Theme.fg' (Selection.Mark.border mark ~plain:Theme.card_border)
   in
   let summary =
     View.hcat (List.map (summary_spans leaves ~arity) ~f:span_view)
@@ -408,11 +436,9 @@ let node_box
      choose is the point of aiming. A card merely linked to one of them does
      not — it is not where you are. *)
   let address =
-    match show_address, (mark : Selection.Mark.t) with
-    | `Never, _
-    | `When_picked, (Linked_to_selected | Linked_to_cursor | Plain) ->
-      None
-    | `Always, _ | `When_picked, (Selected | Cursor) ->
+    match show_address, Selection.Mark.is_picked mark with
+    | `Never, _ | `When_picked, false -> None
+    | `Always, _ | `When_picked, true ->
       Some
         (View.text
            ~attrs:(Theme.fg' Theme.secondary)
@@ -423,13 +449,8 @@ let node_box
     match root_structure with
     | None -> View.none
     | Some structure ->
-      (* the name reads as the card's label, not as chrome — white, and bold
-         where the card is chosen or aimed at *)
       let attrs =
-        match (mark : Selection.Mark.t) with
-        | Selected | Cursor -> [ Theme.fg Theme.text; Attr.bold ]
-        | Linked_to_selected | Linked_to_cursor | Plain ->
-          Theme.fg' Theme.text
+        Selection.Mark.label_attrs mark ~plain:(Theme.fg' Theme.text)
       in
       View.text ~attrs [%string " %{Replay.Structure.display structure} "]
   in
@@ -487,14 +508,7 @@ let node_box
   let card =
     Panel.fit (View.vcat rows) ~width:card_width ~height:(List.length rows)
   in
-  let card =
-    match (mark : Selection.Mark.t) with
-    | Cursor ->
-      View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg card
-    | Selected ->
-      View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
-    | Linked_to_selected | Linked_to_cursor | Plain -> card
-  in
+  let card = Selection.Mark.wash mark card in
   (* what a fold hides is said below the card, not squeezed into its border *)
   let card =
     match hidden_count with
@@ -580,13 +594,7 @@ let shared_box
     | Some (node : Snapshot.Node.t) ->
       Selection.mark context.selection ~address:node.virtual_address ~site
   in
-  let border =
-    Theme.fg'
-      (match (mark : Selection.Mark.t) with
-       | Cursor | Linked_to_cursor -> Theme.cursor
-       | Selected | Linked_to_selected -> Theme.highlight
-       | Plain -> Theme.ghost)
-  in
+  let border = Theme.fg' (Selection.Mark.border mark ~plain:Theme.ghost) in
   let summary =
     match target with
     | Some node ->
@@ -597,10 +605,7 @@ let shared_box
      where the pointer is picked out *)
   let arrow =
     let attrs =
-      match (mark : Selection.Mark.t) with
-      | Selected | Cursor -> [ Theme.fg Theme.text; Attr.bold ]
-      | Linked_to_selected | Linked_to_cursor | Plain ->
-        Theme.fg' Theme.muted
+      Selection.Mark.label_attrs mark ~plain:(Theme.fg' Theme.muted)
     in
     View.text ~attrs " ↗ "
   in
@@ -608,11 +613,9 @@ let shared_box
      card does — and here it is the whole argument: two boxes wearing one
      address are one object drawn twice *)
   let address =
-    match show_address, (mark : Selection.Mark.t) with
-    | `Never, _
-    | `When_picked, (Linked_to_selected | Linked_to_cursor | Plain) ->
-      None
-    | `Always, _ | `When_picked, (Selected | Cursor) ->
+    match show_address, Selection.Mark.is_picked mark with
+    | `Never, _ | `When_picked, false -> None
+    | `Always, _ | `When_picked, true ->
       Option.map target ~f:(fun (node : Snapshot.Node.t) ->
         View.text
           ~attrs:(Theme.fg' Theme.secondary)
@@ -649,14 +652,12 @@ let shared_box
           [%string "└%{Panel.repeat \"┄\" ~width:(inner + 2)}┘"]
       ]
   in
-  let card =
-    Panel.fit (View.vcat rows) ~width:(inner + 4) ~height:(List.length rows)
-  in
-  match (mark : Selection.Mark.t) with
-  | Cursor -> View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg card
-  | Selected ->
-    View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg card
-  | Linked_to_selected | Linked_to_cursor | Plain -> card
+  Selection.Mark.wash
+    mark
+    (Panel.fit
+       (View.vcat rows)
+       ~width:(inner + 4)
+       ~height:(List.length rows))
 ;;
 
 let sibling_gap = 3
@@ -666,10 +667,15 @@ let sibling_gap = 3
    rails are the diagram's edges — the actual pointers — so they should read
    ahead of the pane's dividers without turning into bars themselves. *)
 let rail ~parent_center ~centers =
-  let leftmost = List.min_elt centers ~compare |> Option.value ~default:0 in
-  let rightmost = List.max_elt centers ~compare |> Option.value ~default:0 in
+  let leftmost =
+    List.min_elt centers ~compare:Int.compare |> Option.value ~default:0
+  in
+  let rightmost =
+    List.max_elt centers ~compare:Int.compare |> Option.value ~default:0
+  in
+  let child_centers = Int.Set.of_list centers in
   let glyph x =
-    let is_child = List.mem centers x ~equal:Int.equal in
+    let is_child = Set.mem child_centers x in
     let is_parent = x = parent_center in
     match x < leftmost || x > rightmost with
     | true -> " "
@@ -687,9 +693,13 @@ let rail ~parent_center ~centers =
           | false, false -> "┬")
        | false, false -> "─")
   in
-  View.text
-    ~attrs:(Theme.fg' Theme.rail)
-    (String.concat (List.init (rightmost + 1) ~f:glyph))
+  (* a Buffer rather than [String.concat (List.init ...)]: the glyphs are
+     multi-byte, and a rail is as wide as the widest row of cards *)
+  let buf = Buffer.create ((rightmost + 1) * 3) in
+  for x = 0 to rightmost do
+    Buffer.add_string buf (glyph x)
+  done;
+  View.text ~attrs:(Theme.fg' Theme.rail) (Buffer.contents buf)
 ;;
 
 (* edge labels sitting under their hooks *)
@@ -898,7 +908,6 @@ let rec tree
               , (_ : Toggle.t list) )
             -> List.length placed)
     in
-    Hash_set.add context.drawn_nodes node.id;
     let box = leaf_box ~hidden_count ~show_address:`When_picked in
     (* geometry always follows the unfolded, unpicked card, so neither
        folding (whose ⋯ tag can widen the border) nor aiming moves a center *)
@@ -1037,14 +1046,14 @@ let rec tree
 ;;
 
 let count_nodes structures =
-  let rec count (node : Snapshot.Node.t) =
-    1 + List.sum (module Int) node.children ~f:count
-  in
   List.sum
     (module Int)
     structures
     ~f:(fun (structure : Replay.Structure.t) ->
-      count structure.snapshot.root_node)
+      Snapshot.Node.fold
+        structure.snapshot.root_node
+        ~init:0
+        ~f:(fun n (_ : Snapshot.Node.t) -> n + 1))
 ;;
 
 (* the name · kind · type line — what a structure's header says about it, and
@@ -1096,18 +1105,13 @@ let structure_header (structure : Replay.Structure.t) ~folded ~mark =
        | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
        | false -> Theme.fg' Theme.muted)
   in
-  let line =
-    View.hcat
-      [ View.text ~attrs:(Theme.fg' Theme.secondary) (glyph_of ~folded)
-      ; View.text " "
-      ; View.text ~attrs:label_attrs label
-      ]
-  in
-  match (mark : Selection.Mark.t) with
-  | Cursor -> View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg line
-  | Selected ->
-    View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg line
-  | Linked_to_selected | Linked_to_cursor | Plain -> line
+  Selection.Mark.wash
+    mark
+    (View.hcat
+       [ View.text ~attrs:(Theme.fg' Theme.secondary) (glyph_of ~folded)
+       ; View.text " "
+       ; View.text ~attrs:label_attrs label
+       ])
 ;;
 
 (* one structure's block — its header row with its tree under it — measured
@@ -1135,19 +1139,17 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
     Context.create ~structures ~nodes ~new_addresses ~selection
   in
   let referenced =
-    let rec walk (owner : Replay.Structure.t) (node : Snapshot.Node.t) acc =
-      let acc =
-        List.fold node.block ~init:acc ~f:(fun acc ((_ : string), block) ->
-          match Context.structure context block with
-          | Some (target : Replay.Structure.t) when target.id <> owner.id ->
-            Set.add acc target.id
-          | Some _ | None -> acc)
-      in
-      List.fold node.children ~init:acc ~f:(fun acc child ->
-        walk owner child acc)
-    in
     List.fold structures ~init:Int.Set.empty ~f:(fun acc structure ->
-      walk structure structure.Replay.Structure.snapshot.root_node acc)
+      let owner = structure.Replay.Structure.id in
+      Snapshot.Node.fold
+        structure.Replay.Structure.snapshot.root_node
+        ~init:acc
+        ~f:(fun acc (node : Snapshot.Node.t) ->
+          List.fold node.block ~init:acc ~f:(fun acc ((_ : string), block) ->
+            match Context.structure context block with
+            | Some (target : Replay.Structure.t) when target.id <> owner ->
+              Set.add acc target.id
+            | Some _ | None -> acc)))
   in
   let section (sections : Section.t list) (structure : Replay.Structure.t) =
     match Hash_set.mem context.drawn structure.id with
@@ -1634,7 +1636,10 @@ let move_cursor
   =
   let placed = cards ~structures ~nodes ~new_addresses ~folds ~selection in
   let find site = card_at placed site in
-  let by_x = List.sort ~compare:(fun (a : Placed.t) b -> compare a.x b.x) in
+  let by_x =
+    List.sort
+      ~compare:(Comparable.lift Int.compare ~f:(fun (p : Placed.t) -> p.x))
+  in
   (* registry order, which is also the order the columns are filled in *)
   let roots =
     List.filter placed ~f:(fun (card : Placed.t) ->

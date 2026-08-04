@@ -8,9 +8,9 @@ open! Core
 
 type t
 
-val of_lines : Line.t list -> t
+val of_lines : string list -> t
 
 (** The 1-based [number]th line, or [None] outside [1 .. length t]. *)
-val line : t -> number:int -> Line.t option
+val line : t -> number:int -> string option
 
 val length : t -> int

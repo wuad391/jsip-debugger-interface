@@ -10,7 +10,7 @@
  ; mis-resolving dune's -source-tree-root
  (inline_tests
   (deps
-   (glob_files_rec ../../../demo/*))
+   (glob_files_rec ../../../testing/*))
   (flags
    (:standard -source-tree-root .)))
  (preprocess

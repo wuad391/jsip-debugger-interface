@@ -3,14 +3,14 @@
     Sits between {!Jsip_types.Call_stack} and the interface. The stack gives
     the raw timeline; this module walks it once and keeps, per step,
     everything a renderer asks for while stepping back and forth — the live
-    frames, which heap addresses were first seen at that step (the
-    interface's "freshly allocated" highlight), and the one-line status
-    description.
+    frames, the live structures, and which heap addresses were first seen at
+    that step (the interface's "freshly allocated" highlight).
 
     {[
       let replay = Replay.create call_stack in
       let step = Replay.step_exn replay ~step:3 in
-      step.description (* "M.add \"b\" 2 m — map_smoke.ml:6" *)
+      Replay.description step.call
+      (* "M.add \"b\" 2 m — map_smoke.ml:6" *)
     ]} *)
 
 open! Core
@@ -66,10 +66,12 @@ module Step : sig
     ; new_addresses : Snapshot.Address.Set.t
     (** addresses in this step's snapshot that no earlier snapshot mentioned
         — the nodes this call allocated *)
-    ; description : string
-    (** [fn args — file.ml:line], the footer status line *)
     }
 end
+
+(** [fn args — file.ml:line] for one event. Computed on demand rather than
+    stored on every step, because nothing on screen shows it. *)
+val description : Call.t -> string
 
 type t
 

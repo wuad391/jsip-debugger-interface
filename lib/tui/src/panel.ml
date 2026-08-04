@@ -13,7 +13,20 @@ let fit view ~width ~height =
 ;;
 
 let repeat glyph ~width =
-  String.concat (List.init (max 0 width) ~f:(fun (_ : int) -> glyph))
+  let buf = Buffer.create (max 0 width * String.length glyph) in
+  for _ = 1 to width do
+    Buffer.add_string buf glyph
+  done;
+  Buffer.contents buf
+;;
+
+(* every pane's selection wash: one row, then the backdrop under it, so the
+   panes cannot disagree about how a selected line looks *)
+let row ?bg view ~width =
+  let line = fit view ~width ~height:1 in
+  match bg with
+  | Some bg -> View.with_colors' ~fill_backdrop:true ~bg line
+  | None -> line
 ;;
 
 (* dividers state the surface they sit on rather than inheriting the

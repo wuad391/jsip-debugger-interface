@@ -11,14 +11,12 @@ module Nodes = struct
 
   let empty : t = Int.Map.empty
 
-  let rec define t (node : Snapshot.Node.t) =
-    let t =
+  let define t node =
+    Snapshot.Node.fold node ~init:t ~f:(fun t (node : Snapshot.Node.t) ->
       match Snapshot.Node.is_revisit_stub node with
       (* a stub states nothing: it must not overwrite the definition *)
       | true -> t
-      | false -> Map.set t ~key:node.id ~data:node
-    in
-    List.fold node.children ~init:t ~f:define
+      | false -> Map.set t ~key:node.id ~data:node)
   ;;
 
   let find t id = Map.find t id
@@ -35,10 +33,8 @@ module Structure = struct
     }
 
   (* the latest variable name, or [#id] for a structure never observed under
-     one *)
-  let display t =
-    match t.name with Some name -> name | None -> [%string "#%{t.id#Int}"]
-  ;;
+     one — the registry entry's own rule, which this is built from *)
+  let display t = Registry_entry.display_name ~id:t.id ~name:t.name
 
   (* The walk's shape stamped with the registry's address of record: the
      registry re-captures every structure's address at every event, while the
@@ -58,7 +54,6 @@ module Step = struct
     ; structures : Structure.t list
     ; nodes : Nodes.t
     ; new_addresses : Snapshot.Address.Set.t
-    ; description : string
     }
 end
 
@@ -68,19 +63,17 @@ type t =
   }
 
 let addresses_of_snapshot (snapshot : Snapshot.t) =
-  let rec walk (node : Snapshot.Node.t) acc =
-    let acc = Set.add acc node.virtual_address in
-    let acc =
+  Snapshot.Node.fold
+    snapshot.root_node
+    ~init:Snapshot.Address.Set.empty
+    ~f:(fun acc (node : Snapshot.Node.t) ->
+      let acc = Set.add acc node.virtual_address in
       List.fold node.block ~init:acc ~f:(fun acc (_label, block) ->
         match block with
         | Address address -> Set.add acc address
         | Int _ | Float _ | String _ | Int32 _ | Int64 _ | Nativeint _
         | Float_array _ | Id _ | Child ->
-          acc)
-    in
-    List.fold node.children ~init:acc ~f:(fun acc child -> walk child acc)
-  in
-  walk snapshot.root_node Snapshot.Address.Set.empty
+          acc))
 ;;
 
 let description (call : Call.t) =
@@ -154,16 +147,13 @@ let create call_stack =
       ; structures
       ; nodes = !nodes
       ; new_addresses
-      ; description = description call
       })
   in
   let files =
-    Array.fold steps ~init:[] ~f:(fun acc (step : Step.t) ->
-      let file = Location.file_path step.call.info.location in
-      match List.mem acc file ~equal:String.equal with
-      | true -> acc
-      | false -> file :: acc)
-    |> List.rev
+    Array.to_list steps
+    |> List.map ~f:(fun (step : Step.t) ->
+      Location.file_path step.call.info.location)
+    |> List.stable_dedup ~compare:String.compare
   in
   { steps; files }
 ;;

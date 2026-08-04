@@ -29,8 +29,5 @@ type t =
   }
 [@@deriving sexp_of]
 
-(* the empty, default call to be populated later *)
-val empty : t
-
 (* create a call given info and the call range *)
 val create : info:Info.t -> range:int * int -> t

@@ -139,6 +139,15 @@ module Node : sig
       address, and no content, standing for whatever that id was defined as
       earlier in the dump. *)
   val is_revisit_stub : t -> bool
+
+  (** Pre-order fold over the node and its descendants — [f] sees each node
+      once, parents before children. Indexing, counting and collecting all go
+      through this, so a new field on [t] reaches every traversal:
+
+      {[
+        Snapshot.Node.fold root ~init:0 ~f:(fun n (_ : t) -> n + 1)
+      ]} *)
+  val fold : t -> init:'a -> f:('a -> t -> 'a) -> 'a
 end
 
 type t =
@@ -147,6 +156,6 @@ type t =
   }
 [@@deriving sexp, bin_io, compare, equal]
 
-(** A placeholder snapshot (an empty [Map]), for pre-populated defaults like
-    {!Call.empty}. *)
+(** A placeholder snapshot (an empty [Map]), for tests and pre-populated
+    defaults. *)
 val empty : t
