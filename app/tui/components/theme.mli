@@ -52,6 +52,19 @@ val ghost : Attr.Color.t
 val border : Attr.Color.t
 val hairline : Attr.Color.t
 val tick_past : Attr.Color.t
+
+(** The timeline's activity shading: three stops per state, rising density
+    brightening within the state's own hue — past in the position blue's
+    register, future in the idle gray warming toward the accent — so density
+    reads as intensity while past/current/future keep meaning. *)
+val tick_past_ramp : Attr.Color.t array
+
+val tick_future_ramp : Attr.Color.t array
+
+(** The ramp stop for a density in [0, 1]; only genuine bursts (≥ half the
+    run's busiest step) reach the bright stop. *)
+val tick_density : Attr.Color.t array -> density:float -> Attr.Color.t
+
 val app_purple : Attr.Color.t
 
 (* syntax colors for the source pane *)

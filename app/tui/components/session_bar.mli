@@ -7,11 +7,12 @@ open! Core
 module View := Bonsai_term.View
 
 (** [structure] is the {!Snapshot.Ds_type} chip; [heat] adds the
-    right-aligned legend for the stack pane's heat cells when a perf profile
-    is loaded. *)
+    right-aligned legend for the stack pane's colored callee names, labeled
+    by what the ramp measures — [`Compute] for a loaded perf profile's
+    sampled shares, [`Calls] for the trace-frequency fallback. *)
 val view
   :  width:int
   -> dump_name:string
   -> structure:string
-  -> heat:bool
+  -> heat:[ `Compute | `Calls ] option
   -> View.t
