@@ -1357,21 +1357,37 @@ let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
    takes to show the card being pointed at, and zero when none is.
 
    It follows the selection once the cursor is committed, so [Enter] on a
-   far-right card does not snap the pane back to the left. *)
-let follow_left placed ~body_width ~(selection : Selection.t) =
+   far-right card does not snap the pane back to the left — but only while
+   the card is among the rows on screen. The scroll does not chase the
+   selection the way it chases the cursor, so the selected card can sit far
+   below the window; panning to its column anyway crops the rows you ARE
+   looking at down to whatever happens to cross it, which on a big dump is
+   nothing at all. *)
+let follow_left
+  placed
+  ~body_width
+  ~body_height
+  ~scroll
+  ~(selection : Selection.t)
+  =
   match Option.first_some selection.cursor selection.selected with
   | None -> 0
   | Some { Spot.site; address = (_ : Snapshot.Address.t) } ->
     (match card_at placed site with
      | None -> 0
      | Some card ->
-       Int.max
-         0
-         (bring_into_view
-            ~at:0
-            ~size:body_width
-            ~start:card.x
-            ~length:card.width))
+       (match
+          card.y < scroll + body_height && card.y + card.height > scroll
+        with
+        | false -> 0
+        | true ->
+          Int.max
+            0
+            (bring_into_view
+               ~at:0
+               ~size:body_width
+               ~start:card.x
+               ~length:card.width)))
 ;;
 
 let clamp_scroll canvas ~height ~scroll =
@@ -1393,8 +1409,15 @@ let resolve_scroll canvas placed ~height ~scroll ~selection =
   |> fun scroll -> clamp_scroll canvas ~height ~scroll
 ;;
 
-let resolve_left placed ~width ~selection =
-  follow_left placed ~body_width:(Panel.inner_width ~width) ~selection
+(* runs on the resolved scroll, so "among the rows on screen" means the rows
+   the eye is actually getting *)
+let resolve_left placed ~width ~height ~scroll ~selection =
+  follow_left
+    placed
+    ~body_width:(Panel.inner_width ~width)
+    ~body_height:(height - Panel.header_height)
+    ~scroll
+    ~selection
 ;;
 
 let view
@@ -1419,7 +1442,7 @@ let view
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
-  let left = resolve_left placed ~width ~selection in
+  let left = resolve_left placed ~width ~height ~scroll ~selection in
   let fresh = Set.length new_addresses in
   let live = List.length structures in
   let nodes = count_nodes structures in
@@ -1471,7 +1494,7 @@ let toggle_at
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
-  let left = resolve_left placed ~width ~selection in
+  let left = resolve_left placed ~width ~height ~scroll ~selection in
   let x = x + left in
   let y = y + scroll in
   List.find toggles ~f:(fun (toggle : Toggle.t) ->
@@ -1501,7 +1524,7 @@ let spot_at
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
-  let left = resolve_left placed ~width ~selection in
+  let left = resolve_left placed ~width ~height ~scroll ~selection in
   List.find placed ~f:(Placed.contains ~x:(x + left) ~y:(y + scroll))
   |> Option.map ~f:Placed.spot
 ;;

@@ -19,20 +19,20 @@ divider line along each seam:
                                               ◂ back  ·  step ▸  ·  [space] play  ·  q quit
 ─────────────────────────────┬──────────────────────────────────────────────────────────────
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
-      M.add "b" 2 M.empty    │ ▾ #1 · map ⟨string ⇒ int⟩   ▾ m · map ⟨string ⇒ int⟩
- ▎▾ M.add "a" 1 (M.add "b" 2 │  ┌ #1 ───┐                         ▾┌ m ──────── new ┐
- ▎    M.empty)               │  │"b" → 2│                          │"b" → 2         │
-      M.add k (v * 2) acc    │  └───────┘                          └ 0x77127f3ee7e8 ┘
-      M.add k (v * 2) acc    │                                      ┌──────┴───────┐
-    M.fold (fun k v acc ->   │                                      l              r
-      M.add k (v * 2) acc) m │                              ┌── new ┐            ┌┄┄┄┐
-      M.empty                │                              │"a" → 1│            ┆ ∅ ┆
-─────────────────────────────┤                              └───────┘            └┄┄┄┘
- SOURCE map_fold.ml · 15 line│
-         (String)            │
-     6                       │
-  ▾  7 let () =              │
- ▎   8   let m = M.add "a"   │
+      M.add "b" 2 M.empty    │ ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
+ ▎▾ M.add "a" 1 (M.add "b" 2 │  ┌ #1 ───┐
+ ▎    M.empty)               │  │"b" → 2│
+      M.add k (v * 2) acc    │  └───────┘
+      M.add k (v * 2) acc    │
+    M.fold (fun k v acc ->   │ ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
+      M.add k (v * 2) acc) m │        ▾┌ m ──────── new ┐
+      M.empty                │         │"b" → 2         │
+─────────────────────────────┤         └ 0x77127f3ee7e8 ┘
+ SOURCE map_fold.ml · 15 line│          ┌──────┴───────┐
+         (String)            │          l              r
+     6                       │  ┌── new ┐            ┌┄┄┄┐
+  ▾  7 let () =              │  │"a" → 1│            ┆ ∅ ┆
+ ▎   8   let m = M.add "a"   │  └───────┘            └┄┄┄┘
  ▎         1 (M.add "b" 2 M  │
  ▎         .empty) in        │
 ─────────────────────────────┴──────────────────────────────────────────────────────────────
@@ -63,8 +63,8 @@ divider line along each seam:
   the latest variable name they were observed under (`m ·`, `tbl ·`;
   `#id` when anonymous), root addresses re-stamp from the registry on
   every redraw, and only unreferenced structures get their own section
-  header — name · kind · static type, the one this event walked marked
-  in blue. Everything
+  header — name · kind · static type · how many nodes, the one this
+  event walked marked in blue. Everything
   folds: the `▾`/`▸` glyph beside a card tucks its subtree away — the
   card stays, and a `⋯ n hidden` note appears beneath it — and the glyph
   on a section
@@ -162,6 +162,30 @@ whole structure the cursor's card belongs to, in the call stack the aimed
 call's range. Pressing it again expands. A structure keeps its column
 when it collapses, so the ones beside it stay put while everything under
 it moves up and the space is actually freed.
+
+### Hundreds of structures
+
+A real program's registry is not three maps — an exchange run carries a
+thousand live structures — so the heap pane has two ways to cut it down,
+both announced on its meta line.
+
+`z` toggles **accordion** mode: every structure collapses except the one
+the keyboard is in, so the canvas becomes a list of one-line
+`name · kind · N nodes` summaries plus wherever you are standing. The
+fold set is recomputed from the cursor, which means walking `w`/`s`
+across the registry opens each structure as you arrive and closes it
+behind you. Your own structure folds are the accordion's to override
+while the mode is on — card-level folds keep working — and they come
+back untouched when it goes off.
+
+`/` opens a **filter** prompt: while it is open every key spells the
+filter (so `wasd`, `space` and `q` type instead of acting), the canvas
+narrows live as you type, and only structures whose header matches —
+name, kind or type, case-insensitive, so `/order`, `/hashtbl` and
+`/string` all work — stay on it. `Enter` keeps the filter,
+`Escape` drops it (also from outside the prompt), and the meta line
+owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
+starts empty.
 
 Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
 to the ends, and `PgUp`/`PgDn` scroll the heap.
