@@ -128,6 +128,23 @@ in `m`, takes an orange border — the same allocation, drawn twice.
 dune exec app/bin/main.exe -- -dump-file testing/expected/map_spine_sharing.dump
 ```
 
+For the full experience — a multi-file program with **compute heat** —
+replay the calculator example from a sibling `jsip-visual-debugger`
+checkout (its pipeline produces the dump and the perf profile under
+`_vreplay/calculator/`; the sources live in `examples/calculator/`):
+
+```sh
+dune exec app/bin/main.exe -- \
+  -dump-file  ../jsip-visual-debugger/_vreplay/calculator/dump.txt \
+  -source-root ../jsip-visual-debugger/examples/calculator \
+  -perf-file  ../jsip-visual-debugger/_vreplay/calculator/heat.sexp
+```
+
+Each `let` in the calculator's session is a step (its `Env.add` walks
+the growing environment map), and the callee names render in their
+function's share of the perf-sampled compute. Drop `-perf-file` to
+compare the uncolored view.
+
 `-source-root DIR` says where the dump's relative source paths
 live (default: the current directory; the golden dumps' paths resolve
 from the repo root).
