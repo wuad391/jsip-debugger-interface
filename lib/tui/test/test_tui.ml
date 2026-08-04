@@ -70,7 +70,7 @@ let calls_of replay =
     (Replay.step_exn replay ~step).call)
 ;;
 
-(* no profile loaded: the heat column collapses *)
+(* no profile loaded: every callee keeps its ordinary state color *)
 let no_heat calls = Array.map calls ~f:(fun (_ : Call.t) -> None)
 
 let live_of replay ~step =
