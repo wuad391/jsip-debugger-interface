@@ -514,12 +514,24 @@ let nil_box =
     ]
 ;;
 
-(* what the card over there is showing, so a pointer at it names the same
-   thing it does. The target is read exactly as its own card reads it: the
-   fields that are not edges, summarized the same way. *)
-let shared_spans (node : Snapshot.Node.t) ~ds_type ~context =
-  let (_ : (string * Edge.t) list), leaves =
-    node_edges node ~ds_type ~context
+(* What the card over there is showing, so a pointer at it names the same
+   thing it does: the fields that are not edges, summarized the way that card
+   summarizes them.
+
+   Deliberately NOT {!node_edges} — that claims references as it goes, and
+   this is a second look at a node someone else is drawing. Claiming here
+   would mark a structure drawn on behalf of a card that never draws it, and
+   the structure would vanish from the pane. *)
+let shared_spans (node : Snapshot.Node.t) ~ds_type =
+  let interior = Snapshot.Ds_type.interior_labels ds_type in
+  let leaves =
+    List.filter node.block ~f:(fun (label, block) ->
+      match (block : Snapshot.Block.t) with
+      | Child | Id (_ : int) -> false
+      | Int 0 -> not (List.mem interior label ~equal:String.equal)
+      | Int _ | Float _ | String _ | Int32 _ | Int64 _ | Nativeint _
+      | Float_array _ | Address _ ->
+        true)
   in
   summary_spans leaves ~arity:(List.length node.block)
 ;;
@@ -561,7 +573,7 @@ let shared_box
   let summary =
     match target with
     | Some node ->
-      View.hcat (List.map (shared_spans node ~ds_type ~context) ~f:span_view)
+      View.hcat (List.map (shared_spans node ~ds_type) ~f:span_view)
     | None -> View.text ~attrs:(Theme.fg' Theme.muted) [%string "#%{id#Int}"]
   in
   (* the arrow rides the border where a card's name does, and reads like one
@@ -1077,32 +1089,47 @@ let row_gap = 1
    beside the queue holding it beside the version one more [add] returned is
    the comparison the pane exists to make.
 
-   They flow in registry order, up to [columns] to a row, and a section that
-   would not fit in what is left of a row starts the next one — so the
-   columns are as wide as the trees in them, and a tree wider than the pane
-   still gets a row to itself rather than being squeezed. Each row is as tall
-   as its tallest section. *)
+   Each section drops into the shortest run of columns wide enough to hold
+   it, keeping registry order; one too wide for a single column claims the
+   neighbours it needs, up to the whole pane. Filling by column bottom rather
+   than by rows is what keeps the canvas dense: a dump with a thousand
+   structures has them in every size, and a row-at-a-time layout is as tall
+   as its tallest member every time, which on the real thing left more blank
+   canvas than diagram. *)
 let pack sections ~body_width =
-  let place (views, all_placed, all_toggles, row) (section : Section.t) =
-    let x, y, row_height, count = row in
-    let starts_row =
-      count > 0 && (count >= columns || x + section.width > body_width)
+  let column_width =
+    Int.max 1 ((body_width - ((columns - 1) * column_gap)) / columns)
+  in
+  let run_width span = (span * column_width) + ((span - 1) * column_gap) in
+  let bottoms = Array.create ~len:columns 0 in
+  let lowest ~start ~span =
+    List.init span ~f:(fun index -> bottoms.(start + index))
+    |> List.reduce_exn ~f:Int.max
+  in
+  let place (views, all_placed, all_toggles) (section : Section.t) =
+    let span =
+      List.init columns ~f:(fun index -> index + 1)
+      |> List.find ~f:(fun span -> run_width span >= section.width)
+      |> Option.value ~default:columns
     in
-    let x, y, row_height, count =
-      match starts_row with
-      | true -> 0, y + row_height + row_gap, 0, 0
-      | false -> x, y, row_height, count
+    let start =
+      List.init (columns - span + 1) ~f:Fn.id
+      |> List.min_elt ~compare:(fun left right ->
+        [%compare: int * int]
+          (lowest ~start:left ~span, left)
+          (lowest ~start:right ~span, right))
+      |> Option.value ~default:0
     in
+    let y = lowest ~start ~span in
+    let x = start * (column_width + column_gap) in
+    List.iter (List.init span ~f:Fn.id) ~f:(fun index ->
+      bottoms.(start + index) <- y + section.height + row_gap);
     ( View.pad ~l:x ~t:y section.view :: views
     , List.map section.placed ~f:(Placed.shift ~dx:x ~dy:y) @ all_placed
-    , List.map section.toggles ~f:(Toggle.shift ~dx:x ~dy:y) @ all_toggles
-    , ( x + section.width + column_gap
-      , y
-      , Int.max row_height section.height
-      , count + 1 ) )
+    , List.map section.toggles ~f:(Toggle.shift ~dx:x ~dy:y) @ all_toggles )
   in
-  let views, placed, toggles, (_ : int * int * int * int) =
-    List.fold sections ~init:([], [], [], (0, 0, 0, 0)) ~f:place
+  let views, placed, toggles =
+    List.fold sections ~init:([], [], []) ~f:place
   in
   View.zcat views, placed, toggles
 ;;
@@ -1124,10 +1151,22 @@ let count_nodes structures =
       count structure.snapshot.root_node)
 ;;
 
+(* Bring one span into a window of [size], from an offset of [at].
+
+   A card just past the edge takes the smallest adjustment that shows it, so
+   scrolling by hand and then stepping the cursor does not throw the view
+   somewhere else. A card nowhere near the window is a different matter —
+   that is a jump to another structure, and edge-aligning it puts the thing
+   you asked for against the frame with its surroundings all on one side, so
+   those get centred. *)
+let bring_into_view ~at ~size ~start ~length =
+  match start + length <= at || start >= at + size with
+  | true -> start + (length / 2) - (size / 2)
+  | false -> Int.max (start + length - size) (Int.min at start)
+;;
+
 (* The wheel and PgUp/PgDn set the scroll, but the cursor overrides it: a
-   card you cannot see is a card you cannot aim at. The adjustment is the
-   smallest one that brings it into the body, so scrolling by hand and then
-   moving the cursor a step does not throw the view somewhere else. *)
+   card you cannot see is a card you cannot aim at. *)
 let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
   match selection.cursor with
   | None -> scroll
@@ -1135,7 +1174,35 @@ let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
     (match card_at placed site with
      | None -> scroll
      | Some card ->
-       Int.max (card.y + card.height - body_height) (Int.min scroll card.y))
+       bring_into_view
+         ~at:scroll
+         ~size:body_height
+         ~start:card.y
+         ~length:card.height)
+;;
+
+(* The same thing sideways, and it is not optional: a tree wider than the
+   pane keeps its right-hand cards past the edge forever, so without this the
+   cursor walks onto cards nobody can see and [wasd] looks broken. Nothing
+   pans by hand — there is no horizontal wheel — so the offset is whatever it
+   takes to show the card being pointed at, and zero when none is.
+
+   It follows the selection once the cursor is committed, so [Enter] on a
+   far-right card does not snap the pane back to the left. *)
+let follow_left placed ~body_width ~(selection : Selection.t) =
+  match Option.first_some selection.cursor selection.selected with
+  | None -> 0
+  | Some { Spot.site; address = (_ : Snapshot.Address.t) } ->
+    (match card_at placed site with
+     | None -> 0
+     | Some card ->
+       Int.max
+         0
+         (bring_into_view
+            ~at:0
+            ~size:body_width
+            ~start:card.x
+            ~length:card.width))
 ;;
 
 let clamp_scroll canvas ~height ~scroll =
@@ -1155,6 +1222,10 @@ let resolve_scroll canvas placed ~height ~scroll ~selection =
     ~scroll
     ~selection
   |> fun scroll -> clamp_scroll canvas ~height ~scroll
+;;
+
+let resolve_left placed ~width ~selection =
+  follow_left placed ~body_width:(Panel.inner_width ~width) ~selection
 ;;
 
 let view
@@ -1177,6 +1248,7 @@ let view
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
+  let left = resolve_left placed ~width ~selection in
   let fresh = Set.length new_addresses in
   let live = List.length structures in
   let nodes = count_nodes structures in
@@ -1186,7 +1258,12 @@ let view
     | 0 -> base
     | fresh -> [%string "%{base} · %{fresh#Int} new"]
   in
-  Panel.view ~title:"heap" ~meta ~width ~height (View.crop ~t:scroll canvas)
+  Panel.view
+    ~title:"heap"
+    ~meta
+    ~width
+    ~height
+    (View.crop ~t:scroll ~l:left canvas)
 ;;
 
 let toggle_at
@@ -1211,6 +1288,8 @@ let toggle_at
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
+  let left = resolve_left placed ~width ~selection in
+  let x = x + left in
   let y = y + scroll in
   List.find toggles ~f:(fun (toggle : Toggle.t) ->
     x = toggle.x && y = toggle.y)
@@ -1239,7 +1318,8 @@ let spot_at
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
-  List.find placed ~f:(Placed.contains ~x ~y:(y + scroll))
+  let left = resolve_left placed ~width ~selection in
+  List.find placed ~f:(Placed.contains ~x:(x + left) ~y:(y + scroll))
   |> Option.map ~f:Placed.spot
 ;;
 
