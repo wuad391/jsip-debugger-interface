@@ -154,7 +154,13 @@ The heap pane pans sideways to keep the card you are pointing at in
 view; a tree wider than the pane would otherwise keep its right-hand
 cards off screen for good.
 
-Beyond the controls row up top, `h`/`l`/`p`/`n` also step, `g`/`G` jump
+`h` collapses whatever the focused pane is pointing at — in the heap the
+whole structure the cursor's card belongs to, in the call stack the aimed
+call's range. Pressing it again expands. A structure keeps its column
+when it collapses, so the ones beside it stay put while everything under
+it moves up and the space is actually freed.
+
+Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
 to the ends, and `PgUp`/`PgDn` scroll the heap.
 
 ## Toolchain

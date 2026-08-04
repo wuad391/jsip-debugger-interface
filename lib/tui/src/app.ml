@@ -89,6 +89,9 @@ module Action = struct
     | Jump_cursor of Heap_pane.Direction.t
     (** shift + [wasd]: aim and commit in one, skipping the orange *)
     | Select_heap_node of Heap_pane.Spot.t (** a click on a card *)
+    | Toggle_focused_fold
+    (** [space]: collapse whatever the focused pane is pointing at — the
+        structure a heap card belongs to, or a call's descendants *)
   [@@deriving sexp_of]
 end
 
@@ -282,6 +285,42 @@ let apply_action
          | true -> Set.remove model.source_folds fold
          | false -> Set.add model.source_folds fold)
     }
+  (* [h] folds what you are pointing at: in the heap the whole structure the
+     cursor's card belongs to, in the stack the aimed call's range. It reads
+     the cursor first and the selection second, so it works before you have
+     aimed at anything — the heap falls back to the structure this step
+     walked, the stack to the selected frame. *)
+  | Toggle_focused_fold ->
+    (match model.focus with
+     | Pane.Heap ->
+       let { Heap_pane.Selection.selected; cursor } =
+         heap_selection replay model
+       in
+       (match Option.first_some cursor selected with
+        | None -> model
+        | Some spot ->
+          let fold = Heap_pane.fold_of_spot spot in
+          { model with
+            heap_folds =
+              (match Set.mem model.heap_folds fold with
+               | true -> Set.remove model.heap_folds fold
+               | false -> Set.add model.heap_folds fold)
+          })
+     | Pane.Stack ->
+       let live = live_calls replay ~step:model.step in
+       (match
+          Option.first_some
+            model.stack_cursor
+            (List.nth live (selected_frame replay model))
+        with
+        | None -> model
+        | Some call ->
+          { model with
+            stack_folds =
+              (match Set.mem model.stack_folds call with
+               | true -> Set.remove model.stack_folds call
+               | false -> Set.add model.stack_folds call)
+          }))
   | Focus_next_pane -> { model with focus = Pane.other model.focus }
   | Move_cursor direction -> aim model ~direction
   | Commit_cursor -> commit model
@@ -702,8 +741,11 @@ let component ~replay ~sources ~dump_name ~exit ~dimensions (local_ graph) =
            exit ()
          | ASCII 'q', [] -> exit ()
          | (Arrow `Right | ASCII ('l' | 'n')), [] -> inject (Step_delta 1)
-         | (Arrow `Left | ASCII ('h' | 'p')), [] -> inject (Step_delta (-1))
+         | (Arrow `Left | ASCII 'p'), [] -> inject (Step_delta (-1))
          | ASCII ' ', [] -> inject Toggle_play
+         (* [h] gives up stepping back — ← and [p] still do that — to fold
+            whatever the focused pane is pointing at *)
+         | ASCII 'h', [] -> inject Toggle_focused_fold
          | (Home | ASCII 'g'), [] -> inject (Step_to 0)
          | (End | ASCII 'G'), [] -> inject (Step_to Int.max_value)
          | Page `Up, [] -> inject (Scroll_heap (-3))

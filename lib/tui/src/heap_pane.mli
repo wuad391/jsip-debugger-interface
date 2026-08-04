@@ -128,6 +128,12 @@ end
     falls back to before anything is chosen. *)
 val spot_of_structure : Replay.Structure.t -> Spot.t
 
+(** The structure a card belongs to, as the key that folds it — what [h]
+    collapses when the cursor is standing on that card. A card inside a
+    referenced structure answers with that structure, since the tree it is
+    drawn in is the one collapsing round it. *)
+val fold_of_spot : Spot.t -> Fold.t
+
 module Direction : sig
   type t =
     | Up

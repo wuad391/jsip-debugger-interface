@@ -1417,6 +1417,14 @@ let spot_at
   |> Option.map ~f:Placed.spot
 ;;
 
+(* The structure a card belongs to, as the key that folds it. A card inside a
+   referenced structure answers with THAT structure — the tree it is drawn in
+   is the one collapsing round it, which is the one you were looking at. *)
+let fold_of_spot ({ Spot.site; address = (_ : Snapshot.Address.t) } : Spot.t)
+  =
+  Fold.Structure site.structure
+;;
+
 (* where the pane starts you off: a structure's own root card *)
 let spot_of_structure (structure : Replay.Structure.t) =
   { Spot.address = structure.address
