@@ -31,9 +31,18 @@ module Address : sig
   val display : t -> string
 end
 
-(** One field of a walked heap block: an immediate or opaque value kept
-    inline. [Address] points at another tracked structure resolvable through
-    the event's registry; [Id] is a registry id boundary. *)
+(** One field of a walked heap block, under the label the walker gave it —
+    the wire carries every kept field, so a reader needs no layout of its own
+    to name anything.
+
+    [Child] says the field's value is a block of its own: it stands for the
+    next node in the owning node's [children], in order. [Id] references the
+    node carrying that wire id — a tracked root, a shared block dumped by an
+    earlier event, or an earlier node in this same walk (sharing, a cycle).
+    [Address] carries only a block the walker did not decode.
+
+    An empty pointer field arrives as [Int 0], indistinguishable from the
+    integer zero; see {!Ds_type.interior_labels}. *)
 module Block : sig
   type t =
     | Int of int
@@ -45,45 +54,70 @@ module Block : sig
     | Float_array of float list
     | Address of Address.t
     | Id of int
+    | Child
   [@@deriving sexp, bin_io, compare, equal]
 
   (** Source-ish spelling of the value: [42], ["a"], [0x1a0], [#2],
-      [[|1.; 2.|]] ... — what the heap pane prints inside a node. *)
+      [[|1.; 2.|]] ... — what the heap pane prints inside a node. A [Child]
+      is an edge, not a value, and the pane draws it rather than printing it. *)
   val display : t -> string
 end
 
 (** Which catalogued data structure the snapshot walked. Constructors mirror
-    the compiler's [Data_structure.t]; new tracked structures show up here as
-    new constructors. *)
+    the compiler's [Data_structure.t] — order included, since constructor
+    order is the C walker's contract; new tracked structures show up here as
+    new constructors.
+
+    There is one entry per REPRESENTATION, not per module: every [Make]
+    instance of a map is the same type, and [Core.Linked_queue] is a
+    [Stdlib.Queue.t] and arrives as [Queue].
+
+    [Core_*] is not the stdlib entry under another name. Core reaches its
+    containers through Base, and a Base map is a record over a tagged tree
+    where the stdlib's map is the tree itself; a Base hashtable is
+    [{table; length}] over an array of AVL trees where the stdlib's buckets
+    are cons chains. They share a name and nothing else. *)
 module Ds_type : sig
   type t =
     | Map
     | Set
     | Queue
+    | Hashtbl
+    | Stack
+    | Dynarray
+    | Core_map
+    | Core_set
+    | Core_hashtbl
+    | Core_hash_set
+    | Core_queue
+    | Core_stack
+    | Core_deque
+    | Core_fdeque
+    | Core_doubly_linked
+    | Core_hash_queue
+    | User
   [@@deriving sexp, bin_io, compare, equal]
 
-  (** Lowercase, for header chips: ["map"], ["set"], ["queue"]. *)
+  (** Lowercase, for header chips: ["map"], ["core.hash_queue"], ... — Core
+      entries keep the qualifier, because a Core map beside a stdlib one is a
+      thing you want to be able to tell apart. *)
   val display : t -> string
 
-  (** The masked field labels of one node's kind, in walk order — the
-      compiler's [Data_structure.layout] minus what never reaches the wire
-      (the AVL height [h], a queue's [last]). A label absent from the node's
-      {!Node.t.block} was a walked child: the k-th absence is
-      {!Node.t.children}'s k-th node, which is how a reader recovers which
-      slot a child hung off. [block] disambiguates queue roots
-      ([length]/[first]) from queue cells (numeric [0] = content,
-      [1] = next), and marks a walked boxed value — a map-node child whose
-          labels are all numeric positions, e.g. a tuple in a data slot — as
-          having no DS slots at all. *)
-  val masked_labels : t -> block:(string * Block.t) list -> string list
+  (** The labels this structure's own skeleton uses for its internal pointers
+      — the one thing the wire cannot say.
 
-  (** The labels whose [(Int 0)] means an empty pointer ([Empty]/[Nil])
-      rather than the number 0 — what the heap pane draws as [∅]. *)
-  val nil_labels : t -> string list
+      Every field arrives labeled, and a field holding a walked block reads
+      {!Block.Child}, so naming needs no layout. But an empty pointer and the
+      integer zero are the same word in memory and both arrive as [Int 0]:
+      [l (Int 0)] on a map node is the empty subtree, [d (Int 0)] on the same
+      node is the data zero. This is what lets the heap pane draw the first
+      as an empty slot and print the second as a value.
 
-  (** Whether a node is a walked boxed value rather than a DS node — all its
-      labels are numeric positions (see {!masked_labels}). *)
-  val is_value_block : (string * Block.t) list -> bool
+      Deliberately not exhaustive — numeric labels are excluded (an array
+      slot and a payload tuple's field both read ["1"]), as is any label the
+      structure also uses for user data. An unlisted empty slot reads [l=0]:
+      the cost of being wrong here is a box, never a wrong name. *)
+  val interior_labels : t -> string list
 end
 
 (** One heap block of the walked structure: its address, its non-pointer
@@ -92,11 +126,28 @@ end
     its pointer fields reach. *)
 module Node : sig
   type t =
-    { virtual_address : Address.t
+    { id : int
+    (** wire id, unique across the dump: the node's definition appears once
+        and later occurrences are [Block.Id] references to it *)
+    ; virtual_address : Address.t
     ; block : (string * Block.t) list
     ; children : t list
     }
   [@@deriving sexp, bin_io, compare, equal]
+
+  (** Whether this is a re-observed structure's stub — its id, its current
+      address, and no content, standing for whatever that id was defined as
+      earlier in the dump. *)
+  val is_revisit_stub : t -> bool
+
+  (** Pre-order fold over the node and its descendants — [f] sees each node
+      once, parents before children. Indexing, counting and collecting all go
+      through this, so a new field on [t] reaches every traversal:
+
+      {[
+        Snapshot.Node.fold root ~init:0 ~f:(fun n (_ : t) -> n + 1)
+      ]} *)
+  val fold : t -> init:'a -> f:('a -> t -> 'a) -> 'a
 end
 
 type t =
@@ -105,6 +156,6 @@ type t =
   }
 [@@deriving sexp, bin_io, compare, equal]
 
-(** A placeholder snapshot (an empty [Map]), for pre-populated defaults like
-    {!Call.empty}. *)
+(** A placeholder snapshot (an empty [Map]), for tests and pre-populated
+    defaults. *)
 val empty : t

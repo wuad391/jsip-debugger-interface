@@ -8,20 +8,51 @@ open Jsip_parsing
 let fixture name = [%string "../../../testing/expected/%{name}.dump"]
 
 let all_fixtures =
-  [ "map_alias_open"
+  [ "core_deque_basic"
+  ; "core_doubly_linked"
+  ; "core_fdeque_basic"
+  ; "core_hash_queue"
+  ; "core_hash_set_basic"
+  ; "core_hashtbl_basic"
+  ; "core_linked_queue"
+  ; "core_map_basic"
+  ; "core_map_legacy"
+  ; "core_queue_wrap"
+  ; "core_set_basic"
+  ; "core_stack_basic"
+  ; "dynarray_basic"
+  ; "hashtbl_basic"
+  ; "map_alias_open"
+  ; "map_array_payload"
   ; "map_basic"
   ; "map_data_kinds"
   ; "map_fold"
+  ; "map_list_payload"
   ; "map_nested"
   ; "map_partial_neg"
+  ; "map_record_nested"
   ; "map_registry_gc"
+  ; "map_rewalk"
+  ; "map_shared_payload"
+  ; "map_spine_sharing"
+  ; "map_versions"
+  ; "map_wide_payload"
   ; "neg_plain"
   ; "neg_untracked"
   ; "queue_basic"
+  ; "queue_cycle"
   ; "queue_mixed"
+  ; "queue_of_closures"
   ; "queue_of_maps"
+  ; "queue_of_queues"
+  ; "queue_transfer"
+  ; "queue_wide_tuple"
   ; "set_basic"
   ; "set_ops"
+  ; "stack_basic"
+  ; "stdout_mixed"
+  ; "user_floats"
+  ; "user_types"
   ]
 ;;
 
@@ -40,18 +71,38 @@ let%expect_test "unsexp one real event line" =
       (args
        ((No_label (expression (Unnamed "\"a\"")))
         (No_label (expression (Unnamed 1))) (No_label (expression (Unnamed m)))))
-      (registry ((1 0x763be65f19e8)))
+      (registry ((1 0x7fa801ff2348 m)))
+      (ty ((printed "int M.t") (params ((key string) (data int)))))
       (snapshot
        ((ds_type Map)
         (root_node
-         ((virtual_address 0x763be65f19e8)
+         ((id 1) (virtual_address 0x7fa801ff2348)
           (block ((l (Int 0)) (v (String a)) (d (Int 1)) (r (Int 0))))
           (children ())))))))
     |}]
 ;;
 
+(* dumps from a compiler predating the [ty] field parse all the same — the
+   field is optional, not a format version *)
+let%expect_test "an event without a ty field reads as None" =
+  (* [ty] arrived after the first dumps did, so the reader treats it as
+     optional; everything else is the current wire *)
+  let line =
+    {|(event (id 1) |}
+    ^ {|(loc ((file_path t.ml) (line_number 1) (char_range (0 1)))) |}
+    ^ {|(fn (Function_name M.add)) (args ()) (registry ((1 0x10))) |}
+    ^ {|(snapshot ((ds_type Map) (root_node ((id 1) (virtual_address 0x10) |}
+    ^ {|(block ()) (children ()))))))|}
+  in
+  let wire = Dump_wire.of_string line |> Or_error.ok_exn in
+  print_s [%sexp (wire.ty : Type_info.t option)];
+  [%expect {| () |}]
+;;
+
 let%expect_test "read a whole real dump into Call.Info values" =
-  Dump_reader.read_until_empty (fixture "map_basic") ~store_data:(fun info ->
+  Dump_reader.read (fixture "map_basic")
+  |> Or_error.ok_exn
+  |> Queue.iter ~f:(fun info ->
     let { Call.Info.depth; id; function_info; location; arguments; _ } =
       info
     in
@@ -71,13 +122,13 @@ let%expect_test "read a whole real dump into Call.Info values" =
 ;;
 
 let%expect_test "nested events carry their marker-derived depths" =
-  Dump_reader.read_until_empty
-    (fixture "map_nested")
-    ~store_data:(fun info ->
-      print_endline
-        [%string
-          "depth %{info.Call.Info.depth#Int}: %{Function_info.display \
-           info.function_info}"]);
+  Dump_reader.read (fixture "map_nested")
+  |> Or_error.ok_exn
+  |> Queue.iter ~f:(fun info ->
+    print_endline
+      [%string
+        "depth %{info.Call.Info.depth#Int}: %{Function_info.display \
+         info.function_info}"]);
   [%expect {|
     depth 2: M.add
     depth 1: M.add
@@ -86,27 +137,57 @@ let%expect_test "nested events carry their marker-derived depths" =
 
 let%expect_test "every golden dump parses end to end" =
   List.iter all_fixtures ~f:(fun name ->
-    let events = ref 0 in
-    Dump_reader.read_until_empty
-      (fixture name)
-      ~store_data:(fun (_ : Call.Info.t) -> incr events);
-    print_endline [%string "%{name}: %{!events#Int} events"]);
+    let events =
+      Queue.length (Dump_reader.read (fixture name) |> Or_error.ok_exn)
+    in
+    print_endline [%string "%{name}: %{events#Int} events"]);
   [%expect
     {|
+    core_deque_basic: 5 events
+    core_doubly_linked: 4 events
+    core_fdeque_basic: 3 events
+    core_hash_queue: 4 events
+    core_hash_set_basic: 4 events
+    core_hashtbl_basic: 4 events
+    core_linked_queue: 3 events
+    core_map_basic: 4 events
+    core_map_legacy: 3 events
+    core_queue_wrap: 8 events
+    core_set_basic: 3 events
+    core_stack_basic: 5 events
+    dynarray_basic: 5 events
+    hashtbl_basic: 6 events
     map_alias_open: 1 events
+    map_array_payload: 1 events
     map_basic: 3 events
     map_data_kinds: 3 events
     map_fold: 5 events
+    map_list_payload: 1 events
     map_nested: 2 events
     map_partial_neg: 0 events
+    map_record_nested: 1 events
     map_registry_gc: 2 events
+    map_rewalk: 3 events
+    map_shared_payload: 4 events
+    map_spine_sharing: 6 events
+    map_versions: 5 events
+    map_wide_payload: 1 events
     neg_plain: 0 events
     neg_untracked: 0 events
     queue_basic: 5 events
-    queue_mixed: 7 events
+    queue_cycle: 3 events
+    queue_mixed: 8 events
+    queue_of_closures: 3 events
     queue_of_maps: 3 events
+    queue_of_queues: 6 events
+    queue_transfer: 6 events
+    queue_wide_tuple: 2 events
     set_basic: 3 events
     set_ops: 5 events
+    stack_basic: 4 events
+    stdout_mixed: 3 events
+    user_floats: 2 events
+    user_types: 3 events
     |}]
 ;;
 
@@ -139,9 +220,10 @@ let%expect_test "a dump that does not return to depth 0 is rejected" =
     |> String.concat ~sep:"\n"
   in
   Out_channel.write_all file ~data:(truncated ^ "\n}}\n");
-  Expect_test_helpers_core.show_raise (fun () ->
-    Dump_reader.read_until_empty
-      file
-      ~store_data:(ignore : Call.Info.t -> unit));
-  [%expect {| (raised (Failure "DUMP READER: Incorrect file ending!")) |}]
+  print_s [%sexp (Dump_reader.read file : Call.Info.t Queue.t Or_error.t)];
+  [%expect
+    {|
+    (Error
+     ((line_number 3) ("dump does not return to depth 0" (depth -1) (line }}))))
+    |}]
 ;;

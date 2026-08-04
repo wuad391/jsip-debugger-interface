@@ -6,10 +6,10 @@ open Jsip_replay
 (* every dump here is a golden fixture — verbatim compiler output vendored
    under testing/expected/ (see testing/README.md) *)
 let replay_of_fixture name =
-  let parsed_info = Queue.create () in
-  Dump_reader.read_until_empty
-    [%string "../../../testing/expected/%{name}.dump"]
-    ~store_data:(Queue.enqueue parsed_info);
+  let parsed_info =
+    Dump_reader.read [%string "../../../testing/expected/%{name}.dump"]
+    |> Or_error.ok_exn
+  in
   Replay.create (Call_stack.create ~parsed_info)
 ;;
 
@@ -17,9 +17,10 @@ let show_steps replay =
   List.iter
     (List.init (Replay.length replay) ~f:Fn.id)
     ~f:(fun step ->
-      let { Replay.Step.frames; new_addresses; description; _ } =
+      let { Replay.Step.call; frames; new_addresses; _ } =
         Replay.step_exn replay ~step
       in
+      let description = Replay.description call in
       let stack = List.length frames in
       let fresh = Set.length new_addresses in
       print_endline
@@ -73,15 +74,17 @@ let%expect_test "the registry drops structures the GC collected" =
     ~f:(fun step ->
       let { Replay.Step.call; _ } = Replay.step_exn replay ~step in
       let registry =
-        List.map call.info.registry ~f:(fun (id, address) ->
-          [%string "%{id#Int}↦%{Snapshot.Address.display address}"])
+        List.map call.info.registry ~f:(fun (entry : Registry_entry.t) ->
+          [%string
+            "%{Registry_entry.display entry}↦%{Snapshot.Address.display \
+             entry.address}"])
         |> String.concat ~sep:" "
       in
       print_endline [%string "%{step#Int}: registry %{registry}"]);
   [%expect
     {|
-    0: registry 1↦0x7647edff0770
-    1: registry 2↦0x7647edffffd8
+    0: registry #1↦0x78c2451f11f0
+    1: registry #2↦0x78c2451fffd8
     |}]
 ;;
 

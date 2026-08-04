@@ -11,6 +11,7 @@ let info ~depth ~name : Call.Info.t =
       Location.create ~file_path:"t.ml" ~line_number:depth ~char_range:(0, 1)
   ; arguments = []
   ; registry = []
+  ; ty = None
   ; snapshot = Snapshot.empty
   }
 ;;
@@ -88,4 +89,40 @@ let%expect_test "an empty dump makes an empty call stack" =
   let t = stack_of_depths [] in
   print_s [%sexp (Call_stack.length t : int)];
   [%expect {| 0 |}]
+;;
+
+let%expect_test "type_info display picks the roles a human reads" =
+  let show printed params =
+    print_endline (Type_info.display { Type_info.printed; params })
+  in
+  show "int M.t" [ "key", "string"; "data", "int" ];
+  show "S.t" [ "elt", "int" ];
+  show "(int -> int) Queue.t" [ "elt", "int -> int" ];
+  (* no role resolved (e.g. the map's module was a functor parameter): the
+     printed type stands alone *)
+  show "int M.t" [];
+  [%expect
+    {|
+    ⟨string ⇒ int⟩
+    ⟨int⟩
+    ⟨int -> int⟩
+    ⟨int M.t⟩
+    |}]
+;;
+
+let%expect_test "hostile payload strings display escaped" =
+  List.iter
+    [ "plain"
+    ; {|quote"and\back|}
+    ; "newline\nand\ttab"
+    ; "nul\000and\255high"
+    ]
+    ~f:(fun s -> print_endline (Snapshot.Block.display (String s)));
+  [%expect
+    {|
+    "plain"
+    "quote\"and\\back"
+    "newline\nand\ttab"
+    "nul\000and\255high"
+    |}]
 ;;

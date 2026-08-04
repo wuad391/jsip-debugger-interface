@@ -11,7 +11,8 @@
         (fn (Function_name M.add))
         (args ((No_label (expression (Unnamed "\"a\"")))
                (No_label (expression (Unnamed m)))))
-        (registry ((1 0x7f08c0e0)))
+        (registry ((1 0x7f08c0e0 m)))
+        (ty ((printed "int M.t") (params ((key string) (data int)))))
         (snapshot ((ds_type Map) (root_node ...))))
     ]}
 
@@ -37,16 +38,21 @@ type t =
       source text, even a bare identifier, so [Function_name] never appears
       here. An argument the application was abstracted over reads
       ["OMITTED"]. *)
-  ; registry : (int * Snapshot.Address.t) list
-  (** the live weak registry at event time as [(id, address)] pairs *)
+  ; registry : Registry_entry.t list
+  (** the live weak registry at event time — ids, current addresses, and
+      latest observed variable names *)
+  ; ty : Type_info.t option [@sexp.option]
+  (** the static type of this event's walked root; [None] on dumps from a
+      compiler predating the field *)
   ; snapshot : Snapshot.t
   }
 [@@deriving sexp]
 
-(** Reads the [(event ...)] wrapper the compiler emits. Unknown extra fields
-    are ignored so a newer compiler doesn't break the reader. *)
-val of_event_sexp : Sexp.t -> t Or_error.t
-
 (** [of_string line] parses one already-unframed dump line (no leading depth
-    markers). *)
+    markers) — the [(event ...)] wrapper the compiler emits. Unknown extra
+    fields are ignored so a newer compiler doesn't break the reader. *)
 val of_string : string -> t Or_error.t
+
+(** The same event under the interface's own field names, at the nesting
+    [depth] the line's [{}] markers put it at. *)
+val to_call_info : t -> depth:int -> Call.Info.t

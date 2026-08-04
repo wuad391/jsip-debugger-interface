@@ -7,10 +7,13 @@ module Info : sig
     ; function_info : Function_info.t
     ; location : Location.t
     ; arguments : Argument.t list
-    ; registry : (int * Snapshot.Address.t) list
-    (** every tracked-and-alive structure at event time, as
-        [(id, current address)] pairs; resolves [Address]/[Id] references
-        inside [snapshot] *)
+    ; registry : Registry_entry.t list
+    (** every tracked-and-alive structure at event time; resolves [Id]
+        references inside [snapshot] and carries the latest variable name
+        each structure was observed under *)
+    ; ty : Type_info.t option [@sexp.option]
+    (** the walked structure's static type, straight off the wire; [None] on
+        dumps from a compiler predating the field *)
     ; snapshot : Snapshot.t (** the walked shape of the structure *)
     }
   [@@deriving sexp_of]
@@ -25,9 +28,6 @@ type t =
       shallower *)
   }
 [@@deriving sexp_of]
-
-(* the empty, default call to be populated later *)
-val empty : t
 
 (* create a call given info and the call range *)
 val create : info:Info.t -> range:int * int -> t

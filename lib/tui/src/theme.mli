@@ -10,13 +10,14 @@
 open! Core
 module Attr := Bonsai_term.Attr
 
+(** The screen's one surface — panes, strip and session bar all sit on it, so
+    nothing reads as a slab edge. *)
 val bg : Attr.Color.t
-val panel_bg : Attr.Color.t
 
-(** The brand gold: the session dot and the heap cards' outlines. *)
+(** The brand gold: the session bar's dot. *)
 val accent : Attr.Color.t
 
-(** The "allocated at this step" gold, brighter than {!accent}. *)
+(** The "allocated at this step" green — the [new] tag in a card's border. *)
 val fresh : Attr.Color.t
 
 (** Selection and position — the bright blue that follows the current step
@@ -25,13 +26,30 @@ val highlight : Attr.Color.t
 
 val highlight_bg : Attr.Color.t
 val highlight_deep : Attr.Color.t
+
+(** Where the keyboard is, as opposed to where the selection is: the orange
+    that marks the pane [Tab] last focused and, inside it, the card or row
+    [Enter] would commit to. Blue says "chosen", orange says "about to be" —
+    the two are on screen together while you aim. *)
+val cursor : Attr.Color.t
+
+val cursor_bg : Attr.Color.t
+val cursor_deep : Attr.Color.t
+
+(** The heap cards' outline — a calmer blue than {!highlight}. *)
+val card_border : Attr.Color.t
+
+(** The rails joining heap cards. Brighter than {!border}: those lines are
+    the diagram's pointers, so they should read ahead of the pane chrome
+    rather than behind it. *)
+val rail : Attr.Color.t
+
 val text : Attr.Color.t
 val secondary : Attr.Color.t
 val muted : Attr.Color.t
 val faint : Attr.Color.t
 val ghost : Attr.Color.t
 val border : Attr.Color.t
-val border_strong : Attr.Color.t
 val hairline : Attr.Color.t
 val tick_past : Attr.Color.t
 val app_purple : Attr.Color.t
