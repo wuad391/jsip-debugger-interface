@@ -13,7 +13,9 @@ let load_replay ~dump_file =
 ;;
 
 (* every file the dump mentions, loaded and highlighted once up front; a
-   missing file becomes a placeholder pane, not a failure *)
+   missing file becomes a placeholder pane, not a failure — one that says
+   where it looked and which flag moves the search, because the reader's own
+   error is an exn sexp nobody should have to read in a 30-column pane *)
 let load_sources replay ~source_root =
   Replay.files replay
   |> List.map ~f:(fun path ->
@@ -23,9 +25,14 @@ let load_sources replay ~source_root =
       | false -> source_root ^/ path
     in
     ( path
-    , Or_error.map
-        (Source_reader.load resolved)
-        ~f:Source_pane.Loaded.of_source_file ))
+    , match Source_reader.load resolved with
+      | Ok file -> Ok (Source_pane.Loaded.of_source_file file)
+      | Error (_ : Error.t) ->
+        Or_error.error_string
+          [%string
+            "%{path} is not at %{resolved} — the dump's paths resolve from \
+             the replayed program's root, so run there or pass -source-root \
+             DIR"] ))
   |> String.Map.of_alist_exn
 ;;
 

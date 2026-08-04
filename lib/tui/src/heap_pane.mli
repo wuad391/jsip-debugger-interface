@@ -162,7 +162,12 @@ val accordion_folds
     everything. *)
 val matches_filter : Replay.Structure.t -> filter:string -> bool
 
-(** [note] rides the meta line ahead of the counts — the app's place to say
+(** [pan] is the manual horizontal offset — [\[]/[\]] and shift+wheel — the
+    sideways twin of [scroll]. The pane still slides on its own to keep the
+    aimed card in view, adjusting from [pan] exactly the way the scroll
+    adjusts to the cursor, and clamps to the canvas.
+
+    [note] rides the meta line ahead of the counts — the app's place to say
     an app-level mode is shaping the canvas (the live [/] filter, the
     accordion light). [total] is how many structures there were before the
     filter; the live count reads [n of total] when they differ. *)
@@ -176,6 +181,7 @@ val view
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
+  -> pan:int
   -> selection:Selection.t
   -> View.t
 
@@ -226,6 +232,7 @@ val toggle_at
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
+  -> pan:int
   -> selection:Selection.t
   -> width:int
   -> height:int
@@ -243,6 +250,7 @@ val spot_at
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
+  -> pan:int
   -> selection:Selection.t
   -> width:int
   -> height:int

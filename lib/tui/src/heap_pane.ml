@@ -1056,6 +1056,10 @@ let count_nodes structures =
         ~f:(fun n (_ : Snapshot.Node.t) -> n + 1))
 ;;
 
+let node_count_label count =
+  match count with 1 -> "1 node" | count -> [%string "%{count#Int} nodes"]
+;;
+
 (* the name · kind · type line — what a structure's header says about it, and
    so also what [/] lets you filter by *)
 let header_text (structure : Replay.Structure.t) =
@@ -1086,11 +1090,7 @@ let structure_header (structure : Replay.Structure.t) ~folded ~mark =
   (* size on the summary line: it is all you see of a collapsed structure,
      and how big each one is is the thing worth scanning for when hundreds of
      them are collapsed *)
-  let size =
-    match count_nodes [ structure ] with
-    | 1 -> "1 node"
-    | count -> [%string "%{count#Int} nodes"]
-  in
+  let size = node_count_label (count_nodes [ structure ]) in
   let label = [%string "%{header_text structure} · %{size}"] in
   (* standing on the header means the whole structure is what is picked out,
      so it takes the same colours a picked card does. Only an exact match
@@ -1354,9 +1354,10 @@ let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
 
 (* The same thing sideways, and it is not optional: a tree wider than the
    pane keeps its right-hand cards past the edge forever, so without this the
-   cursor walks onto cards nobody can see and [wasd] looks broken. Nothing
-   pans by hand — there is no horizontal wheel — so the offset is whatever it
-   takes to show the card being pointed at, and zero when none is.
+   cursor walks onto cards nobody can see and [wasd] looks broken. [pan] is
+   where the hand left it — [\[]/[\]] and shift+wheel — and the cursor
+   overrides it exactly the way it overrides the scroll: the smallest
+   adjustment that shows the card being pointed at.
 
    It follows the selection once the cursor is committed, so [Enter] on a
    far-right card does not snap the pane back to the left — but only while
@@ -1370,23 +1371,24 @@ let follow_left
   ~body_width
   ~body_height
   ~scroll
+  ~pan
   ~(selection : Selection.t)
   =
   match Option.first_some selection.cursor selection.selected with
-  | None -> 0
+  | None -> pan
   | Some { Spot.site; address = (_ : Snapshot.Address.t) } ->
     (match card_at placed site with
-     | None -> 0
+     | None -> pan
      | Some card ->
        (match
           card.y < scroll + body_height && card.y + card.height > scroll
         with
-        | false -> 0
+        | false -> pan
         | true ->
           Int.max
             0
             (bring_into_view
-               ~at:0
+               ~at:pan
                ~size:body_width
                ~start:card.x
                ~length:card.width)))
@@ -1411,15 +1413,23 @@ let resolve_scroll canvas placed ~height ~scroll ~selection =
   |> fun scroll -> clamp_scroll canvas ~height ~scroll
 ;;
 
+let clamp_pan canvas ~width ~pan =
+  Int.max
+    0
+    (Int.min pan (Int.max 0 (View.width canvas - Panel.inner_width ~width)))
+;;
+
 (* runs on the resolved scroll, so "among the rows on screen" means the rows
    the eye is actually getting *)
-let resolve_left placed ~width ~height ~scroll ~selection =
+let resolve_left canvas placed ~width ~height ~scroll ~pan ~selection =
   follow_left
     placed
     ~body_width:(Panel.inner_width ~width)
     ~body_height:(height - Panel.header_height)
     ~scroll
+    ~pan
     ~selection
+  |> fun pan -> clamp_pan canvas ~width ~pan
 ;;
 
 let view
@@ -1432,6 +1442,7 @@ let view
   ~new_addresses
   ~folds
   ~scroll
+  ~pan
   ~selection
   =
   let canvas, placed, (_ : Toggle.t list) =
@@ -1444,7 +1455,9 @@ let view
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
-  let left = resolve_left placed ~width ~height ~scroll ~selection in
+  let left =
+    resolve_left canvas placed ~width ~height ~scroll ~pan ~selection
+  in
   let fresh = Set.length new_addresses in
   let live = List.length structures in
   let nodes = count_nodes structures in
@@ -1456,7 +1469,7 @@ let view
         [%string "%{live#Int} of %{total#Int} live"]
       | Some (_ : int) | None -> [%string "%{live#Int} live"]
     in
-    let base = [%string "%{living} · %{nodes#Int} nodes"] in
+    let base = [%string "%{living} · %{node_count_label nodes}"] in
     let base =
       match fresh with
       | 0 -> base
@@ -1480,6 +1493,7 @@ let toggle_at
   ~new_addresses
   ~folds
   ~scroll
+  ~pan
   ~selection
   ~width
   ~height
@@ -1496,7 +1510,9 @@ let toggle_at
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
-  let left = resolve_left placed ~width ~height ~scroll ~selection in
+  let left =
+    resolve_left canvas placed ~width ~height ~scroll ~pan ~selection
+  in
   let x = x + left in
   let y = y + scroll in
   List.find toggles ~f:(fun (toggle : Toggle.t) ->
@@ -1510,6 +1526,7 @@ let spot_at
   ~new_addresses
   ~folds
   ~scroll
+  ~pan
   ~selection
   ~width
   ~height
@@ -1526,7 +1543,9 @@ let spot_at
       ~body_width:(Panel.inner_width ~width)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
-  let left = resolve_left placed ~width ~height ~scroll ~selection in
+  let left =
+    resolve_left canvas placed ~width ~height ~scroll ~pan ~selection
+  in
   List.find placed ~f:(Placed.contains ~x:(x + left) ~y:(y + scroll))
   |> Option.map ~f:Placed.spot
 ;;

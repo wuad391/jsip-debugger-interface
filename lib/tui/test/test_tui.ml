@@ -35,6 +35,7 @@ let heap_view
   ?(width = 56)
   ?(height = 15)
   ?(scroll = 0)
+  ?(pan = 0)
   ?(selection = Heap_pane.Selection.none)
   ?folds
   replay
@@ -57,6 +58,7 @@ let heap_view
        ~folds:
          (Option.value folds ~default:(Set.empty (module Heap_pane.Fold)))
        ~scroll
+       ~pan
        ~selection)
 ;;
 
@@ -184,12 +186,12 @@ let%expect_test "heap pane: a collected structure is simply gone" =
   heap_view ~height:8 replay ~step:1;
   [%expect
     {|
-    HEAP                          1 live · 1 nodes · 1 new
+    HEAP                           1 live · 1 node · 1 new
     ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
      ┌ #1 ─ new ┐
      │"dead" → 0│
      └──────────┘
-    HEAP                          1 live · 1 nodes · 1 new
+    HEAP                           1 live · 1 node · 1 new
     ▾ #2 · map ⟨string ⇒ int⟩ · 1 node
      ┌ #2 ─ new ┐
      │"live" → 1│
@@ -311,23 +313,35 @@ let%expect_test "source pane: gutter, active line wash, callsite marker" =
     |}]
 ;;
 
-let%expect_test "source pane: a missing file renders its error" =
+let%expect_test "source pane: a missing file renders its error, wrapped" =
+  (* the placeholder the app builds names the resolved path and the flag that
+     moves the search — a sentence, so it has to wrap in a pane a third of
+     the screen wide rather than crop *)
   print_view
-    ~height:5
+    ~width:36
+    ~height:8
     (Source_pane.view
-       ~width:56
-       ~height:5
+       ~width:36
+       ~height:8
        ~file_label:"gone.ml"
-       ~source:(Or_error.error_string "no source loaded for gone.ml")
+       ~source:
+         (Or_error.error_string
+            "lib/gone.ml is not at ./lib/gone.ml — the dump's paths resolve \
+             from the replayed program's root, so run there or pass \
+             -source-root DIR")
        ~folds:Int.Set.empty
        ~active_line:1
        ~callsite_line:None
        ~char_range:(0, 0));
   [%expect
     {|
-    SOURCE                               gone.ml · missing
+    SOURCE           gone.ml · missing
 
-     no source loaded for gone.ml
+     lib/gone.ml is not at
+     ./lib/gone.ml — the dump's
+     paths resolve from the replayed
+     program's root, so run there or
+     pass -source-root DIR
     |}]
 ;;
 
@@ -449,6 +463,7 @@ let%expect_test "heap clicks land on cards, not the space between" =
       ~new_addresses
       ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
+      ~pan:0
       ~selection:Heap_pane.Selection.none
       ~height:15
       ~x
@@ -656,6 +671,7 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
             (module Heap_pane.Fold)
             [ Heap_pane.Fold.Node (2, []) ])
        ~scroll:0
+       ~pan:0
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
@@ -692,6 +708,7 @@ let%expect_test "heap fold: a structure collapses to its header" =
        ~folds:
          (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 2 ])
        ~scroll:0
+       ~pan:0
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
@@ -726,6 +743,7 @@ let heap_lines
        ~new_addresses
        ~folds
        ~scroll:0
+       ~pan:0
        ~selection)
   |> fun image ->
   let buffer = Buffer.create 1024 in
@@ -801,6 +819,7 @@ let%expect_test "collapsing a structure keeps the others in their column" =
           ~new_addresses
           ~folds
           ~scroll:0
+          ~pan:0
           ~selection:Heap_pane.Selection.none
           ~width:60
           ~height:40
@@ -848,6 +867,7 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
       ~new_addresses
       ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
+      ~pan:0
       ~selection:Heap_pane.Selection.none
       ~height:12
       ~x
@@ -945,6 +965,7 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
          ~new_addresses
          ~folds
          ~scroll:0
+         ~pan:0
          ~selection:Heap_pane.Selection.none)
   in
   render (Set.empty (module Heap_pane.Fold));
@@ -1443,6 +1464,7 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
          ~new_addresses
          ~folds:(effective selection)
          ~scroll:0
+         ~pan:0
          ~selection)
   in
   let selection =
@@ -1502,6 +1524,66 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
     |}]
 ;;
 
+let%expect_test "the heap pans by hand, and the cursor still overrides" =
+  (* [\[]/[\]] slide the window sideways across a canvas wider than the pane;
+     with nothing aimed at, the offset is exactly where the hand left it
+     (clamped to the canvas), and aiming pulls the window back only far
+     enough to show the card *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  let step = Replay.length replay - 1 in
+  heap_view ~width:36 ~height:8 replay ~step;
+  heap_view ~width:36 ~height:8 ~pan:12 replay ~step;
+  (* far past the canvas edge: clamps to the right edge, not to nowhere *)
+  heap_view ~width:36 ~height:8 ~pan:1000 replay ~step;
+  (* aiming wins over the hand: the same wild pan lands wherever shows the
+     cursor's card — which, being the cursor, spells out its address *)
+  heap_view
+    ~width:36
+    ~height:8
+    ~pan:1000
+    ~selection:
+      { Heap_pane.Selection.selected = None
+      ; cursor = current_spot replay ~step
+      }
+    replay
+    ~step;
+  [%expect
+    {|
+    HEAP      2 live · 6 nodes · 3 new
+    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
+                      ▾┌ m ────┐
+                       │"f" → 6│
+                       └───────┘
+                    ┌──────────┴──────
+                    l
+           ▾┌───────┐             ▾┌──
+    HEAP      2 live · 6 nodes · 3 new
+    tring ⇒ int⟩ · 3 nodes
+          ▾┌ m ────┐
+           │"f" → 6│
+           └───────┘
+        ┌──────────┴───────────┐
+        l                      r
+    ────┐             ▾┌───────┐
+    HEAP      2 live · 6 nodes · 3 new
+    ⟩ · 3 nodes
+    ────┐
+     → 6│
+    ────┘
+    ────┴───────────┐
+                    r
+           ▾┌───────┐
+    HEAP      2 live · 6 nodes · 3 new
+
+    · map ⟨string ⇒ int⟩ · 3 nodes
+            ▾┌ bigger ─── new ┐
+             │"f" → 6         │
+             └ 0x78de5b5fff78 ┘
+     ┌───────────────┴────────────────
+     l
+    |}]
+;;
+
 let%expect_test "filter: only matching structures stay on the canvas" =
   (* [/]'s cut, by the header's own words — name, kind, type — and the meta
      line owns up to what it is hiding *)
@@ -1526,12 +1608,13 @@ let%expect_test "filter: only matching structures stay on the canvas" =
          ~new_addresses
          ~folds:(Set.empty (module Heap_pane.Fold))
          ~scroll:0
+         ~pan:0
          ~selection:Heap_pane.Selection.none)
   in
   show "queue";
   [%expect
     {|
-    HEAP            /queue · 1 of 2 live · 1 nodes · 1 new
+    HEAP             /queue · 1 of 2 live · 1 node · 1 new
     ▾ q · queue ⟨int M.t⟩ · 1 node
      ┌ q  new ┐
      │length 0│
@@ -1542,7 +1625,7 @@ let%expect_test "filter: only matching structures stay on the canvas" =
   show "MAP";
   [%expect
     {|
-    HEAP              /MAP · 1 of 2 live · 1 nodes · 1 new
+    HEAP               /MAP · 1 of 2 live · 1 node · 1 new
     ▾ m · map ⟨string ⇒ int⟩ · 1 node
      ┌ m ────┐
      │"k" → 1│

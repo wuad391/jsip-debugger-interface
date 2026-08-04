@@ -50,7 +50,13 @@ divider line along each seam:
   color, the event's character range underlined; long lines wrap under a
   blank gutter, and top-level definitions fold to their first line plus
   a `⋯ n lines` marker (a fold hiding the active line takes the wash in
-  its place).
+  its place). The pane always shows the selected frame's file at its
+  line: every file the dump mentions is loaded up front, so on a dump
+  spanning twenty modules the source swaps as the blue selection moves
+  across the call stack — which is also why stack rows carry no file
+  info of their own. A file that is not where the dump said renders a
+  placeholder naming where it looked (run from the replayed program's
+  root, or pass `-source-root`).
 - **Heap** — every live tracked structure: one keeps the shape of its
   most recent walk and only leaves the pane when the registry drops it.
   Dumps are deltas: every node's definition appears once under a wire id
@@ -155,7 +161,10 @@ into room already set aside for it and nothing else on the canvas moves
 
 The heap pane pans sideways to keep the card you are pointing at in
 view; a tree wider than the pane would otherwise keep its right-hand
-cards off screen for good.
+cards off screen for good. It also pans by hand: `[`/`]` slide the
+window most of a card at a time (the wheel does it too with `ctrl` or
+`alt` held), and the cursor adjusts from wherever you left it, the same
+way the scroll does.
 
 `h` collapses whatever the focused pane is pointing at — in the heap the
 whole structure the cursor's card belongs to, in the call stack the aimed
@@ -188,7 +197,7 @@ owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
 starts empty.
 
 Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
-to the ends, and `PgUp`/`PgDn` scroll the heap.
+to the ends, `PgUp`/`PgDn` scroll the heap and `[`/`]` pan it.
 
 ## Toolchain
 

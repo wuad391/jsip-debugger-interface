@@ -282,12 +282,22 @@ let body
   =
   match (source : Loaded.t Or_error.t) with
   | Error error ->
+    (* the placeholder has to be readable in a narrow pane: the message says
+       where we looked and how to fix it, so it wraps instead of cropping *)
+    let wrapped =
+      Wrap.spans
+        [ (), Error.to_string_hum error ]
+        ~width:(Int.max 8 (width - 2))
+    in
     View.pad
       ~l:1
       ~t:1
-      (View.text
-         ~attrs:[ Theme.fg Theme.faint; Attr.italic ]
-         (Error.to_string_hum error))
+      (View.vcat
+         (List.map wrapped ~f:(fun spans ->
+            View.text
+              ~attrs:[ Theme.fg Theme.faint; Attr.italic ]
+              (String.concat
+                 (List.map spans ~f:(fun ((() : unit), text) -> text))))))
   | Ok loaded ->
     let visual =
       visual_lines
