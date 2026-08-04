@@ -21,24 +21,24 @@ bright blue across all panes, and one surface — no boxes, just a
 divider line along each seam:
 
 ```
-▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                  ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · q quit
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+        ◂ back · step ▸ · [space] play · ↑↓ node · h fold · z accordion · / filter · q quit
 ─────────────────────────────┬──────────────────────────────────────────────────────────────
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
-      M.add "b" 2 M.empty    │ ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
- ▎▾ M.add "a" 1 (M.add "b" 2 │  ┌ #1 ───┐
- ▎    M.empty)               │  │"b" → 2│
-      M.add k (v * 2) acc    │  └───────┘
-      M.add k (v * 2) acc    │
-  ▾ M.fold (fun k v acc ->   │ ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
-      M.add k (v * 2) acc) m │        ▾┌ m ──────── new ┐
-      M.empty                │         │"b" → 2         │
-─────────────────────────────┤         └ 0x77127f3ee7e8 ┘
- SOURCE map_fold.ml · 15 line│          ┌──────┴───────┐
-         (String)            │          l              r
-     6                       │  ┌── new ┐            ┌┄┄┄┐
-  ▾  7 let () =              │  │"a" → 1│            ┆ ∅ ┆
- ▎   8   let m = M.add "a"   │  └───────┘            └┄┄┄┘
+      M.add "b" 2 M.empty    │ ▾ #1  int M.t  1 binding
+ ▎▾ M.add "a" 1 (M.add "b" 2 │ └─   "b" → 2
+ ▎    M.empty)               │ ▾ m  int M.t  2 bindings  new                 0x77127f3ee7e8
+      M.add k (v * 2) acc    │ ├─   "b" → 2  new
+      M.add k (v * 2) acc    │ └─   "a" → 1  new
+  ▾ M.fold (fun k v acc ->   │
+      M.add k (v * 2) acc) m │
+      M.empty                │
+─────────────────────────────┤
+ SOURCE map_fold.ml · 15 line│
+         (String)            │
+     6                       │
+  ▾  7 let () =              │
+ ▎   8   let m = M.add "a"   │
  ▎         1 (M.add "b" 2 M  │
  ▎         .empty) in        │
 ─────────────────────────────┴──────────────────────────────────────────────────────────────
@@ -63,54 +63,58 @@ divider line along each seam:
   info of their own. A file that is not where the dump said renders a
   placeholder naming where it looked (run from the replayed program's
   root, or pass `-source-root`).
-- **Heap** — every live tracked structure: one keeps the shape of its
-  most recent walk and only leaves the pane when the registry drops it.
+- **Heap** — every live tracked structure as an indented outline, the way
+  a file browser shows a directory: one line per thing the structure
+  holds. A structure keeps the shape of its most recent walk and only
+  leaves the pane when the registry drops it. Each is a top-level row —
+  the latest variable name it was observed under (`m`, `tbl`; `#id` when
+  anonymous), its type, and either what its root record says (`length 2`)
+  or how much it holds (`2 bindings`) — with its contents underneath, and
+  the one this event walked reads in blue.
+
+  The outline is **logical, not physical**. A walked map is an AVL tree
+  and a walked hashtable is an array of AVL trees, but neither is what
+  you came to read, so three rules — needing no per-container knowledge
+  beyond which labels are a structure's own skeleton — turn a heap shape
+  into the contents it stands for: a node with nothing of its own to
+  print is plumbing (a bucket array, a wrapper record) and the things it
+  points at take its place; an edge whose label is the structure's
+  skeleton carries on *through* the container, so what it reaches is a
+  sibling rather than a child; and so does an edge landing on a node
+  shaped exactly like its source — a cons cell's tail, a map node's
+  subtree. So a map lists its bindings, a hashtable its entries and a
+  list its elements, all at one depth, while a record's fields still nest
+  under it. Empty skeleton slots are not lines: they are most of a tree's
+  nodes and none of its content.
+
   Dumps are deltas: every node's definition appears once under a wire id
   and later occurrences are `Id` references, so the pane resolves them
-  against the running node table — a referenced structure's whole tree
-  links in at the reference site (a map added to a queue hangs off the
-  queue's cell), a shared block draws once and later slots point at it
-  with a dashed `↗` card (which also terminates payload cycles), and a
-  re-observed structure's stub replays the shape its id was defined with. Structures carry
-  the latest variable name they were observed under (`m ·`, `tbl ·`;
-  `#id` when anonymous), root addresses re-stamp from the registry on
-  every redraw, and only unreferenced structures get their own section
-  header — name · kind · static type · how many nodes, the one this
-  event walked marked in blue. Everything
-  folds: the `▾`/`▸` glyph beside a card tucks its subtree away — the
-  card stays, and a `⋯ n hidden` note appears beneath it — and the glyph
-  on a section
-  header hides the whole structure behind that name-and-type summary; a
-  folded subtree keeps the structures it references hidden with it, and
-  folds survive stepping. Nodes are read straight off the wire: every
+  against the running node table — a referenced structure nests under the
+  row that reaches it (a map added to a queue hangs off the element it
+  became), a shared block lists once and later slots point at it with a
+  `↗` row beside the ones it shares a level with (which also terminates
+  payload cycles), and a re-observed structure's stub replays the shape
+  its id was defined with. Values are read straight off the wire: every
   kept field arrives under its own label and a field holding a walked
-  block reads `Child`, so the pane names a hashtbl's `data` edge, a
-  Core map's `tree` and a user record's fields without a layout of its
-  own. Closures and other undecoded blocks print as `⟨0x…⟩`. Each
-  structure is drawn like a CS tree diagram:
-  node cards (the structure's name in white riding the border's top
-  left, the node's meaning underneath), a parent centered above its
-  children, siblings sharing a level under a labeled rail, and a dotted
-  gray card where a pointer slot is empty — a nil pointer is still a
-  slot, so it gets a box like everything else (an empty pointer and the
-  integer zero are the same word in memory, so the pane tells them apart
-  by label, and a slot it does not recognize reads `l=0` rather than
-  guessing). An edge into a card the
-  canvas already drew gets a dashed card too, named by what that card
-  holds rather than by the wire's id (`↗ "d" → 4`, not `↗ #7`); picking
-  either one tints the other's border to match, so a shared subtree
-  reads as one object drawn twice. Cards allocated *at this step* carry a green `new` tag in
-  the border's top right. Structures lay side by side, up to three to a
-  row, packed bottom-left so a collapse frees real space; a structure's
-  column is chosen from its expanded footprint, so collapsing one leaves
-  the others where they are. Clicking a card jumps the replay to the
-  step that allocated it; the wheel scrolls.
+  block reads `Child`, so the pane names a hashtbl's `data` edge, a Core
+  map's `tree` and a user record's fields without a layout of its own; a
+  binding whose data is a block of its own reads `"k" →` with the block
+  on the line below. Closures and other undecoded blocks print as
+  `⟨0x…⟩`. A row allocated *at this step* carries a green `new` tag.
+
+  Anything with something under it folds: the `▾`/`▸` glyph before a row
+  tucks its children away behind a `⋯ n` count while the row itself
+  stays, and folding a structure's own row collapses the whole structure
+  to that one line. A folded subtree keeps the structures it references
+  hidden with it, and folds survive stepping. Clicking a row jumps the
+  replay to the step that allocated it; clicking the glyph folds instead;
+  the wheel scrolls.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —
-  `◂ back · step ▸ · [space] play · h fold · z accordion · / filter ·
-  q quit` — every chip clickable, and the mode chips (play, accordion)
-  light up while theirs is on. The session bar (dump name, structure)
-  sits along the bottom.
+  `◂ back · step ▸ · [space] play · ↑↓ node · h fold · z accordion ·
+  / filter · q quit` — every chip clickable, and the mode chips (play,
+  accordion) light up while theirs is on. The session bar (dump name,
+  structure) sits along the bottom.
 
 ## Run it
 
@@ -121,10 +125,10 @@ dune exec app/bin/main.exe -- -dump-file testing/expected/map_nested.dump
 `testing/` holds golden dumps of real `-visual-replay` runs, vendored
 verbatim from the compiler repo (see `testing/README.md`) — any of them
 replays. For **structure sharing**, replay `map_spine_sharing` and step
-to the end: a five-node map sits beside the version one more `add`
-returned, and the two `↗` cards in the other tree are the subtrees that
-`add` did not rebuild. Aim at one with `s` and the card it names, over
-in `m`, takes an orange border — the same allocation, drawn twice.
+to the end: a five-binding map sits above the version one more `add`
+returned, and the two `↗` rows among that version's bindings are the
+subtrees `add` did not rebuild. Aim at one with `↓` and the row it names,
+up in `m`, takes the orange accent — the same allocation, listed twice.
 
 ```sh
 dune exec app/bin/main.exe -- -dump-file testing/expected/map_spine_sharing.dump
@@ -148,48 +152,41 @@ from the repo root).
 ### Selecting
 
 `Tab` moves focus between the call stack and the heap; the focused
-pane's seams turn orange. Inside it, `wasd` aims — the card or row you
-are aiming at goes orange while the one you chose stays blue, so both
+pane's seams turn orange. Inside it, `↑`/`↓` (or `wasd`) aim — the row
+you are aiming at goes orange while the one you chose stays blue, so both
 "where I am" and "where I would land" are on screen at once — and
-`Enter` commits, which does exactly what clicking there does: a heap
-card jumps the replay to the step that allocated it, a live stack row
-selects that frame, a dimmed one jumps to its call. `WASD` skips the
-aiming step and commits in one keystroke.
+`Enter` commits, which does exactly what clicking there does: a heap row
+jumps the replay to the step that allocated it, a live stack row selects
+that frame, a dimmed one jumps to its call. `WASD` skips the aiming step
+and commits in one keystroke.
 
-In the heap the cursor walks the tree rather than the picture: `w`/`s`
-climb to a card's parent and descend to its first child, `a`/`d` run
-along the layer it sits on. A layer is a depth in one tree, not one
-parent's children, so `a` from `"j"` reaches its cousin `"b"` two
-subtrees away. Empty slots place no card and are skipped; an `↗` card
-does place one, and standing on it tints the border of the card it
-names without moving you there — you stay in the tree you are reading.
+In the heap the cursor walks the outline the way a file tree walks.
+`↑`/`↓` (`w`/`s`) step to the line above and below, crossing from one
+structure into the next without being asked to, so one key runs the whole
+pane top to bottom — including a collapsed structure, which is nothing
+but its own line, so `h` there opens it again. `a`/`d` climb to the line
+this one hangs under and drop into the first line under it; a folded row
+has nothing under it to drop into, which is the point — fold what you are
+done with and `↓` steps past it. Standing on an `↗` row tints the value of
+the row it names without moving you there — you stay in the structure you
+are reading.
 
-A structure's header — its `name · kind` line — is a place the cursor can
-stand, one rung above its root card. `w` off the root lands on it, and
-from there `w`/`a`/`d` step between structures while `s` descends back
-into the tree. That is what keeps a collapsed structure reachable:
-collapsed, its header is all there is of it, so `h` there opens it again.
-`s` off a leaf falls through to the structure after — so the whole
-registry is reachable without touching the mouse.
+The chosen and aimed rows are the only ones that spell out an address,
+and it rides the right margin. Nothing to its left depends on it, so
+revealing one moves nothing else on the pane — a view that reshuffled
+under every keypress would be unreadable.
 
-The chosen and aimed cards are the only ones that spell out an address,
-and it rides the bottom border rather than taking a row. Every card is
-spaced as though it were showing one, so picking a card widens that card
-into room already set aside for it and nothing else on the canvas moves
-— a diagram that reshuffled under every keypress would be unreadable.
-
-The heap pane pans sideways to keep the card you are pointing at in
-view; a tree wider than the pane would otherwise keep its right-hand
-cards off screen for good. It also pans by hand: `[`/`]` slide the
-window most of a card at a time (the wheel does it too with `ctrl` or
-`alt` held), and the cursor adjusts from wherever you left it, the same
-way the scroll does.
+Rows are left-anchored, so most of the time there is nothing to pan: the
+outline's whole point is that it fits. When a value does run past the
+edge — a wide record, a float array — `[`/`]` slide the window sideways
+(the wheel does it too with `ctrl` or `alt` held), clamped to the longest
+line there is.
 
 `h` collapses whatever the focused pane is pointing at — in the heap the
-whole structure the cursor's card belongs to, in the call stack the aimed
-call's range. Pressing it again expands. A structure keeps its column
-when it collapses, so the ones beside it stay put while everything under
-it moves up and the space is actually freed.
+row the cursor is on, or the whole structure from its top line; in the
+call stack the aimed call's range. Pressing it again expands. An outline
+is one column, so a fold can only ever take lines away: everything below
+closes up by exactly what was hidden.
 
 ### Hundreds of structures
 
@@ -198,19 +195,19 @@ thousand live structures — so the heap pane has two ways to cut it down,
 both announced on its meta line.
 
 `z` toggles **accordion** mode: every structure collapses except the one
-the keyboard is in, so the canvas becomes a list of one-line
-`name · kind · N nodes` summaries plus wherever you are standing. The
-fold set is recomputed from the cursor, which means walking `w`/`s`
+the keyboard is in, so the pane becomes a list of one-line
+`name · type · what it holds` summaries plus wherever you are standing.
+The fold set is recomputed from the cursor, which means walking `↑`/`↓`
 across the registry opens each structure as you arrive and closes it
 behind you. Your own structure folds are the accordion's to override
-while the mode is on — card-level folds keep working — and they come
+while the mode is on — row-level folds keep working — and they come
 back untouched when it goes off.
 
 `/` opens a **filter** prompt: while it is open every key spells the
-filter (so `wasd`, `space` and `q` type instead of acting), the canvas
-narrows live as you type, and only structures whose header matches —
-name, kind or type, case-insensitive, so `/order`, `/hashtbl` and
-`/string` all work — stay on it. `Enter` keeps the filter,
+filter (so `wasd`, `space` and `q` type instead of acting), the pane
+narrows live as you type, and only structures matching — name, kind or
+type, case-insensitive, so `/order`, `/hashtbl` and `/string` all work —
+stay on it. `Enter` keeps the filter,
 `Escape` drops it (also from outside the prompt), and the meta line
 owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
 starts empty.

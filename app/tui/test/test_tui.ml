@@ -29,8 +29,8 @@ let replay_of_fixture name =
   Replay.create (Call_stack.create ~parsed_info)
 ;;
 
-(* the pane the way it draws with nothing chosen and nothing aimed at: no
-   card spells out its address, which is the common case on screen *)
+(* the pane the way it draws with nothing chosen and nothing aimed at: no row
+   spells out its address, which is the common case on screen *)
 let heap_view
   ?(width = 56)
   ?(height = 15)
@@ -63,7 +63,7 @@ let heap_view
 ;;
 
 (* the structure this step walked — what the app selects by default, and so
-   the card that shows its address *)
+   the row that shows its address *)
 let current_spot replay ~step =
   List.find
     (Replay.step_exn replay ~step).structures
@@ -118,20 +118,11 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"a" → 1│
-     └───────┘
-
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
-    ▾┌ m  new ┐
-     │"a" → 1 │
-     └────────┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐    ┌── new ┐
-    ┆ ∅ ┆    │"b" → 2│
-    └┄┄┄┘    └───────┘
+    ▾ m  int M.t  1 binding
+    └─   "a" → 1
+    ▾ m  int M.t  2 bindings  new
+    ├─   "a" → 1  new
+    └─   "b" → 2  new
     |}]
 ;;
 
@@ -141,20 +132,9 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
   [%expect
     {|
     HEAP                          1 live · 3 nodes · 1 new
-    ▾ q · queue ⟨string⟩ · 3 nodes
-    ▾┌ q ─────┐
-     │length 2│
-     └────────┘
-             │
-           first
-    ▾┌───┐
-     │"x"│
-     └───┘
-             │
-             1
-     ┌ new ┐
-     │"y"  │
-     └─────┘
+    ▾ q  string Queue.t  length 2
+    ├─   "x"
+    └─   "y"  new
     |}]
 ;;
 
@@ -164,20 +144,14 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
   [%expect
     {|
     HEAP                          3 live · 5 nodes · 2 new
-    ▾ m · map ⟨string ⇒ float⟩ · 1 node
-     ┌ m ────────┐
-     │"pi" → 3.14│
-     └───────────┘
-
-    ▾ #2 · map ⟨string ⇒ float⟩ · 2 nodes
-           ▾┌ #2 ───────┐
-            │"pi" → 3.14│
-            └───────────┘
-             ┌──────┴───────┐
-             l              r
-     ┌──────────┐         ┌┄┄┄┐
-     │"e" → 2.71│         ┆ ∅ ┆
-     └──────────┘         └┄┄┄┘
+    ▾ m  float M.t  1 binding
+    └─   "pi" → 3.14
+    ▾ #2  float M.t  2 bindings
+    ├─   "pi" → 3.14
+    └─   "e" → 2.71
+    ▾ #4  (int * string) M.t  1 element  new
+    └─ ▾ "pair" →  new
+       └─   d  1, "one"  new
     |}]
 ;;
 
@@ -191,15 +165,11 @@ let%expect_test "heap pane: a collected structure is simply gone" =
   [%expect
     {|
     HEAP                           1 live · 1 node · 1 new
-    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #1 ─ new ┐
-     │"dead" → 0│
-     └──────────┘
+    ▾ #1  int M.t  1 binding  new
+    └─   "dead" → 0  new
     HEAP                           1 live · 1 node · 1 new
-    ▾ #2 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #2 ─ new ┐
-     │"live" → 1│
-     └──────────┘
+    ▾ #2  int M.t  1 binding  new
+    └─   "live" → 1  new
     |}]
 ;;
 
@@ -213,17 +183,15 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
   [%expect
     {|
     HEAP                              3 live · 8 nodes · 3 new
-    ▾ m · core.map ⟨string ⇒ int⟩ · 2 nodes
-    ▾┌ m ┐
-     │·  │
-     └───┘
-             │
-           tree
-     ┌───────┐
-     │"b" → 2│
-     └───────┘
-
-    ▾ m · core.map ⟨string ⇒ int⟩ · 3 nodes
+    ▾ m  (string, int) Map.t  1 binding
+    └─   "b" → 2
+    ▾ m  (string, int) Map.t  2 bindings
+    ├─   "b" → 2
+    └─   "a" → 1
+    ▾ m  (string, int) Map.t  3 bindings  new
+    ├─   "b" → 2  new
+    ├─   ↗ "a" → 1
+    └─   "c" → 3  new
     |}]
 ;;
 
@@ -236,27 +204,11 @@ let%expect_test "heap pane: a Core hash queue chains through its elements" =
   [%expect
     {|
     HEAP                                  1 live · 9 nodes · 2 new
-    ▾ q · core.hash_queue ⟨string ⇒ int⟩ · 9 nodes
-                       ▾┌ q ┐
-                        │·  │
-                        └───┘
-                                │
-                              queue
-                       ▾┌─┐
-                        │·│
-                        └─┘
-                                │
-                            contents
-                       ▾┌─┐
-                        │·│
-                        └─┘
-                                │
-                                0
-                       ▾┌─┐
-                        │·│
-                        └─┘
-             ┌──────────────────┴──────────────────┐
-             v                                   next
+    ▾ q  (string, int) Hash_queue.t  4 bindings
+    ├─   v  "a" → 1
+    ├─   v  "b" → 2
+    ├─   v  "c" → 3  new
+    └─   ↗ ·
     |}]
 ;;
 
@@ -269,19 +221,11 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
   [%expect
     {|
     HEAP                              3 live · 5 nodes · 1 new
-    ▾ p · user ⟨point⟩ · 1 node
-     ┌ p ┐
-     │x=3│
-     │y=4│
-     └───┘
-
-    ▾ ts · user ⟨trades⟩ · 1 node
-               ▾┌ ts  new ┐
-                │0        │
-                └─────────┘
-                        │
-                       hd
-               ▾┌ t ┐
+      p  point  x=3  y=4
+    ▾ ts  trades  0  new
+    └─ ▾ hd  t  trade  101
+       ├─   tags  "buy", "limit"
+       └─   span  1, 9
     |}]
 ;;
 
@@ -401,7 +345,7 @@ let%expect_test "transport: ticks, then the clickable key legend" =
   [%expect
     {|
     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-              ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · q quit
+    ◂ back · step ▸ · [space] play · ↑↓ node · h fold · z accordion · / filter · q quit
     |}]
 ;;
 
@@ -482,24 +426,23 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
   [%expect
     {|
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▾┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-              ┌──────┴───────┐
-              l              r
-            ┌┄┄┄┐    ┌─┐
-            ┆ ∅ ┆    │3│
-            └┄┄┄┘    └─┘
+    ▾ a  S.t  3 elements
+    ├─   1
+    ├─   2
+    └─   3
+    ▾ b  S.t  2 elements
+    ├─   3
+    └─   4
+    ▾ #6  S.t  4 elements  new
+    ├─   3  new
+    ├─   2  new
+    ├─   1  new
+    └─   4  new
     |}]
 ;;
 
-let%expect_test "heap clicks land on cards, not the space between" =
+let%expect_test "heap clicks land on a row edge to edge, and nowhere past it"
+  =
   let replay = replay_of_fixture "map_basic" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:1
@@ -520,16 +463,17 @@ let%expect_test "heap clicks land on cards, not the space between" =
     |> Option.value_map ~default:"·" ~f:(fun (spot : Heap_pane.Spot.t) ->
       Snapshot.Address.display spot.address)
   in
-  (* the root card, the second structure's header — a place of its own now —
-     and the empty canvas right of the cards *)
-  print_endline (at ~x:2 ~y:1);
-  print_endline (at ~x:10 ~y:8);
-  print_endline (at ~x:30 ~y:5);
-  print_endline (at ~x:40 ~y:1);
+  (* a row spans the pane, so the far right of a line is still that line and
+     only [y] decides; the second structure's row is a place of its own; and
+     below the last row there is nothing to land on *)
+  print_endline (at ~x:2 ~y:0);
+  print_endline (at ~x:48 ~y:0);
+  print_endline (at ~x:2 ~y:2);
+  print_endline (at ~x:2 ~y:9);
   [%expect
     {|
     0x7fa801ff2348
-    0x7fa801fee750
+    0x7fa801ff2348
     0x7fa801fee750
     ·
     |}]
@@ -543,15 +487,9 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
   [%expect
     {|
     HEAP                          2 live · 2 nodes · 1 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
-
-    ▾ q · queue ⟨int M.t⟩ · 1 node
-     ┌ q  new ┐
-     │length 0│
-     └────────┘
+    ▾ m  int M.t  1 binding
+    └─   "k" → 1
+      q  int M.t Queue.t  length 0  new
     |}]
 ;;
 
@@ -563,20 +501,9 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
+    ▾ q  int M.t Queue.t  length 1
+    └─ ▾ m  int M.t  1 binding
+       └─   "k" → 1
     |}]
 ;;
 
@@ -586,20 +513,8 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
   [%expect
     {|
     HEAP                              1 live · 3 nodes · 1 new
-    ▾ tbl · hashtbl ⟨string ⇒ int⟩ · 3 nodes
-    ▾┌ tbl ─┐
-     │size 1│
-     └──────┘
-             │
-           data
-    ▾┌────────┐
-     │slots 16│
-     └────────┘
-             │
-             1
-     ┌── new ┐
-     │"a" → 1│
-     └───────┘
+    ▾ tbl  (string, int) Hashtbl.t  size 1
+    └─   "a" → 1  new
     |}]
 ;;
 
@@ -640,20 +555,8 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
   [%expect
     {|
     HEAP                              2 live · 3 nodes · 1 new
-    ▾ qq · queue ⟨'a Queue.t⟩ · 2 nodes
-    ▾┌ qq ────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ q1 ────┐
-     │length 0│
-     └────────┘
+    ▾ qq  'a Queue.t Queue.t  length 1
+    └─   q1  'a Queue.t  length 0
     |}]
 ;;
 
@@ -663,15 +566,8 @@ let%expect_test "heap pane: closures stay opaque" =
   [%expect
     {|
     HEAP                              1 live · 2 nodes · 2 new
-    ▾ q · queue ⟨int -> int⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-     ┌─────────── new ┐
-     │⟨0x73a5227efa18⟩│
-     └────────────────┘
+    ▾ q  (int -> int) Queue.t  length 1
+    └─   ⟨0x73a5227efa18⟩  new
     |}]
 ;;
 
@@ -693,9 +589,10 @@ let%expect_test "control chips hit-test exactly where they render" =
       [%sexp (button : Transport.Button.t), (first : int), (last : int)]);
   [%expect
     {|
-    (Back 10 15)
-    (Step 19 24)
-    (Play 28 39)
+    (Back 0 5)
+    (Step 9 14)
+    (Play 18 29)
+    (Node 33 39)
     (Fold 43 48)
     (Accordion 52 62)
     (Filter 66 73)
@@ -703,11 +600,13 @@ let%expect_test "control chips hit-test exactly where they render" =
     |}]
 ;;
 
-let%expect_test "heap fold: a card keeps itself, hides its kids" =
-  let replay = replay_of_fixture "map_basic" in
+let%expect_test "heap fold: a row keeps itself, hides its kids" =
+  let replay = replay_of_fixture "queue_of_maps" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
-    Replay.step_exn replay ~step:1
+    Replay.step_exn replay ~step:2
   in
+  (* the map nests under the queue element it became; folding it leaves the
+     row that says what it is and takes away the binding under it *)
   print_view
     ~height:10
     (Heap_pane.view
@@ -719,24 +618,15 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
        ~nodes
        ~new_addresses
        ~folds:
-         (Set.of_list
-            (module Heap_pane.Fold)
-            [ Heap_pane.Fold.Node (2, []) ])
+         (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 1 ])
        ~scroll:0
        ~pan:0
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"a" → 1│
-     └───────┘
-
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
-    ▸┌ m  new ┐
-     │"a" → 1 │
-     └────────┘
+    HEAP                          2 live · 3 nodes · 1 new
+    ▾ q  int M.t Queue.t  length 1
+    └─ ▸ m  int M.t  1 binding  ⋯ 1
     |}]
 ;;
 
@@ -765,7 +655,7 @@ let%expect_test "heap fold: a structure collapses to its header" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 1 new
-    ▸ q · queue ⟨int M.t⟩ · 2 nodes
+    ▸ q  int M.t Queue.t  length 1  ⋯ 2
     |}]
 ;;
 
@@ -803,12 +693,11 @@ let heap_lines
   Buffer.contents buffer |> String.split_lines |> List.map ~f:String.rstrip
 ;;
 
-let%expect_test "aiming moves the card, not the diagram" =
-  (* The address rides the bottom border rather than taking a row, and every
-     card is spaced as though it were showing one — so picking a card widens
-     that card into room already set aside for it. Nothing else may move a
-     cell, which is what these line numbers are: only the three rows of the
-     card being aimed at differ. *)
+let%expect_test "aiming lights the one row it lands on, and no other" =
+  (* The address rides the right margin, so revealing one cannot move
+     anything to its left. Nothing else on the pane may change a cell, which
+     is what these line numbers are: exactly the line being aimed at differs.
+     (Row 0 is the pane's own header.) *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let at_rest =
@@ -844,22 +733,20 @@ let%expect_test "aiming moves the card, not the diagram" =
       print_s [%message name ~rows_that_changed:(moved : int list)]);
   [%expect
     {|
-    (root (rows_that_changed ()))
-    ("its child" (rows_that_changed (2 3 4)))
+    (root (rows_that_changed (1)))
+    ("its child" (rows_that_changed (2)))
     |}]
 ;;
 
-let%expect_test "collapsing a structure keeps the others in their column" =
-  (* [pack] chooses a column from the footprint a structure has EXPANDED, so
-     folding one moves it up its own column and leaves the rest where they
-     are. The freed space is still freed — only the sideways placement is
-     pinned, which is why the columns below are identical and the rows are
-     not. *)
+let%expect_test "collapsing a structure moves the rows below it up, only up" =
+  (* An outline is one column, so a fold can only ever take lines away: every
+     structure's glyph stays in column 0 whatever is folded, and the rows
+     below the folded one close up by exactly what it was hiding. *)
   let replay = replay_of_fixture "set_ops" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:2
   in
-  (* each section's header glyph, found where the pane says a click on it
+  (* each structure's own glyph, found where the pane says a click on it
      would toggle that structure *)
   let headers folds =
     List.cartesian_product (List.range 0 40) (List.range 0 60)
@@ -902,7 +789,7 @@ let%expect_test "collapsing a structure keeps the others in their column" =
   [%expect
     {|
     ((columns_expanded ((1 0) (4 0) (6 0))) (columns_folded ((1 0) (4 0) (6 0)))
-     (rows_expanded (0 15 25)) (rows_folded (0 2 12)))
+     (rows_expanded (0 4 7)) (rows_folded (0 1 4)))
     |}]
 ;;
 
@@ -927,17 +814,18 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
     |> Option.value_map ~default:"·" ~f:(fun fold ->
       Sexp.to_string [%sexp (fold : Heap_pane.Fold.t)])
   in
-  (* #1's header glyph; #1's card is a leaf (no glyph); #2's header and
-     root-card glyphs; a plain card cell *)
+  (* #1's own glyph; the binding under it is a leaf, so no glyph; #2's own
+     glyph two lines down; a cell that is not the glyph column; past the last
+     row *)
   print_endline (toggle ~x:0 ~y:0);
   print_endline (toggle ~x:0 ~y:1);
-  print_endline (toggle ~x:0 ~y:6);
-  print_endline (toggle ~x:0 ~y:7);
-  print_endline (toggle ~x:3 ~y:8);
+  print_endline (toggle ~x:0 ~y:2);
+  print_endline (toggle ~x:3 ~y:2);
+  print_endline (toggle ~x:0 ~y:9);
   [%expect {|
     (Structure 1)
     ·
-    (Node 2())
+    (Structure 2)
     ·
     ·
     |}]
@@ -997,10 +885,8 @@ let%expect_test "source fold: a definition folds to its first line" =
 ;;
 
 let%expect_test "heap fold keeps the rest of the diagram still" =
-  (* set a's spine: 1 → r → 2 → r → 3. Folding the "2" card hides "3";
-     everything else — the "a · 1" card centered above, the rail, the ∅ —
-     must not move a cell, because the folded card keeps its expanded
-     footprint *)
+  (* folding [b] takes away exactly the two elements it was listing: [a]
+     above it does not move a cell, and the union below closes up by two *)
   let replay = replay_of_fixture "set_ops" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:2
@@ -1023,53 +909,48 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
          ~selection:Heap_pane.Selection.none)
   in
   render (Set.empty (module Heap_pane.Fold));
-  render
-    (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Node (1, [ 1 ]) ]);
+  render (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 4 ]);
   [%expect
     {|
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▾┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-              ┌──────┴───────┐
-              l              r
-            ┌┄┄┄┐    ┌─┐
-            ┆ ∅ ┆    │3│
+    ▾ a  S.t  3 elements
+    ├─   1
+    ├─   2
+    └─   3
+    ▾ b  S.t  2 elements
+    ├─   3
+    └─   4
+    ▾ #6  S.t  4 elements  new
+    ├─   3  new
+    ├─   2  new
+    ├─   1  new
+    └─   4  new
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▸┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-             ⋯ 1 hidden
-
-    ▾ b · set ⟨int⟩ · 2 nodes
-    ▾┌ b ┐
+    ▾ a  S.t  3 elements
+    ├─   1
+    ├─   2
+    └─   3
+    ▸ b  S.t  2 elements  ⋯ 2
+    ▾ #6  S.t  4 elements  new
+    ├─   3  new
+    ├─   2  new
+    ├─   1  new
+    └─   4  new
     |}]
 ;;
 
 (* Every glyph the interface draws must be one terminal cell wide, or the
-   text after it slides and a card's wash appears to spill past its border.
-   Notty measures them here — but the terminal has the final say, and the two
-   can disagree.
+   text after it slides and a row's columns stop lining up with the rows
+   above and below. Notty measures them here — but the terminal has the final
+   say, and the two can disagree.
 
-   So the card interior obeys a second rule this list cannot check: it uses
-   only ASCII and glyphs in the same East Asian width class (Ambiguous) as
-   the box-drawing characters that frame it. A terminal that widened those
-   would visibly shred the whole frame, so it cannot quietly widen the
-   contents alone. [→] (U+2192, Ambiguous) is in; [↦] (U+21A6, Neutral) was
-   the one exception and is out — a font fallback rendering it double-width
-   pushed the closing [│] one cell past the wash. *)
+   So a row obeys a second rule this list cannot check: it uses only ASCII
+   and glyphs in the same East Asian width class (Ambiguous) as the
+   box-drawing characters that draw the tree guides. A terminal that widened
+   those would visibly shred every guide on the pane, so it cannot quietly
+   widen a value alone. [→] (U+2192, Ambiguous) is in; [↦] (U+21A6, Neutral)
+   was the one exception and is out — a font fallback rendering it
+   double-width pushed everything after it a cell along. *)
 let%expect_test "every drawn glyph is one cell wide" =
   let glyphs =
     [ 0x2500, "─"
@@ -1103,6 +984,11 @@ let%expect_test "every drawn glyph is one cell wide" =
     ; 0x2524, "┤"
     ; 0x252c, "┬"
     ; 0x2580, "▀"
+      (* the heap outline's tree guides, and the key the footer names for
+         walking them *)
+    ; 0x251c, "├"
+    ; 0x2191, "↑"
+    ; 0x2193, "↓"
     ]
   in
   List.iter glyphs ~f:(fun (scalar, glyph) ->
@@ -1114,7 +1000,7 @@ let%expect_test "every drawn glyph is one cell wide" =
     | width ->
       print_s [%message "not one cell" (glyph : string) (width : int)]);
   print_s [%sexp (List.length glyphs : int)];
-  [%expect {| 31 |}]
+  [%expect {| 34 |}]
 ;;
 
 let%expect_test "delta wire: a revisit stub replays the earlier shape" =
@@ -1125,14 +1011,11 @@ let%expect_test "delta wire: a revisit stub replays the earlier shape" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 2 new
-    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #1 ───┐
-     │"a" → 1│
-     └───────┘
-
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
-    ▾┌ m  new ┐
-     │"a" → 1 │
+    ▾ #1  int M.t  1 binding
+    └─   "a" → 1
+    ▾ m  int M.t  2 bindings  new
+    ├─   "a" → 1  new
+    └─   "b" → 2  new
     |}]
 ;;
 
@@ -1143,35 +1026,21 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
   [%expect
     {|
     HEAP                                  4 live · 7 nodes · 3 new
-    ▾ #2 · map ⟨string ⇒ point⟩ · 1 node
-            ▾┌ #2 ┐
-             │"p" │
-             └────┘
-      ┌──────────────┼──────────────┐
-      l              d              r
-    ┌┄┄┄┐    ┌ p ┐                ┌┄┄┄┐
-    ┆ ∅ ┆    │x=1│                ┆ ∅ ┆
-    └┄┄┄┘    │y=2│                └┄┄┄┘
-             └───┘
-
-    ▾ m · map ⟨string ⇒ point⟩ · 2 nodes
-                    ▾┌ m ┐
-                     │"p"│
-                     └───┘
-      ┌───────────────┬──────┴──────────────────────┐
-      l               d                             r
-    ┌┄┄┄┐   ┌ ↗ ┄┄┐                        ▾┌───┐
-    ┆ ∅ ┆   ┆ x=1 ┆                         │"q"│
-    └┄┄┄┘   ┆ y=2 ┆                         └───┘
-            └┄┄┄┄┄┘                  ┌──────────────┴┬────────────
-                                     l               d
-                                   ┌┄┄┄┐   ┌ ↗ ┄┄┐
-                                   ┆ ∅ ┆   ┆ x=1 ┆
-                                   └┄┄┄┘   ┆ y=2 ┆
-                                           └┄┄┄┄┄┘
-
-    ▾ #5 · map ⟨string ⇒ point⟩ · 3 nodes
-                        ▾┌ #5  new ┐
+    ▾ #2  point M.t  1 element
+    └─ ▾ "p" →
+       └─   d  p  point  x=1  y=2
+    ▾ m  point M.t  2 elements
+    ├─ ▾ "p" →
+    │  └─   d  ↗ x=1  y=2
+    └─ ▾ "q" →
+       └─   d  ↗ x=1  y=2
+    ▾ #5  point M.t  3 elements  new
+    ├─ ▾ "p" →  new
+    │  └─   d  ↗ x=1  y=2
+    ├─ ▾ "q" →  new
+    │  └─   d  ↗ x=1  y=2
+    └─ ▾ "r" →  new
+       └─   d  ↗ x=1  y=2
     |}]
 ;;
 
@@ -1183,35 +1052,18 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
   [%expect
     {|
     HEAP                                  2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
-     ┌───────┐            ┌┄┄┄┐   ┌┄┄┄┐    ┌────────┐
-     │"b" → 2│            ┆ ∅ ┆   ┆ ∅ ┆    │"j" → 10│
-     └───────┘            └┄┄┄┘   └┄┄┄┘    └────────┘
-
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger  new ┐
-                      │"f" → 6      │
-                      └─────────────┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┐                       ▾┌── new ┐
-    ┆ "d" → 4 ┆                        │"h" → 8│
-    └┄┄┄┄┄┄┄┄┄┘                        └───────┘
-                                    ┌──────────┴───────────┐
-                                    l                      r
-                            ┌── new ┐            ┌ ↗ ┄┄┄┄┄┄┄┐
-                            │"g" → 7│            ┆ "j" → 10 ┆
-                            └───────┘            └┄┄┄┄┄┄┄┄┄┄┘
+    ▾ m  int M.t  5 bindings
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
+    ▾ bigger  int M.t  5 bindings  new
+    ├─   "f" → 6  new
+    ├─   ↗ "d" → 4
+    ├─   "h" → 8  new
+    ├─   "g" → 7  new
+    └─   ↗ "j" → 10
     |}]
 ;;
 
@@ -1221,21 +1073,8 @@ let%expect_test "delta wire: a payload cycle terminates" =
   [%expect
     {|
     HEAP                                  2 live · 3 nodes · 1 new
-    ▾ q · queue ⟨cyc⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ r ────────┐
-     │name="loop"│
-     │self=0     │
-     └───────────┘
+    ▾ q  cyc Queue.t  length 1
+    └─   r  cyc  name="loop"  self=0
     |}]
 ;;
 
@@ -1245,36 +1084,27 @@ let%expect_test "delta wire: version chains share their spines" =
   [%expect
     {|
     HEAP                                  2 live · 8 nodes · 4 new
-    ▾ #7 · map ⟨string ⇒ int⟩ · 4 nodes
-               ▾┌ #7 ───┐
-                │"b" → 2│
-                └───────┘
-             ┌──────────┴──────────┐
-             l                     r
-     ┌───────┐            ▾┌───────┐
-     │"a" → 1│             │"c" → 3│
-     └───────┘             └───────┘
-                            ┌──────┴───────┐
-                            l              r
-                          ┌┄┄┄┐    ┌───────┐
-                          ┆ ∅ ┆    │"d" → 4│
-                          └┄┄┄┘    └───────┘
-
-    ▾ #11 · map ⟨string ⇒ int⟩ · 4 nodes
-                ▾┌ #11  new ┐
-                 │"b" → 2   │
-                 └──────────┘
+    ▾ #7  int M.t  4 bindings
+    ├─   "b" → 2
+    ├─   "a" → 1
+    ├─   "c" → 3
+    └─   "d" → 4
+    ▾ #11  int M.t  5 bindings  new
+    ├─   "b" → 2  new
+    ├─   ↗ "a" → 1
+    ├─   "c" → 3  new
+    ├─   "d" → 4  new
+    └─   "e" → 5  new
     |}]
 ;;
 
-let%expect_test "selection: only the chosen and aimed cards spell an address"
-  =
+let%expect_test "selection: only the chosen and aimed rows spell an address" =
   (* map_spine_sharing's last step: [bigger] is what the step walked, so it
-     is selected by default. Aiming one card down lands on the [↗] pointer
-     under it — which names [m]'s "d" subtree — so the pointer and the card
-     it points at are picked out together, wearing the one address between
-     them. Nothing else spells an address, which is what lets the trees fit
-     side by side. *)
+     is selected by default. Aiming one row down lands on that structure's
+     first binding, which IS its root — so the structure's row and the row it
+     points at are picked out together, wearing the one address between them.
+     Nothing else spells an address, which is what lets the trees fit side by
+     side. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let selected = current_spot replay ~step in
@@ -1297,51 +1127,42 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
   [%expect
     {|
     HEAP                                              2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
-     ┌───────┐            ┌┄┄┄┐   ┌┄┄┄┐    ┌────────┐
-     │"b" → 2│            ┆ ∅ ┆   ┆ ∅ ┆    │"j" → 10│
-     └───────┘            └┄┄┄┘   └┄┄┄┘    └────────┘
-
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger ─── new ┐
-                      │"f" → 6         │
-                      └ 0x78de5b5fff78 ┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ▾┌── new ┐
-    ┆ "d" → 4          ┆               │"h" → 8│
-    ┆  0x78de5b5e1d10  ┆               └───────┘
-    └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘            ┌──────────┴───────────┐
+    ▾ m  int M.t  5 bindings
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
+    ▾ bigger  int M.t  5 bindings  new                          0x78de5b5fff78
+    ├─   "f" → 6  new                                           0x78de5b5fff78
+    ├─   ↗ "d" → 4
+    ├─   "h" → 8  new
+    ├─   "g" → 7  new
+    └─   ↗ "j" → 10
     |}]
 ;;
 
-let%expect_test "selection: [wasd] walks the tree, not the picture" =
-  (* map_spine_sharing's last step draws [m]'s five-node tree and the version
-     derived from it. [s] descends, [a]/[d] run along a layer — "b" and "j"
-     are cousins, two subtrees apart, but they share a depth — and [s] off a
-     leaf falls through to the next structure.
+let%expect_test "selection: the cursor walks the outline, along it and into \
+                 it"
+  =
+  (* map_spine_sharing's last step lists [m]'s five bindings and the version
+     derived from it. [w]/[s] step to the line above and below and cross the
+     boundary between the two structures without being asked to; [a] climbs
+     to the line this one hangs under and [d] drops into the first line under
+     it.
 
-     The last three presses are the point: [s] lands on [bigger]'s [↗]
-     pointer, which names [m]'s "d" subtree — and [d] then runs along
-     [bigger]'s layer and [w] climbs to [bigger]'s root, not [m]'s. Standing
-     on a pointer lights up the card it names but leaves the cursor where it
-     is, in the tree being read. *)
+     [bigger] shares [m]'s subtrees, so its first binding IS its root — which
+     is why [d] off [bigger] lands on something the screen still calls
+     [bigger] — and the lines under it are [↗] rows naming [m]'s bindings.
+     Standing on one lights up the row it names but leaves the cursor where
+     it is, in the structure being read. The last [d] is the point: a row
+     with nothing under it goes nowhere, rather than falling sideways. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step
   in
-  (* name a card the way the screen does: its structure's name if it is a
+  (* name a row the way the screen does: its structure's name if it is a
      root, otherwise the map key it holds. The delta wire keeps interior
      nodes in the id table rather than inline under the root, so that is
      where the keys are looked up. *)
@@ -1403,27 +1224,27 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
       print_endline [%string "%{key} -> %{landed}"]);
   [%expect
     {|
-    w -> bigger
+    w -> "j"
     s -> bigger
+    d -> bigger
+    s -> "d"
+    a -> bigger
+    a -> (nothing that way)
+    w -> "j"
+    s -> bigger
+    s -> bigger
+    s -> "d"
     d -> (nothing that way)
-    s -> "d"
-    a -> (nothing that way)
-    a -> (nothing that way)
-    w -> bigger
-    s -> "d"
-    s -> (nothing that way)
-    s -> (nothing that way)
-    d -> "h"
     w -> bigger
     |}]
 ;;
 
 let%expect_test "selection: the cursor can stand on a whole structure" =
-  (* A collapsed structure is nothing but its header, so the header has to be
+  (* A collapsed structure is nothing but its own row, so that row has to be
      somewhere the cursor can go — otherwise folding one would put it beyond
-     reach. It sits one rung above the tree's root card: [w] off the root
-     lands on it, [w] again steps to the structure before, and [s] descends
-     back into the tree. *)
+     reach. Expanded, [w] off a binding walks up through the bindings above
+     it; collapsed, [m]'s row is the whole of [m] and the first line of the
+     pane, so [w] reaches it and then has nowhere left to go. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
@@ -1475,12 +1296,12 @@ let%expect_test "selection: the cursor can stand on a whole structure" =
   [%expect
     {|
     -- everything expanded
-    (w (landed ((structure 12) (path ()) (is_header true))))
-    (w (landed ((structure 9) (path ()) (is_header true))))
-    (s (landed ((structure 9) (path ()) (is_header false))))
+    (w (landed ((structure 9) (path (1 1)) (is_header false))))
+    (w (landed ((structure 9) (path (1)) (is_header false))))
+    (s (landed ((structure 9) (path (1 1)) (is_header false))))
     -- with [m] collapsed, its header is all there is of it
-    (w (landed ((structure 12) (path ()) (is_header true))))
     (w (landed ((structure 9) (path ()) (is_header true))))
+    (w (landed "(nothing that way)"))
     (s (landed ((structure 12) (path ()) (is_header true))))
     |}]
 ;;
@@ -1488,9 +1309,9 @@ let%expect_test "selection: the cursor can stand on a whole structure" =
 let%expect_test "[h]'s target: the node under the cursor; the whole \
                  structure from its header"
   =
-  (* the two glyphs stacked at a section's top left are two different folds —
-     the header's hides the structure, the root card's tucks its children —
-     and [h] toggles whichever one the cursor is standing on *)
+  (* a structure's own row and a row inside one are two different folds — the
+     structure's hides the whole thing, a row's tucks its children away — and
+     [h] toggles whichever one the cursor is standing on *)
   let replay = replay_of_fixture "map_basic" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:1
@@ -1513,8 +1334,8 @@ let%expect_test "[h]'s target: the node under the cursor; the whole \
   in
   print_s [%sexp (Heap_pane.fold_of_spot header : Heap_pane.Fold.t)];
   [%expect {|
-    (Node 2 ())
     (Structure 2)
+    (Node 1 ())
     |}]
 ;;
 
@@ -1576,17 +1397,13 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   [%expect
     {|
     HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▸ m · map ⟨string ⇒ int⟩ · 3 nodes
-
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger ─── new ┐
-                      │"f" → 6         │
-                      └ 0x78de5b5fff78 ┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┐                       ▾┌── new ┐
-    ┆ "d" → 4 ┆                        │"h" → 8│
-    └┄┄┄┄┄┄┄┄┄┘                        └───────┘
+    ▸ m  int M.t  5 bindings  ⋯ 5
+    ▾ bigger  int M.t  5 bindings  new          0x78de5b5fff78
+    ├─   "f" → 6  new
+    ├─   ↗ "d" → 4
+    ├─   "h" → 8  new
+    ├─   "g" → 7  new
+    └─   ↗ "j" → 10
     |}];
   (* [w] to the open structure's header, [w] onto the one before it: the
      arrival opens [m], and [bigger] folds up behind us *)
@@ -1596,33 +1413,30 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   [%expect
     {|
     HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
+    ▾ m  int M.t  5 bindings                    0x78de6b6e3738
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
+    ▸ bigger  int M.t  5 bindings  ⋯ 5  new     0x78de5b5fff78
     |}]
 ;;
 
-let%expect_test "the heap pans by hand, and the cursor still overrides" =
-  (* [\[]/[\]] slide the window sideways across a canvas wider than the pane;
-     with nothing aimed at, the offset is exactly where the hand left it
-     (clamped to the canvas), and aiming pulls the window back only far
-     enough to show the card *)
+let%expect_test "the heap pans by hand, and clamps to the longest line" =
+  (* [\[]/[\]] slide the window sideways when a line runs past the pane. The
+     offset is exactly where the hand left it, clamped to the longest line
+     there is — an outline is left-anchored, so unlike the diagram it grew
+     out of there is nothing for aiming to drag the window back to. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   heap_view ~width:36 ~height:8 replay ~step;
   heap_view ~width:36 ~height:8 ~pan:12 replay ~step;
-  (* far past the canvas edge: clamps to the right edge, not to nowhere *)
+  (* far past the longest line: clamps to its right edge, not to nowhere *)
   heap_view ~width:36 ~height:8 ~pan:1000 replay ~step;
-  (* aiming wins over the hand: the same wild pan lands wherever shows the
-     cursor's card — which, being the cursor, spells out its address *)
+  (* aiming does not fight the hand — but the aimed row is a line longer than
+     the rest, since it is the only one spelling out an address, so the clamp
+     lets the pan run further and that address is what it reaches *)
   heap_view
     ~width:36
     ~height:8
@@ -1636,37 +1450,37 @@ let%expect_test "the heap pans by hand, and the cursor still overrides" =
   [%expect
     {|
     HEAP      2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴──────
-                    l
-           ▾┌───────┐             ▾┌──
+    ▾ m  int M.t  5 bindings
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
+    ▾ bigger  int M.t  5 bindings  new
     HEAP      2 live · 6 nodes · 3 new
-    tring ⇒ int⟩ · 3 nodes
-          ▾┌ m ────┐
-           │"f" → 6│
-           └───────┘
-        ┌──────────┴───────────┐
-        l                      r
-    ────┐             ▾┌───────┐
+    m  int M.t  5 bindings
+       "f" → 6
+       "d" → 4
+       "b" → 2
+       "h" → 8
+       "j" → 10
+    bigger  int M.t  5 bindings  new
     HEAP      2 live · 6 nodes · 3 new
-    ⟩ · 3 nodes
-    ────┐
-     → 6│
-    ────┘
-    ────┴───────────┐
-                    r
-           ▾┌───────┐
+    m  int M.t  5 bindings
+       "f" → 6
+       "d" → 4
+       "b" → 2
+       "h" → 8
+       "j" → 10
+    bigger  int M.t  5 bindings  new
     HEAP      2 live · 6 nodes · 3 new
+    bindings
 
-    · map ⟨string ⇒ int⟩ · 3 nodes
-            ▾┌ bigger ─── new ┐
-             │"f" → 6         │
-             └ 0x78de5b5fff78 ┘
-     ┌───────────────┴────────────────
-     l
+
+
+
+
+    t  5 bindings  new  0x78de5b5fff78
     |}]
 ;;
 
@@ -1701,10 +1515,7 @@ let%expect_test "filter: only matching structures stay on the canvas" =
   [%expect
     {|
     HEAP             /queue · 1 of 2 live · 1 node · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 1 node
-     ┌ q  new ┐
-     │length 0│
-     └────────┘
+      q  int M.t Queue.t  length 0  new
     |}];
   (* matching is case-insensitive, and the kind is part of the header's
      words, so [/MAP] finds the map *)
@@ -1712,21 +1523,19 @@ let%expect_test "filter: only matching structures stay on the canvas" =
   [%expect
     {|
     HEAP               /MAP · 1 of 2 live · 1 node · 1 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
+    ▾ m  int M.t  1 binding
+    └─   "k" → 1
     |}]
 ;;
 
 let%expect_test "selection: committing a link follows the node to its step" =
   (* [Enter] on a [↗] pointer jumps the replay to where that node was
      allocated — a step at which the structure the pointer lived in does not
-     exist yet, so the site it named is gone. The chosen card has to follow
+     exist yet, so the site it named is gone. The chosen row has to follow
      the node to whatever tree draws it there rather than vanishing — to the
-     node's own card, not to another pointer at it. [add "b" 2 m3] rebuilt
-     the spine, so the "d" node the pointer named was allocated here, in the
-     structure at the bottom: that is the card wearing the address. *)
+     node's own row, not to another pointer at it. [add "b" 2 m3] rebuilt the
+     spine, so the "d" node the pointer named was allocated here, in the
+     structure at the bottom: that is the row wearing the address. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let last = Replay.length replay - 1 in
   let folds = Set.empty (module Heap_pane.Fold) in
@@ -1769,21 +1578,20 @@ let%expect_test "selection: committing a link follows the node to its step" =
     ~step:birth;
   [%expect
     {|
-    (birth 3)
-     HEAP                                  4 live · 8 nodes · 3 new
-     ┆ "d" → 4 ┆             │"h" → 8│
-     └┄┄┄┄┄┄┄┄┄┘             └───────┘
-
-     ▾ #6 · map ⟨string ⇒ int⟩ · 3 nodes
-                        ▾┌ #6  new ┐
-                         │"f" → 6  │
-                         └─────────┘
-                     ┌───────────┴───────────┐
-                     l                       r
-            ▾┌─────────── new ┐    ┌ ↗ ┄┄┄┄┄┄┐
-             │"d" → 4         │    ┆ "h" → 8 ┆
-             └ 0x78de5b5e1d10 ┘    └┄┄┄┄┄┄┄┄┄┘
-              ┌──────┴───────┐
+    (birth 5)
+     HEAP                                  2 live · 6 nodes · 3 new
+     ▾ m  int M.t  5 bindings
+     ├─   "f" → 6
+     ├─   "d" → 4
+     ├─   "b" → 2
+     ├─   "h" → 8
+     └─   "j" → 10
+     ▾ bigger  int M.t  5 bindings  new
+     ├─   "f" → 6  new                               0x78de5b5fff78
+     ├─   ↗ "d" → 4
+     ├─   "h" → 8  new
+     ├─   "g" → 7  new
+     └─   ↗ "j" → 10
     |}]
 ;;
 

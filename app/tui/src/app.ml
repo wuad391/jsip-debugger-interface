@@ -105,10 +105,10 @@ module Action = struct
     | Commit_cursor (** [Enter]: the orange becomes the blue *)
     | Jump_cursor of Heap_pane.Direction.t
     (** shift + [wasd]: aim and commit in one, skipping the orange *)
-    | Select_heap_node of Heap_pane.Spot.t (** a click on a card *)
+    | Select_heap_node of Heap_pane.Spot.t (** a click on a row *)
     | Toggle_focused_fold
     (** [space]: collapse whatever the focused pane is pointing at — the
-        structure a heap card belongs to, or a call's descendants *)
+        structure a heap row belongs to, or a call's descendants *)
     | Toggle_accordion
     | Begin_filter (** [/]: open the prompt, starting from empty *)
     | Filter_input of char
@@ -126,8 +126,8 @@ let frame_count replay ~step =
    [Int.clamp_exn] would assert rather than clamp. *)
 let clamp index ~max = Int.max 0 (Int.min max index)
 
-(* the blue card: whatever was last chosen, or — until something is — the
-   root of the structure this step walked, which is what the pane highlighted
+(* the blue row: whatever was last chosen, or — until something is — the root
+   of the structure this step walked, which is what the pane highlighted
    before selection existed. Both the renderer and the cursor arithmetic go
    through here so they cannot disagree about where the cursor starts. *)
 let heap_selection replay (model : Model.t) =
@@ -201,7 +201,7 @@ let apply_action
     | false -> Set.add set x
   in
   (* any move re-follows the innermost frame and rewinds the heap pane, and
-     drops both cursors and the chosen card — at another step those addresses
+     drops both cursors and the chosen row — at another step those addresses
      name nothing, so blue goes back to following the walked structure. Folds
      persist; that is the point of keying them stably. *)
   let move ~playing step =
@@ -216,9 +216,9 @@ let apply_action
     ; stack_cursor = None
     }
   in
-  (* committing a heap card is exactly what clicking it does — jump to where
-     it was allocated — and additionally pins it as the selection, so the
-     card stays blue and keeps showing its address at the new step *)
+  (* committing a heap row is exactly what clicking it does — jump to where
+     it was allocated — and additionally pins it as the selection, so the row
+     stays blue and keeps showing its address at the new step *)
   let select_heap_node model (spot : Heap_pane.Spot.t) =
     let stepped =
       match Map.find births spot.address with
@@ -345,7 +345,7 @@ let apply_action
   | Toggle_source_fold fold ->
     { model with source_folds = toggle model.source_folds fold }
   (* [h] folds what you are pointing at: in the heap, the node under the
-     cursor (its children tuck behind the card) or — on a structure's header
+     cursor (its children tuck behind the row) or — on a structure's own row
      — the whole structure; in the stack the aimed call's range. It reads the
      cursor first and the selection second, so it works before you have aimed
      at anything — the heap falls back to the structure this step walked, the
@@ -684,6 +684,7 @@ let render
         | Back -> act (Action.Step_delta (-1))
         | Step -> act (Action.Step_delta 1)
         | Play -> act Action.Toggle_play
+        | Node -> act (Action.Move_cursor Down)
         | Fold -> act Action.Toggle_focused_fold
         | Accordion -> act Action.Toggle_accordion
         | Filter -> act Action.Begin_filter
@@ -736,7 +737,7 @@ let render
                (match Layout.inner_position layout.heap position with
                 | Some { x; y } ->
                   (* the panel pads the body one column right of the border;
-                     fold glyphs win over the card under them *)
+                     fold glyphs win over the row under them *)
                   let x = max 0 (x - 1) in
                   (match
                      Heap_pane.toggle_at
@@ -777,9 +778,9 @@ let render
     | true ->
       (* the wheel only goes up and down, so sideways rides on a held
          modifier — two columns a tick, roughly the vertical tick's share of
-         a card. Ctrl or alt, not shift: the terminal wire has a shift bit
-         for mouse events but notty never decodes it, so shift+wheel arrives
-         here as a plain wheel. *)
+         a row. Ctrl or alt, not shift: the terminal wire has a shift bit for
+         mouse events but notty never decodes it, so shift+wheel arrives here
+         as a plain wheel. *)
       (match direction, sideways with
        | `Up, false -> Some (Action.Scroll_heap (-1))
        | `Down, false -> Some (Action.Scroll_heap 1)
@@ -883,11 +884,16 @@ let component
          | (End | ASCII 'G'), [] -> inject (Step_to Int.max_value)
          | Page `Up, [] -> inject (Scroll_heap (-3))
          | Page `Down, [] -> inject (Scroll_heap 3)
-         (* the heap's sideways PgUp/PgDn — most of a card at a time *)
+         (* the heap's sideways PgUp/PgDn — a column of a row at a time *)
          | ASCII '[', [] -> inject (Pan_heap (-8))
          | ASCII ']', [] -> inject (Pan_heap 8)
          | Tab, [] -> inject Focus_next_pane
          | Enter, [] -> inject Commit_cursor
+         (* the outline is a list of lines, so ↑/↓ run it end to end — the
+            motion the heap pane is shaped for, on the keys that mean it. ←/→
+            stay on stepping, which is what a replay is for. *)
+         | Arrow `Up, [] -> inject (Move_cursor Up)
+         | Arrow `Down, [] -> inject (Move_cursor Down)
          (* lowercase aims, uppercase commits on the way — a terminal reports
             shift as the capital, not as a modifier *)
          | ASCII 'w', [] -> inject (Move_cursor Up)
