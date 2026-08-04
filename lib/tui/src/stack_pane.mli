@@ -26,15 +26,29 @@ module Target : sig
   [@@deriving sexp_of, equal]
 end
 
-(** [calls] is every event's call in step order; [live] the step indices of
-    the current stack, outermost first; [selected] an index into [live];
-    [cursor] the call the keyboard is aiming at, washed orange over whatever
-    the selection's blue is doing, so you can see where [Enter] would go
-    without losing where you are. *)
+(** A call's compute-heat annotation, joined from the perf profile by the
+    app: [share] is the callee's fraction of the run's sampled compute
+    ([None] = the profile has no data for it, rendered neutral) and [rank] a
+    0-4 call-frequency bucket over the whole trace (the cell's glyph height). *)
+module Heat : sig
+  type t =
+    { share : float option
+    ; rank : int
+    }
+  [@@deriving sexp_of, equal]
+end
+
+(** [calls] is every event's call in step order; [heat] its per-call heat,
+    same indexing — all-[None] (e.g. no [-perf-file]) collapses the heat
+    column entirely; [live] the step indices of the current stack, outermost
+    first; [selected] an index into [live]; [cursor] the call the keyboard is
+    aiming at, washed orange over whatever the selection's blue is doing, so
+    you can see where [Enter] would go without losing where you are. *)
 val view
   :  width:int
   -> height:int
   -> calls:Call.t array
+  -> heat:Heat.t option array
   -> live:int list
   -> selected:int
   -> folds:Int.Set.t
@@ -64,6 +78,7 @@ val target_at
   :  width:int
   -> height:int
   -> calls:Call.t array
+  -> heat:Heat.t option array
   -> live:int list
   -> selected:int
   -> folds:Int.Set.t

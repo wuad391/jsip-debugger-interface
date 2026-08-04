@@ -22,9 +22,13 @@ module Dimensions := Bonsai_term.Dimensions
 
 (** The interface as a [Bonsai_term] app, exposed for tests; [run] is the
     entry point. [sources] is keyed by the file paths the dump's locations
-    carry, and [replay] must have at least one step. *)
+    carry, and [replay] must have at least one step. [profile] is the perf
+    heat profile the pipeline captured over the unchanged program; when
+    given, the stack pane grows a per-call heat cell and the session bar its
+    legend. *)
 val component
-  :  replay:Replay.t
+  :  ?profile:Jsip_types.Heat_profile.t
+  -> replay:Replay.t
   -> sources:Source_pane.Loaded.t Or_error.t String.Map.t
   -> dump_name:string
   -> exit:(unit -> unit Effect.t)
@@ -34,7 +38,9 @@ val component
 
 (** Runs until [q]/[Ctrl-C]. The terminal is restored on exit. *)
 val run
-  :  dump_name:string
+  :  ?profile:Jsip_types.Heat_profile.t
+  -> dump_name:string
   -> replay:Replay.t
   -> sources:Source_pane.Loaded.t Or_error.t String.Map.t
+  -> unit
   -> unit Async.Deferred.Or_error.t

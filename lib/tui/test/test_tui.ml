@@ -70,6 +70,9 @@ let calls_of replay =
     (Replay.step_exn replay ~step).call)
 ;;
 
+(* no profile loaded: the heat column collapses *)
+let no_heat calls = Array.map calls ~f:(fun (_ : Call.t) -> None)
+
 let live_of replay ~step =
   let { Replay.Step.frames; _ } = Replay.step_exn replay ~step in
   List.map frames ~f:(fun (frame : Call.t) -> fst frame.range)
@@ -86,6 +89,7 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
        ~width:56
        ~height:10
        ~calls:(calls_of replay)
+       ~heat:(no_heat (calls_of replay))
        ~live:(live_of replay ~step:2)
        ~selected:1
        ~folds:Int.Set.empty
@@ -732,6 +736,7 @@ let%expect_test "stack fold: a call's range tucks behind a count" =
        ~width:56
        ~height:7
        ~calls:(calls_of replay)
+       ~heat:(no_heat (calls_of replay))
        ~live:(live_of replay ~step:4)
        ~selected:0
        ~folds:(Int.Set.of_list [ 1 ])
@@ -1283,6 +1288,7 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
        ~width:56
        ~height:8
        ~calls
+       ~heat:(no_heat calls)
        ~live
        ~selected:1
        ~folds:Int.Set.empty
@@ -1297,5 +1303,85 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
           M.add k (v * 2) acc
         M.fold (fun k v acc -> M.add k (v * 2) acc) m
           M.empty
+    |}]
+;;
+
+let%expect_test "stack pane: heat cells — color says compute, height says \
+                 calls"
+  =
+  let replay = replay_of_fixture "map_fold" in
+  let calls = calls_of replay in
+  (* a synthetic profile join covering every rank plus both kinds of "no
+     data": a matched-but-unsampled function (ghost glyph) and a call the
+     profile knows nothing about (ghost dot) *)
+  let heat =
+    Array.mapi calls ~f:(fun step (_ : Call.t) ->
+      match step with
+      | 0 -> Some { Stack_pane.Heat.share = Some 0.4; rank = 4 }
+      | 1 -> Some { Stack_pane.Heat.share = Some 0.12; rank = 3 }
+      | 2 -> Some { Stack_pane.Heat.share = Some 0.05; rank = 2 }
+      | 3 -> Some { Stack_pane.Heat.share = None; rank = 0 }
+      | _ -> None)
+  in
+  print_view
+    ~height:10
+    (Stack_pane.view
+       ~width:56
+       ~height:10
+       ~calls
+       ~heat
+       ~live:(live_of replay ~step:2)
+       ~selected:1
+       ~folds:Int.Set.empty
+       ~cursor:None);
+  [%expect
+    {|
+    CALL STACK                     5 calls · 2 live · heat
+     █     M.add "b" 2 M.empty
+     ▆ ▾ M.add "a" 1 (M.add "b" 2 M.empty)
+    ▎▄     M.add k (v * 2) acc
+     ▁     M.add k (v * 2) acc
+     ·   M.fold (fun k v acc -> M.add k (v * 2) acc) m
+           M.empty
+    |}]
+;;
+
+let%expect_test "session bar: the heat legend appears only with a profile" =
+  print_view
+    ~width:80
+    ~height:1
+    (Session_bar.view
+       ~width:80
+       ~dump_name:"greet.dump"
+       ~structure:"Map"
+       ~heat:true);
+  [%expect
+    {| ● ocaml-debug │ greet.dump │ Map · replay       heat █████ cold→hot  · no data |}];
+  print_view
+    ~width:80
+    ~height:1
+    (Session_bar.view
+       ~width:80
+       ~dump_name:"greet.dump"
+       ~structure:"Map"
+       ~heat:false);
+  [%expect {| ● ocaml-debug │ greet.dump │ Map · replay |}]
+;;
+
+let%expect_test "heat ramp buckets are log-spaced" =
+  List.iter [ 0.25; 0.1; 0.05; 0.02; 0.001 ] ~f:(fun share ->
+    let color = Theme.heat ~share in
+    let index, (_ : Bonsai_term.Attr.Color.t) =
+      Array.findi_exn Theme.heat_ramp ~f:(fun (_ : int) stop ->
+        phys_equal stop color)
+    in
+    print_endline [%string "%{share#Float} -> ramp %{index#Int}"]);
+  [%expect
+    {|
+    0.25 -> ramp 4
+    0.1 -> ramp 3
+    0.05 -> ramp 2
+    0.02 -> ramp 1
+    0.001 -> ramp 0
     |}]
 ;;

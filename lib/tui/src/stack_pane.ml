@@ -21,6 +21,48 @@ module Row = struct
     }
 end
 
+module Heat = struct
+  type t =
+    { share : float option
+    ; rank : int
+    }
+  [@@deriving sexp_of, equal]
+end
+
+(* frequency rank 0-4 as a rising bar; the color says compute share *)
+let heat_glyphs = [| "▁"; "▂"; "▄"; "▆"; "█" |]
+
+(* the one-column heat cell between the bar and the indent, plus its gap;
+   [None] rows show a neutral dot — "no perf data" is a different fact from
+   "cold". Continuation lines keep the column but stay blank. *)
+let heat_cell heat ~step ~first_line =
+  match Array.exists heat ~f:Option.is_some with
+  | false -> []
+  | true ->
+    (match first_line with
+     | false -> [ View.text "  " ]
+     | true ->
+       (match heat.(step) with
+        | None -> [ View.text ~attrs:(Theme.fg' Theme.ghost) "· " ]
+        | Some { Heat.share; rank } ->
+          let glyph =
+            heat_glyphs.(Int.max
+                           0
+                           (Int.min rank (Array.length heat_glyphs - 1)))
+          in
+          let color =
+            match share with
+            | None -> Theme.ghost
+            | Some share -> Theme.heat ~share
+          in
+          [ View.text ~attrs:(Theme.fg' color) glyph; View.text " " ]))
+;;
+
+(* how many columns [heat_cell] occupies *)
+let heat_width heat =
+  match Array.exists heat ~f:Option.is_some with false -> 0 | true -> 2
+;;
+
 (* call [i]'s descendants are exactly the calls inside its event range — the
    depth bookkeeping Call_stack already did *)
 let descendants (calls : Call.t array) index =
@@ -37,7 +79,7 @@ let is_hidden ~folds ~calls index =
 (* the whole run, one row per visible call: the live chain bright, everything
    else dimmed; a call with descendants gets a fold glyph, and folding tucks
    its range away behind a [⋯ n] count *)
-let rows ~width ~calls ~live ~selected ~folds ~cursor =
+let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
   Array.to_list calls
   |> List.filter_mapi ~f:(fun step (call : Call.t) ->
     match is_hidden ~folds ~calls step with
@@ -104,7 +146,7 @@ let rows ~width ~calls ~live ~selected ~folds ~cursor =
          already on screen, highlighted, in the source pane below — a
          [file.ml:line] chip on every row said it a second time and cost the
          column a third of its width *)
-      let available = width - 1 - indent - 2 in
+      let available = width - 1 - heat_width heat - indent - 2 in
       let wrapped =
         Wrap.spans
           ([ `Fn, fn; `Args, [%string " %{args}"] ] @ hidden_note)
@@ -124,18 +166,20 @@ let rows ~width ~calls ~live ~selected ~folds ~cursor =
         | `Hidden ->
           View.text ~attrs:[ Theme.fg Theme.muted; Attr.italic ] text
       in
-      let glyph_x = 1 + indent in
+      let glyph_x = 1 + heat_width heat + indent in
       let lines =
         List.mapi wrapped ~f:(fun line_index spans ->
           let lead =
             match line_index with
             | 0 ->
-              [ bar
-              ; View.text (String.make indent ' ')
-              ; View.text ~attrs:(Theme.fg' Theme.secondary) glyph
-              ; View.text " "
-              ]
-            | _ -> [ bar; View.text (String.make (indent + 4) ' ') ]
+              (bar :: heat_cell heat ~step ~first_line:true)
+              @ [ View.text (String.make indent ' ')
+                ; View.text ~attrs:(Theme.fg' Theme.secondary) glyph
+                ; View.text " "
+                ]
+            | _ ->
+              (bar :: heat_cell heat ~step ~first_line:false)
+              @ [ View.text (String.make (indent + 4) ' ') ]
           in
           let line = View.hcat (lead @ List.map spans ~f:render_span) in
           let line = Panel.fit line ~width ~height:1 in
@@ -195,10 +239,12 @@ let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
     (Int.max 0 (total - height))
 ;;
 
-let view ~width ~height ~calls ~live ~selected ~folds ~cursor =
+let view ~width ~height ~calls ~heat ~live ~selected ~folds ~cursor =
   let inner_width = Panel.inner_width ~width in
   let inner_height = height - Panel.header_height in
-  let rows = rows ~width:inner_width ~calls ~live ~selected ~folds ~cursor in
+  let rows =
+    rows ~width:inner_width ~calls ~heat ~live ~selected ~folds ~cursor
+  in
   let offset =
     scroll_offset
       rows
@@ -213,20 +259,35 @@ let view ~width ~height ~calls ~live ~selected ~folds ~cursor =
     List.concat_map rows ~f:(fun (row : Row.t) -> row.lines)
     |> fun lines -> List.drop lines offset
   in
+  let heat_meta = match heat_width heat with 0 -> "" | _ -> " · heat" in
   Panel.view
     ~title:"call stack"
     ~meta:
       [%string
-        "%{Array.length calls#Int} calls · %{List.length live#Int} live"]
+        "%{Array.length calls#Int} calls · %{List.length live#Int} \
+         live%{heat_meta}"]
     ~width
     ~height
     (View.vcat body)
 ;;
 
-let target_at ~width ~height ~calls ~live ~selected ~folds ~cursor ~x ~row =
+let target_at
+  ~width
+  ~height
+  ~calls
+  ~heat
+  ~live
+  ~selected
+  ~folds
+  ~cursor
+  ~x
+  ~row
+  =
   let inner_width = Panel.inner_width ~width in
   let inner_height = height - Panel.header_height in
-  let rows = rows ~width:inner_width ~calls ~live ~selected ~folds ~cursor in
+  let rows =
+    rows ~width:inner_width ~calls ~heat ~live ~selected ~folds ~cursor
+  in
   let offset =
     scroll_offset
       rows
