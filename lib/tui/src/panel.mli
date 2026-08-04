@@ -50,3 +50,12 @@ val vertical_rule
 (** [glyph] repeated [width] times — for multi-byte box characters where
     [String.make] would count bytes. *)
 val repeat : string -> width:int -> string
+
+(** One row of a scrolling pane: [view] pinned to [width] by {!fit}, washed
+    with [bg] when the row is selected. Every pane draws its rows through
+    this, so a selected line looks the same in all of them. *)
+val row
+  :  ?bg:Bonsai_term.Attr.Color.t
+  -> Bonsai_term.View.t
+  -> width:int
+  -> Bonsai_term.View.t

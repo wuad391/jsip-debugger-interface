@@ -23,6 +23,9 @@ module Loaded : sig
     ; spans : (Syntax.Token.t * string) list Array.t
     ; regions : (int * int) list
     (** [(start, stop)] line spans, 1-based inclusive *)
+    ; regions_by_start : int Int.Map.t
+    (** [regions] keyed by its first line — the pane asks "does a region
+        start here?" once per line of the file, per frame *)
     }
 
   val of_source_file : Source_file.t -> t

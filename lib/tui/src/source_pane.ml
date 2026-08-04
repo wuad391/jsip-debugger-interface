@@ -8,6 +8,9 @@ module Loaded = struct
     { file : Source_file.t
     ; spans : (Syntax.Token.t * string) list Array.t
     ; regions : (int * int) list
+    ; regions_by_start : int Int.Map.t
+    (** [regions] keyed by its first line — the pane asks "does a region
+        start here?" once per line of the file, per frame *)
     }
 
   (* a foldable region: a top-level definition — a line starting at column 0
@@ -33,7 +36,12 @@ module Loaded = struct
   ;;
 
   let of_source_file file =
-    { file; spans = Syntax.file file; regions = regions file }
+    let regions = regions file in
+    { file
+    ; spans = Syntax.file file
+    ; regions
+    ; regions_by_start = Int.Map.of_alist_exn regions
+    }
   ;;
 end
 
@@ -147,15 +155,7 @@ let code_lines
         in
         View.text ~attrs text)
     in
-    let line =
-      Panel.fit
-        (View.hcat (marker :: fold_glyph :: gutter :: code))
-        ~width
-        ~height:1
-    in
-    match bg with
-    | Some bg -> View.with_colors' ~fill_backdrop:true ~bg line
-    | None -> line)
+    Panel.row ?bg (View.hcat (marker :: fold_glyph :: gutter :: code)) ~width)
 ;;
 
 (* a folded region as its single stand-in row: the first line, then how much
@@ -185,15 +185,10 @@ let folded_line ~width (loaded : Loaded.t) ~start ~stop ~hides_active =
       ~attrs:[ Theme.fg Theme.muted; Attr.italic ]
       [%string " ⋯ %{stop - start#Int} lines"]
   in
-  let line =
-    Panel.fit
-      (View.hcat ((marker :: fold_glyph :: gutter :: code) @ [ suffix ]))
-      ~width
-      ~height:1
-  in
-  match bg with
-  | Some bg -> View.with_colors' ~fill_backdrop:true ~bg line
-  | None -> line
+  Panel.row
+    ?bg
+    (View.hcat ((marker :: fold_glyph :: gutter :: code) @ [ suffix ]))
+    ~width
 ;;
 
 (* every visible visual line, tagged with the file lines it accounts for (a
@@ -217,7 +212,8 @@ let visual_lines
   ~char_range
   =
   let region_at number =
-    List.find loaded.regions ~f:(fun (start, (_ : int)) -> start = number)
+    Map.find loaded.regions_by_start number
+    |> Option.map ~f:(fun stop -> number, stop)
   in
   let rec walk number acc =
     match number > Source_file.length loaded.file with

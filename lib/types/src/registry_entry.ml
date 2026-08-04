@@ -37,7 +37,11 @@ let sexp_of_t { id; address; name } =
 ;;
 
 (* what the interface prints for the structure: its latest variable name, or
-   its registry id when it was never observed under one *)
-let display t =
-  match t.name with Some name -> name | None -> [%string "#%{t.id#Int}"]
+   its registry id when it was never observed under one. Taken apart so
+   {!Replay.Structure}, which carries the same two fields unpacked, states
+   the rule once rather than twice. *)
+let display_name ~id ~name =
+  match name with Some name -> name | None -> [%string "#%{id#Int}"]
 ;;
+
+let display t = display_name ~id:t.id ~name:t.name

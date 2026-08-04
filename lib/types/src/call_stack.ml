@@ -1,10 +1,14 @@
 open! Core
 
-type t = { call_order : Call.t Array.t }
+type t =
+  { call_order : Call.t Array.t
+  ; live : int list Array.t
+  }
 
 let create ~parsed_info =
   let length = Queue.length parsed_info in
   let ranges = Array.create ~len:length (0, 0) in
+  let live = Array.create ~len:length [] in
   (* Frames still on the stack, as [(index, depth)]. An event at depth [d]
      closes every open frame at depth >= [d]: a deeper frame's callee chain
      is over, and a same-depth frame is replaced by its sibling. A closed
@@ -20,7 +24,11 @@ let create ~parsed_info =
       | Some _ | None -> ()
     in
     close_frames ();
-    Stack.push open_frames (index, info.depth));
+    Stack.push open_frames (index, info.depth);
+    (* [open_frames] now holds exactly the frames live at [index], innermost
+       first — recorded here rather than rediscovered per step, which cost a
+       scan of the whole dump for every one of its events *)
+    live.(index) <- List.rev_map (Stack.to_list open_frames) ~f:fst);
   (* whatever is still open lives until the end of the dump *)
   Stack.iter open_frames ~f:(fun (open_index, _depth) ->
     ranges.(open_index) <- open_index, length - 1);
@@ -28,15 +36,12 @@ let create ~parsed_info =
     Array.init length ~f:(fun index ->
       Call.create ~info:(Queue.get parsed_info index) ~range:ranges.(index))
   in
-  { call_order }
+  { call_order; live }
 ;;
 
 let length t = Array.length t.call_order
 let call_exn t ~step = t.call_order.(step)
 
 let frames_at t ~step =
-  Array.to_list t.call_order
-  |> List.filter ~f:(fun (call : Call.t) ->
-    let lo, hi = call.range in
-    lo <= step && step <= hi)
+  List.map t.live.(step) ~f:(fun index -> t.call_order.(index))
 ;;

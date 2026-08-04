@@ -4,9 +4,14 @@ module Address = struct
   module T = struct
     type t = nativeint [@@deriving bin_io, compare, equal, hash]
 
+    (* [%string] has no hex conversion, and [Nativeint.Hex] signs addresses
+       past 2^63, so this stays [Printf]. One definition, because the sexp
+       and the on-screen rendering are required to agree. *)
+    let display t = Printf.sprintf "0x%nx" t
+
     (* The wire prints addresses as [0x...] atoms; mirror that so our sexps
        round-trip byte-for-byte against the compiler's emitter. *)
-    let sexp_of_t t = Sexp.Atom (Printf.sprintf "0x%nx" t)
+    let sexp_of_t t = Sexp.Atom (display t)
 
     let t_of_sexp sexp =
       match sexp with
@@ -23,8 +28,6 @@ module Address = struct
 
   include T
   include Comparable.Make (T)
-
-  let display t = Printf.sprintf "0x%nx" t
 end
 
 module Block = struct
@@ -179,6 +182,14 @@ module Node = struct
      address, and nothing else — the shape is whatever that id was defined as
      earlier in the dump *)
   let is_revisit_stub t = List.is_empty t.block && List.is_empty t.children
+
+  (* Pre-order over the whole tree. Every caller that wants to index, count
+     or collect from a dumped structure goes through this rather than writing
+     the recursion again — a new field on [t] then reaches them all. *)
+  let rec fold t ~init ~f =
+    List.fold t.children ~init:(f init t) ~f:(fun acc child ->
+      fold child ~init:acc ~f)
+  ;;
 end
 
 type t =

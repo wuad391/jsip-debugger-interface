@@ -22,10 +22,10 @@ let print_view ?(width = 60) ?(height = 14) view =
 (* every dump here is a golden fixture — verbatim compiler output vendored
    under testing/expected/ (see testing/README.md) *)
 let replay_of_fixture name =
-  let parsed_info = Queue.create () in
-  Dump_reader.read_until_empty
-    [%string "../../../testing/expected/%{name}.dump"]
-    ~store_data:(Queue.enqueue parsed_info);
+  let parsed_info =
+    Dump_reader.read [%string "../../../testing/expected/%{name}.dump"]
+    |> Or_error.ok_exn
+  in
   Replay.create (Call_stack.create ~parsed_info)
 ;;
 

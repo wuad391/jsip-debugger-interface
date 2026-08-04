@@ -1,5 +1,4 @@
 open! Core
-open Jsip_types
 
 let depth_change depth_update =
   let change = ref 0 in
@@ -14,44 +13,45 @@ let depth_change depth_update =
 (* looks like:
    "[{(event (id 1) (loc ...) (fn ...) (args ...) (registry ...) (snapshot ...))" -- the {}]
    marker prefix carries the depth delta, the rest of the line is one event
-   sexp that [Dump_wire] reads directly *)
-
-(** takes in a string representing a function call and parses it, pass in an
-    external function to handle storing the data *)
-let parse_line
-  line
-  (current_depth : int ref)
-  (store_data : Call.Info.t -> unit)
-  =
+   sexp that [Dump_wire] reads directly. A line with no payload is a bare
+   marker, which is only valid as the dump returning to depth 0. *)
+let parse_line line ~current_depth =
   match String.index line '(' with
   | None ->
-    (* a bare-marker line: only valid as the dump returning to depth 0 *)
     current_depth := !current_depth + depth_change line;
     (match !current_depth with
-     | 0 -> ()
-     | _ -> failwith "DUMP READER: Incorrect file ending!")
+     | 0 -> Ok None
+     | depth ->
+       Or_error.error_s
+         [%message
+           "dump does not return to depth 0" (depth : int) (line : string)])
   | Some payload_start ->
     let markers = String.prefix line payload_start in
     let payload = String.drop_prefix line payload_start in
     current_depth := !current_depth + depth_change markers;
-    let wire = Dump_wire.of_string payload |> Or_error.ok_exn in
-    store_data
-      ({ depth = !current_depth
-       ; id = wire.id
-       ; function_info = wire.fn
-       ; location = wire.loc
-       ; arguments = wire.args
-       ; registry = wire.registry
-       ; ty = wire.ty
-       ; snapshot = wire.snapshot
-       }
-       : Call.Info.t)
+    let depth = !current_depth in
+    Or_error.map (Dump_wire.of_string payload) ~f:(fun wire ->
+      Some (Dump_wire.to_call_info wire ~depth))
 ;;
 
-(* reads a file line by line until it is empty *)
-let read_until_empty file_path ~store_data =
-  let current_depth = ref 0 in
-  In_channel.with_file file_path ~f:(fun channel ->
-    In_channel.iter_lines channel ~f:(fun line ->
-      parse_line line current_depth store_data))
+let read file_path =
+  Or_error.join
+    (Or_error.try_with (fun () ->
+       let current_depth = ref 0 in
+       let parsed = Queue.create () in
+       In_channel.with_file file_path ~f:(fun channel ->
+         In_channel.fold_lines channel ~init:(Ok 1) ~f:(fun acc line ->
+           match acc with
+           | Error _ as error -> error
+           | Ok line_number ->
+             (match parse_line line ~current_depth with
+              (* the position is the whole diagnostic for a malformed dump,
+                 so it is attached here rather than left to the caller *)
+              | Error error ->
+                Error (Error.tag_s error ~tag:[%message (line_number : int)])
+              | Ok None -> Ok (line_number + 1)
+              | Ok (Some info) ->
+                Queue.enqueue parsed info;
+                Ok (line_number + 1))))
+       |> Or_error.map ~f:(fun (_ : int) -> parsed)))
 ;;

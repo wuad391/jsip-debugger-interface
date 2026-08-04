@@ -57,7 +57,7 @@ let ticks ~width ~step ~total =
     let views =
       List.mapi cells ~f:(fun index (cell_step, cell_width) ->
         let color =
-          match Ordering.of_int (compare cell_step step) with
+          match Ordering.of_int (Int.compare cell_step step) with
           | Equal -> Theme.highlight
           | Less -> Theme.tick_past
           | Greater -> Theme.hairline

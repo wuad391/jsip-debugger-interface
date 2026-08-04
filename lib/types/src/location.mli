@@ -11,8 +11,6 @@ type t [@@deriving sexp]
 (* getters *)
 val file_path : t -> string
 val line_number : t -> int
-val char_start : t -> int
-val char_end : t -> int
 val char_range : t -> int * int
 
 (* the rest. added this comment so format stops smushing above *)

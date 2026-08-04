@@ -48,10 +48,11 @@ type t =
   }
 [@@deriving sexp]
 
-(** Reads the [(event ...)] wrapper the compiler emits. Unknown extra fields
-    are ignored so a newer compiler doesn't break the reader. *)
-val of_event_sexp : Sexp.t -> t Or_error.t
-
 (** [of_string line] parses one already-unframed dump line (no leading depth
-    markers). *)
+    markers) — the [(event ...)] wrapper the compiler emits. Unknown extra
+    fields are ignored so a newer compiler doesn't break the reader. *)
 val of_string : string -> t Or_error.t
+
+(** The same event under the interface's own field names, at the nesting
+    [depth] the line's [{}] markers put it at. *)
+val to_call_info : t -> depth:int -> Call.Info.t

@@ -8,7 +8,14 @@
 
 open! Core
 
-type t = { call_order : Call.t Array.t }
+type t =
+  { call_order : Call.t Array.t
+  ; live : int list Array.t
+  (** indices into [call_order] of the frames live at each step, outermost
+      first — filled during the same pass that computes the ranges, so
+      {!frames_at} costs the depth of the stack rather than a scan of the
+      whole dump *)
+  }
 
 val create : parsed_info:Call.Info.t Queue.t -> t
 

@@ -20,3 +20,8 @@ type t =
 (** The structure's display identity: its name, or [#id] when it never had
     one. *)
 val display : t -> string
+
+(** {!display} over the two fields it reads, for callers that hold them
+    unpacked — {!Jsip_replay.Replay.Structure} does, and must print a
+    structure exactly as its registry entry would. *)
+val display_name : id:int -> name:string option -> string
