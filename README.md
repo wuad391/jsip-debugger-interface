@@ -139,10 +139,13 @@ subtrees away. Empty slots place no card and are skipped; an `↗` card
 does place one, and standing on it tints the border of the card it
 names without moving you there — you stay in the tree you are reading.
 
-Structures are the outermost layer. From a root, `a`/`d` step to the
-structure beside it and `w` to the one before it, and `s` off a leaf
-falls through to the structure after — so the whole registry is
-reachable without touching the mouse.
+A structure's header — its `name · kind` line — is a place the cursor can
+stand, one rung above its root card. `w` off the root lands on it, and
+from there `w`/`a`/`d` step between structures while `s` descends back
+into the tree. That is what keeps a collapsed structure reachable:
+collapsed, its header is all there is of it, so `h` there opens it again.
+`s` off a leaf falls through to the structure after — so the whole
+registry is reachable without touching the mouse.
 
 The chosen and aimed cards are the only ones that spell out an address,
 and it rides the bottom border rather than taking a row. Every card is

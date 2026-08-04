@@ -13,6 +13,11 @@ module Site = struct
   type t =
     { structure : int
     ; path : int list
+    ; is_header : bool
+    (** the section's [name · kind] line rather than a card in its tree. A
+        collapsed structure is nothing but its header, so without somewhere
+        to stand on it there would be no way back — you could fold a
+        structure away and never reach it again. *)
     }
   [@@deriving sexp_of, equal]
 end
@@ -736,7 +741,12 @@ let rec tree
     | true -> []
     | false -> edges
   in
-  let site = { Site.structure = structure_id; path = List.rev path } in
+  let site =
+    { Site.structure = structure_id
+    ; path = List.rev path
+    ; is_header = false
+    }
+  in
   let fold = Fold.Node (structure_id, site.path) in
   let collapsible = not (List.is_empty edges) in
   let folded = collapsible && Set.mem folds fold in
@@ -797,6 +807,7 @@ let rec tree
           let stub_site =
             { Site.structure = structure_id
             ; path = List.rev (index :: path)
+            ; is_header = false
             }
           in
           let stub =
@@ -1029,7 +1040,7 @@ let rec tree
    (or [#id]) and kind — which is exactly the summary a folded structure
    collapses to. The one this step's event walked reads in the highlight
    blue. *)
-let structure_header (structure : Replay.Structure.t) ~folded =
+let structure_header (structure : Replay.Structure.t) ~folded ~mark =
   let label =
     [%string
       "%{Replay.Structure.display structure} · %{Snapshot.Ds_type.display \
@@ -1040,16 +1051,31 @@ let structure_header (structure : Replay.Structure.t) ~folded =
     | None -> label
     | Some ty -> [%string "%{label} %{Type_info.display ty}"]
   in
+  (* standing on the header means the whole structure is what is picked out,
+     so it takes the same colours a picked card does. Only an exact match
+     counts: the root card shares this address, and a card is not its
+     structure. *)
   let label_attrs =
-    match structure.is_current with
-    | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
-    | false -> Theme.fg' Theme.muted
+    match (mark : Selection.Mark.t) with
+    | Cursor -> [ Theme.fg Theme.cursor_deep; Attr.bold ]
+    | Selected -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
+    | Linked_to_selected | Linked_to_cursor | Plain ->
+      (match structure.is_current with
+       | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
+       | false -> Theme.fg' Theme.muted)
   in
-  View.hcat
-    [ View.text ~attrs:(Theme.fg' Theme.secondary) (glyph_of ~folded)
-    ; View.text " "
-    ; View.text ~attrs:label_attrs label
-    ]
+  let line =
+    View.hcat
+      [ View.text ~attrs:(Theme.fg' Theme.secondary) (glyph_of ~folded)
+      ; View.text " "
+      ; View.text ~attrs:label_attrs label
+      ]
+  in
+  match (mark : Selection.Mark.t) with
+  | Cursor -> View.with_colors' ~fill_backdrop:true ~bg:Theme.cursor_bg line
+  | Selected ->
+    View.with_colors' ~fill_backdrop:true ~bg:Theme.highlight_bg line
+  | Linked_to_selected | Linked_to_cursor | Plain -> line
 ;;
 
 (* one structure's block — its header row with its tree under it — measured
@@ -1097,7 +1123,34 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
     | false ->
       Hash_set.add context.drawn structure.id;
       let folded = Set.mem folds (Fold.Structure structure.id) in
-      let header = structure_header structure ~folded in
+      (* the header is the structure itself, one rung above its root card:
+         [w] off the root reaches it, and a collapsed structure is nothing
+         BUT its header, which is how you get back into one *)
+      let header_site =
+        { Site.structure = structure.id; path = []; is_header = true }
+      in
+      let header =
+        structure_header
+          structure
+          ~folded
+          ~mark:
+            (Selection.mark
+               selection
+               ~address:structure.address
+               ~site:header_site)
+      in
+      let header_placed =
+        { Placed.x = 0
+        ; y = 0
+        ; width = View.width header
+        ; height = 1
+        ; address = structure.address
+        ; site = header_site
+        ; depth = 0
+        ; parent = None
+        ; is_pointer = false
+        }
+      in
       let header_toggle =
         { Toggle.x = 0; y = 0; fold = Fold.Structure structure.id }
       in
@@ -1111,8 +1164,8 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
           ~folds
           ~structure_id:structure.id
           ~path:[]
-          ~depth:0
-          ~parent:None
+          ~depth:1
+          ~parent:(Some header_site)
       in
       (* the tree is laid out either way, so its footprint is known even when
          the header is hiding it *)
@@ -1126,7 +1179,7 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
           ; height = 1
           ; reserved_width
           ; reserved_height
-          ; placed = []
+          ; placed = [ header_placed ]
           ; toggles = [ header_toggle ]
           }
         | false ->
@@ -1134,7 +1187,8 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
           ; reserved_width
           ; reserved_height
           ; height = 1 + View.height canvas
-          ; placed = List.map placed ~f:(Placed.shift ~dx:0 ~dy:1)
+          ; placed =
+              header_placed :: List.map placed ~f:(Placed.shift ~dx:0 ~dy:1)
           ; toggles =
               header_toggle :: List.map toggles ~f:(Toggle.shift ~dx:0 ~dy:1)
           }
@@ -1428,7 +1482,7 @@ let fold_of_spot ({ Spot.site; address = (_ : Snapshot.Address.t) } : Spot.t)
 (* where the pane starts you off: a structure's own root card *)
 let spot_of_structure (structure : Replay.Structure.t) =
   { Spot.address = structure.address
-  ; site = { Site.structure = structure.id; path = [] }
+  ; site = { Site.structure = structure.id; path = []; is_header = false }
   }
 ;;
 
@@ -1527,9 +1581,17 @@ let move_cursor
     | None -> None
     | Some (index, (_ : Placed.t)) -> List.nth list (index + offset)
   in
+  (* where the last press left us — or, when that card is gone because its
+     structure has since been collapsed, whatever still draws that node,
+     which is the header standing in for the whole tree *)
   let from =
     Option.first_some selection.cursor selection.selected
-    |> Option.bind ~f:(fun (spot : Spot.t) -> find spot.site)
+    |> Option.bind ~f:(fun (spot : Spot.t) ->
+      match find spot.site with
+      | Some card -> Some card
+      | None ->
+        List.find placed ~f:(fun (card : Placed.t) ->
+          Snapshot.Address.equal card.address spot.address))
   in
   match from with
   | None ->

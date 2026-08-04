@@ -175,9 +175,11 @@ val resolve_spot
     so the cursor can stand on it — lighting up the card it names, without
     leaving the tree you are reading.
 
-    Structures are the outermost layer: from a root [Left]/[Right] step to
-    the structure beside it and [Up] to the one before it, and [Down] off a
-    leaf falls through to the structure after.
+    A structure's header is a place too, one rung above its root card: [Up]
+    off the root lands on it, and from there [Up]/[Left]/[Right] step to the
+    structures around it while [Down] descends back into the tree. That is
+    what makes a collapsed structure reachable — collapsed, its header is all
+    there is of it. [Down] off a leaf falls through to the structure after.
 
     [None] when nothing lies that way; with no cursor and no selection, the
     first structure's root, so the first keypress always lands somewhere. *)

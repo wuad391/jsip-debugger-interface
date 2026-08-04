@@ -755,8 +755,8 @@ let%expect_test "aiming moves the card, not the diagram" =
       print_s [%message name ~rows_that_changed:(moved : int list)]);
   [%expect
     {|
-    (root (rows_that_changed (2 3 4)))
-    ("its child" (rows_that_changed (7 8 9)))
+    (root (rows_that_changed ()))
+    ("its child" (rows_that_changed (2 3 4)))
     |}]
 ;;
 
@@ -1306,18 +1306,87 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
       print_endline [%string "%{key} -> %{landed}"]);
   [%expect
     {|
-    w -> m
-    s -> "d"
-    d -> "h"
-    s -> "j"
-    a -> "b"
-    a -> (nothing that way)
-    w -> "d"
-    s -> "b"
+    w -> bigger
     s -> bigger
+    d -> (nothing that way)
     s -> "d"
+    a -> (nothing that way)
+    a -> (nothing that way)
+    w -> bigger
+    s -> "d"
+    s -> (nothing that way)
+    s -> (nothing that way)
     d -> "h"
     w -> bigger
+    |}]
+;;
+
+let%expect_test "selection: the cursor can stand on a whole structure" =
+  (* A collapsed structure is nothing but its header, so the header has to be
+     somewhere the cursor can go — otherwise folding one would put it beyond
+     reach. It sits one rung above the tree's root card: [w] off the root
+     lands on it, [w] again steps to the structure before, and [s] descends
+     back into the tree. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  let step = Replay.length replay - 1 in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let folded name =
+    Set.of_list
+      (module Heap_pane.Fold)
+      (List.filter_map structures ~f:(fun (structure : Replay.Structure.t) ->
+         match String.equal (Replay.Structure.display structure) name with
+         | true ->
+           Some
+             (Heap_pane.fold_of_spot (Heap_pane.spot_of_structure structure))
+         | false -> None))
+  in
+  let walk ~folds keys =
+    let selection =
+      ref
+        { Heap_pane.Selection.selected = current_spot replay ~step
+        ; cursor = None
+        }
+    in
+    List.iter keys ~f:(fun (direction, key) ->
+      let moved =
+        Heap_pane.move_cursor
+          ~structures
+          ~nodes
+          ~new_addresses
+          ~folds
+          ~selection:!selection
+          ~direction
+      in
+      Option.iter moved ~f:(fun (_ : Heap_pane.Spot.t) ->
+        selection := { !selection with cursor = moved });
+      let landed =
+        match moved with
+        | None -> Sexp.Atom "(nothing that way)"
+        | Some { Heap_pane.Spot.site; address = (_ : Snapshot.Address.t) } ->
+          [%sexp (site : Heap_pane.Site.t)]
+      in
+      print_s [%message key ~landed:(landed : Sexp.t)])
+  in
+  print_endline "-- everything expanded";
+  walk
+    ~folds:(Set.empty (module Heap_pane.Fold))
+    [ Heap_pane.Direction.Up, "w"; Up, "w"; Down, "s" ];
+  print_endline "-- with [m] collapsed, its header is all there is of it";
+  walk
+    ~folds:(folded "m")
+    [ Heap_pane.Direction.Up, "w"; Up, "w"; Down, "s" ];
+  [%expect
+    {|
+    -- everything expanded
+    (w (landed ((structure 12) (path ()) (is_header true))))
+    (w (landed ((structure 9) (path ()) (is_header true))))
+    (s (landed ((structure 9) (path ()) (is_header false))))
+    -- with [m] collapsed, its header is all there is of it
+    (w (landed ((structure 12) (path ()) (is_header true))))
+    (w (landed ((structure 9) (path ()) (is_header true))))
+    (s (landed ((structure 12) (path ()) (is_header true))))
     |}]
 ;;
 
