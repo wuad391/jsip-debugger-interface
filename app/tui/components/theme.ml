@@ -49,6 +49,23 @@ let hairline = color 0x4a4640
 let tick_past = color 0x2e5578
 let app_purple = color 0xc39ae2
 
+(* the timeline's activity shading: a cell containing allocation bursts
+   brightens within its own hue — past stays in the position blue's register,
+   future in the idle gray warming toward the accent — so density reads as
+   intensity while past/current/future keep their meaning. Index by rising
+   density, [0] = quiet. *)
+let tick_past_ramp = [| tick_past; color 0x3f78ab; color 0x5b9bd6 |]
+let tick_future_ramp = [| hairline; color 0x6b6255; color 0x93825f |]
+
+(* most steps allocate a little and a few allocate a lot; the buckets are
+   spaced so only genuine bursts reach the bright stop *)
+let tick_density ramp ~density =
+  match Float.( >= ) density 0.5, Float.( >= ) density 0.15 with
+  | true, _ -> ramp.(2)
+  | false, true -> ramp.(1)
+  | false, false -> ramp.(0)
+;;
+
 (* the app's purple, in its syntax-highlighting role *)
 let keyword = app_purple
 let ident = color 0x7fb8dc

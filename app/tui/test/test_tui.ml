@@ -99,7 +99,8 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
        ~live:(live_of replay ~step:2)
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor:None);
+       ~cursor:None
+       ~expanded:Int.Set.empty);
   [%expect
     {|
     CALL STACK                            5 calls · 2 live
@@ -396,6 +397,7 @@ let%expect_test "transport: ticks, then the clickable key legend" =
        ~width:84
        ~step:1
        ~total:3
+       ~density:[| 0.0; 1.0; 0.2 |]
        ~playing:false
        ~accordion:false);
   [%expect
@@ -955,7 +957,8 @@ let%expect_test "stack fold: a call's range tucks behind a count" =
        ~live:(live_of replay ~step:4)
        ~selected:0
        ~folds:(Int.Set.of_list [ 1 ])
-       ~cursor:None);
+       ~cursor:None
+       ~expanded:Int.Set.empty);
   [%expect
     {|
     CALL STACK                            5 calls · 1 live
@@ -1800,6 +1803,7 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
       ~selected:1
       ~folds:Int.Set.empty
       ~cursor:None
+      ~expanded:Int.Set.empty
       ~direction:`Up
   in
   print_s [%message (cursor : int option)];
@@ -1813,7 +1817,8 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
        ~live
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor);
+       ~cursor
+       ~expanded:Int.Set.empty);
   [%expect
     {|
     (cursor (1))
@@ -1854,7 +1859,8 @@ let%expect_test "stack pane: heat colors the callee names, layout untouched" =
        ~live:(live_of replay ~step:2)
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor:None);
+       ~cursor:None
+       ~expanded:Int.Set.empty);
   [%expect
     {|
     CALL STACK                     5 calls · 2 live · heat
@@ -1867,7 +1873,7 @@ let%expect_test "stack pane: heat colors the callee names, layout untouched" =
     |}]
 ;;
 
-let%expect_test "session bar: the heat legend appears only with a profile" =
+let%expect_test "session bar: the heat legend names what the ramp measures" =
   print_view
     ~width:80
     ~height:1
@@ -1875,9 +1881,9 @@ let%expect_test "session bar: the heat legend appears only with a profile" =
        ~width:80
        ~dump_name:"greet.dump"
        ~structure:"Map"
-       ~heat:true);
+       ~heat:(Some `Compute));
   [%expect
-    {| ● ocaml-debug │ greet.dump │ Map · replay                  heat █████ cold→hot |}];
+    {| ● ocaml-debug │ greet.dump │ Map · replay                   heat █████ compute |}];
   print_view
     ~width:80
     ~height:1
@@ -1885,7 +1891,17 @@ let%expect_test "session bar: the heat legend appears only with a profile" =
        ~width:80
        ~dump_name:"greet.dump"
        ~structure:"Map"
-       ~heat:false);
+       ~heat:(Some `Calls));
+  [%expect
+    {| ● ocaml-debug │ greet.dump │ Map · replay                     heat █████ calls |}];
+  print_view
+    ~width:80
+    ~height:1
+    (Session_bar.view
+       ~width:80
+       ~dump_name:"greet.dump"
+       ~structure:"Map"
+       ~heat:None);
   [%expect {| ● ocaml-debug │ greet.dump │ Map · replay |}]
 ;;
 
@@ -1904,5 +1920,157 @@ let%expect_test "heat ramp buckets are log-spaced" =
     0.05 -> ramp 2
     0.02 -> ramp 1
     0.001 -> ramp 0
+    |}]
+;;
+
+(* a synthetic stack for the repeat-run behavior: golden dumps have no 4-long
+   same-function runs (the suite above proving exactly that), so build one —
+   six Queue.add leaves between two distinct calls *)
+let run_heavy_stack () =
+  let info index name : Call.Info.t =
+    { depth = 1
+    ; id = index
+    ; function_info = Function_info.Function_name name
+    ; location =
+        Location.create
+          ~file_path:"t.ml"
+          ~line_number:(index + 1)
+          ~char_range:(0, 1)
+    ; arguments = []
+    ; registry = []
+    ; ty = None
+    ; snapshot = Snapshot.empty
+    }
+  in
+  let parsed_info = Queue.create () in
+  List.iteri
+    ([ "start" ]
+     @ List.init 6 ~f:(fun (_ : int) -> "Queue.add")
+     @ [ "finish" ])
+    ~f:(fun index name -> Queue.enqueue parsed_info (info index name));
+  Call_stack.create ~parsed_info
+;;
+
+let%expect_test "stack pane: a repeat run collapses behind ×N" =
+  let calls = (run_heavy_stack ()).call_order in
+  print_view
+    ~height:6
+    (Stack_pane.view
+       ~width:56
+       ~height:6
+       ~calls
+       ~heat:(no_heat calls)
+       ~live:[ 0 ]
+       ~selected:0
+       ~folds:Int.Set.empty
+       ~cursor:None
+       ~expanded:Int.Set.empty);
+  [%expect
+    {|
+    CALL STACK                            8 calls · 1 live
+    ▎  start
+     ▸ Queue.add  ⋯ ×6
+       finish
+    |}]
+;;
+
+let%expect_test "stack pane: an expanded run shows every repeat" =
+  let calls = (run_heavy_stack ()).call_order in
+  print_view
+    ~height:10
+    (Stack_pane.view
+       ~width:56
+       ~height:10
+       ~calls
+       ~heat:(no_heat calls)
+       ~live:[ 0 ]
+       ~selected:0
+       ~folds:Int.Set.empty
+       ~cursor:None
+       ~expanded:(Int.Set.of_list [ 1 ]));
+  [%expect
+    {|
+    CALL STACK                            8 calls · 1 live
+    ▎  start
+     ▾ Queue.add
+       Queue.add
+       Queue.add
+       Queue.add
+       Queue.add
+       Queue.add
+       finish
+    |}]
+;;
+
+let%expect_test "stack pane: a run holding the selection never collapses" =
+  let calls = (run_heavy_stack ()).call_order in
+  print_view
+    ~height:10
+    (Stack_pane.view
+       ~width:56
+       ~height:10
+       ~calls
+       ~heat:(no_heat calls)
+       ~live:[ 3 ]
+       ~selected:0
+       ~folds:Int.Set.empty
+       ~cursor:None
+       ~expanded:Int.Set.empty);
+  [%expect
+    {|
+    CALL STACK                            8 calls · 1 live
+       start
+       Queue.add
+       Queue.add
+    ▎  Queue.add
+       Queue.add
+       Queue.add
+       Queue.add
+       finish
+    |}]
+;;
+
+let%expect_test "cursor walks a collapsed run as one row" =
+  let calls = (run_heavy_stack ()).call_order in
+  let step cursor =
+    Stack_pane.move_cursor
+      ~calls
+      ~live:[ 0 ]
+      ~selected:0
+      ~folds:Int.Set.empty
+      ~cursor
+      ~expanded:Int.Set.empty
+      ~direction:`Down
+  in
+  let first = step None in
+  let second = Option.bind first ~f:(fun c -> step (Some c)) in
+  print_s [%message (first : int option) (second : int option)];
+  [%expect {| ((first (1)) (second (7))) |}]
+;;
+
+let%expect_test "timeline density brightens within each state's hue" =
+  List.iter [ 0.0; 0.2; 0.7 ] ~f:(fun density ->
+    let index ramp color =
+      fst
+        (Array.findi_exn ramp ~f:(fun (_ : int) stop ->
+           phys_equal stop color))
+    in
+    let past =
+      index
+        Theme.tick_past_ramp
+        (Theme.tick_density Theme.tick_past_ramp ~density)
+    in
+    let future =
+      index
+        Theme.tick_future_ramp
+        (Theme.tick_density Theme.tick_future_ramp ~density)
+    in
+    print_endline
+      [%string "%{density#Float} -> past %{past#Int}, future %{future#Int}"]);
+  [%expect
+    {|
+    0. -> past 0, future 0
+    0.2 -> past 1, future 1
+    0.7 -> past 2, future 2
     |}]
 ;;
