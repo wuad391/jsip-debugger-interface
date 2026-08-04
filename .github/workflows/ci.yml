@@ -58,6 +58,7 @@ jobs:
       # the workflow file too, so bumping the repository pins above also
       # refreshes this layer.
       - name: Cache installed dependencies
+        id: deps-cache
         uses: actions/cache@v4
         with:
           # setup-ocaml v3 makes the switch LOCAL to the workspace (_opam);
@@ -70,7 +71,13 @@ jobs:
             deps-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml',
             'dune-project', '*.opam') }}
 
+      # Skipped entirely on an exact cache hit: the key covers the opam
+      # file, dune-project and this workflow, so a hit means the restored
+      # switch already satisfies the project's dependencies. Running opam
+      # anyway invites the solver to churn — on a warm run it chose to
+      # downgrade dune-configurator and recompile its 99 dependents.
       - name: Install dependencies
+        if: steps.deps-cache.outputs.cache-hit != 'true'
         run: opam install . --deps-only --with-test
 
       - name: Build
