@@ -9,29 +9,45 @@ let create ~parsed_info =
   let length = Queue.length parsed_info in
   let ranges = Array.create ~len:length (0, 0) in
   let live = Array.create ~len:length [] in
-  (* Frames still on the stack, as [(index, depth)]. An event at depth [d]
-     closes every open frame at depth >= [d]: a deeper frame's callee chain
-     is over, and a same-depth frame is replaced by its sibling. A closed
-     frame's range ends just before the closing event. *)
-  let open_frames = Stack.create () in
+  (* The wire writes an event when its call COMPLETES, so a call's children
+     lie immediately BEFORE it in the dump: its subtree is the maximal run of
+     deeper events ending at its own. [pending] holds subtrees whose parent
+     has not arrived yet, as [(first_index, depth)]; an event adopts every
+     pending subtree strictly deeper than itself. A same-depth entry stays
+     put — that is a completed sibling, waiting for the parent both of them
+     share. *)
+  let pending = Stack.create () in
   Queue.iteri parsed_info ~f:(fun index (info : Call.Info.t) ->
-    let rec close_frames () =
-      match Stack.top open_frames with
-      | Some (open_index, open_depth) when open_depth >= info.depth ->
-        ignore (Stack.pop_exn open_frames : int * int);
-        ranges.(open_index) <- open_index, index - 1;
-        close_frames ()
+    let first = ref index in
+    let rec adopt () =
+      match Stack.top pending with
+      | Some (child_first, child_depth) when child_depth > info.depth ->
+        ignore (Stack.pop_exn pending : int * int);
+        first := Int.min !first child_first;
+        adopt ()
       | Some _ | None -> ()
     in
-    close_frames ();
-    Stack.push open_frames (index, info.depth);
-    (* [open_frames] now holds exactly the frames live at [index], innermost
-       first — recorded here rather than rediscovered per step, which cost a
-       scan of the whole dump for every one of its events *)
-    live.(index) <- List.rev_map (Stack.to_list open_frames) ~f:fst);
-  (* whatever is still open lives until the end of the dump *)
-  Stack.iter open_frames ~f:(fun (open_index, _depth) ->
-    ranges.(open_index) <- open_index, length - 1);
+    adopt ();
+    ranges.(index) <- !first, index;
+    Stack.push pending (!first, info.depth));
+  (* The frames live at an event are its ancestors — which, completing after
+     it, all lie ahead: walking backward, the ancestor chain is the
+     strictly-shallower suffix of what has been seen. Recorded outermost
+     first, the event itself (the innermost frame) last. *)
+  let ancestors = Stack.create () in
+  for index = length - 1 downto 0 do
+    let depth = (Queue.get parsed_info index).Call.Info.depth in
+    let rec unwind () =
+      match Stack.top ancestors with
+      | Some ((_ : int), seen_depth) when seen_depth >= depth ->
+        ignore (Stack.pop_exn ancestors : int * int);
+        unwind ()
+      | Some _ | None -> ()
+    in
+    unwind ();
+    live.(index) <- List.rev_map (Stack.to_list ancestors) ~f:fst @ [ index ];
+    Stack.push ancestors (index, depth)
+  done;
   let call_order =
     Array.init length ~f:(fun index ->
       Call.create ~info:(Queue.get parsed_info index) ~range:ranges.(index))

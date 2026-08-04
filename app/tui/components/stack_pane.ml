@@ -24,16 +24,17 @@ end
 let has_heat heat = Array.exists heat ~f:Option.is_some
 
 (* call [i]'s descendants are exactly the calls inside its event range — the
-   depth bookkeeping Call_stack already did *)
+   depth bookkeeping Call_stack already did. They PRECEDE it: the wire writes
+   an event at call completion, so a subtree ends at its own call. *)
 let descendants (calls : Call.t array) index =
-  let (_ : int), hi = calls.(index).Call.range in
-  hi - index
+  let lo, (_ : int) = calls.(index).Call.range in
+  index - lo
 ;;
 
 let is_hidden ~folds ~calls index =
   Set.exists folds ~f:(fun folded ->
-    let (_ : int), hi = calls.(folded).Call.range in
-    folded < index && index <= hi)
+    let lo, (_ : int) = calls.(folded).Call.range in
+    lo <= index && index < folded)
 ;;
 
 (* the whole run, one row per visible call: the live chain bright, everything
@@ -56,10 +57,10 @@ let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
           (* a fold hiding the selected call lights up in its place *)
           (match List.nth live selected with
            | Some selected_step ->
-             let (_ : int), hi = call.range in
+             let lo, (_ : int) = call.range in
              Set.mem folds step
-             && step < selected_step
-             && selected_step <= hi
+             && lo <= selected_step
+             && selected_step < step
            | None -> false)
       in
       (* the row the keyboard is aiming at wins the wash: it is the transient
@@ -187,9 +188,9 @@ let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
           | true ->
             (* the innermost visible fold covering it *)
             Set.filter folds ~f:(fun folded ->
-              let (_ : int), hi = calls.(folded).Call.range in
-              folded < step && step <= hi)
-            |> Set.max_elt))
+              let lo, (_ : int) = calls.(folded).Call.range in
+              lo <= step && step < folded)
+            |> Set.min_elt))
   in
   let target_start, target_height, total =
     List.fold

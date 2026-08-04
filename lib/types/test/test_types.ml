@@ -38,16 +38,18 @@ let show t =
 ;;
 
 let%expect_test "call ranges over a nested dump" =
-  (* shape: a { b { c } d } e  — depths 1 2 3 2 1 *)
+  (* depths 1 2 3 2 1. The wire writes an event as its call completes, so
+     children precede parents: [a] runs alone, then [e]'s subtree — [b], then
+     [d] with [c] inside — closes at [e] itself. *)
   let t = stack_of_depths [ "a", 1; "b", 2; "c", 3; "d", 2; "e", 1 ] in
   show t;
   [%expect
     {|
-    0: a depth=1 range=(0, 3)
-    1: b depth=2 range=(1, 2)
+    0: a depth=1 range=(0, 0)
+    1: b depth=2 range=(1, 1)
     2: c depth=3 range=(2, 2)
-    3: d depth=2 range=(3, 3)
-    4: e depth=1 range=(4, 4)
+    3: d depth=2 range=(2, 3)
+    4: e depth=1 range=(1, 4)
     |}]
 ;;
 
@@ -65,23 +67,24 @@ let%expect_test "frames_at rebuilds the stack for each step" =
   [%expect
     {|
     step 0: a
-    step 1: a > b
-    step 2: a > b > c
-    step 3: a > d
+    step 1: e > b
+    step 2: e > d > c
+    step 3: e > d
     step 4: e
     |}]
 ;;
 
 let%expect_test "a dump that skips depths on the way back up" =
-  (* depth can fall by more than one between consecutive events *)
+  (* depth can fall by more than one between consecutive events: [c] at depth
+     3 completes directly inside [d] at depth 1 *)
   let t = stack_of_depths [ "a", 1; "b", 2; "c", 3; "d", 1 ] in
   show t;
   [%expect
     {|
-    0: a depth=1 range=(0, 2)
-    1: b depth=2 range=(1, 2)
+    0: a depth=1 range=(0, 0)
+    1: b depth=2 range=(1, 1)
     2: c depth=3 range=(2, 2)
-    3: d depth=1 range=(3, 3)
+    3: d depth=1 range=(1, 3)
     |}]
 ;;
 

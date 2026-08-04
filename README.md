@@ -22,7 +22,7 @@ divider line along each seam:
 
 ```
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                                              ◂ back  ·  step ▸  ·  [space] play  ·  q quit
+                  ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · q quit
 ─────────────────────────────┬──────────────────────────────────────────────────────────────
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
       M.add "b" 2 M.empty    │ ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
@@ -30,7 +30,7 @@ divider line along each seam:
  ▎    M.empty)               │  │"b" → 2│
       M.add k (v * 2) acc    │  └───────┘
       M.add k (v * 2) acc    │
-    M.fold (fun k v acc ->   │ ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
+  ▾ M.fold (fun k v acc ->   │ ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
       M.add k (v * 2) acc) m │        ▾┌ m ──────── new ┐
       M.empty                │         │"b" → 2         │
 ─────────────────────────────┤         └ 0x77127f3ee7e8 ┘
@@ -107,8 +107,10 @@ divider line along each seam:
   step that allocated it; the wheel scrolls.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —
-  `◂ back · step ▸ · [space] play · q quit` — every chip clickable. The
-  session bar (dump name, structure) sits along the bottom.
+  `◂ back · step ▸ · [space] play · h fold · z accordion · / filter ·
+  q quit` — every chip clickable, and the mode chips (play, accordion)
+  light up while theirs is on. The session bar (dump name, structure)
+  sits along the bottom.
 
 ## Run it
 
@@ -126,6 +128,17 @@ in `m`, takes an orange border — the same allocation, drawn twice.
 
 ```sh
 dune exec app/bin/main.exe -- -dump-file testing/expected/map_spine_sharing.dump
+```
+
+For **multi-file source following**, replay `multi_file` and step into
+the fold (five steps in): the live chain spans `main.ml` and
+`inventory.ml`, and selecting the outer frame (`Tab`, then `s` to it,
+`Enter`) swaps the source pane to `main.ml` at the fold's line — the
+call stack never repeats file names; the source pane is where a frame's
+location lives.
+
+```sh
+dune exec app/bin/main.exe -- -dump-file testing/expected/multi_file.dump
 ```
 
 `-source-root DIR` says where the dump's relative source paths

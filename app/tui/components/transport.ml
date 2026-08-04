@@ -7,6 +7,9 @@ module Button = struct
     | Back
     | Step
     | Play
+    | Fold
+    | Accordion
+    | Filter
     | Quit
   [@@deriving sexp_of, equal]
 end
@@ -80,11 +83,17 @@ let segments ~playing =
     match playing with true -> "[space] pause" | false -> "[space] play"
   in
   [ Some Button.Back, "◂ back"
-  ; None, "  ·  "
+  ; None, " · "
   ; Some Button.Step, "step ▸"
-  ; None, "  ·  "
+  ; None, " · "
   ; Some Button.Play, play_label
-  ; None, "  ·  "
+  ; None, " · "
+  ; Some Button.Fold, "h fold"
+  ; None, " · "
+  ; Some Button.Accordion, "z accordion"
+  ; None, " · "
+  ; Some Button.Filter, "/ filter"
+  ; None, " · "
   ; Some Button.Quit, "q quit"
   ]
 ;;
@@ -102,15 +111,21 @@ let start_column ~width ~playing =
   max 0 (width - total - 1)
 ;;
 
-let controls ~width ~playing =
+let controls ~width ~playing ~accordion =
   let chips =
     List.map (segments ~playing) ~f:(fun (button, text) ->
+      (* the chips that name a mode light up while it is on, the same cue for
+         both: you can read the row as state, not just as keys *)
       let attrs =
         match button with
         | None -> Theme.fg' Theme.ghost
         | Some Button.Play when playing ->
           [ Theme.fg Theme.highlight; Attr.bold ]
-        | Some (Button.Back | Button.Step | Button.Play | Button.Quit) ->
+        | Some Button.Accordion when accordion ->
+          [ Theme.fg Theme.highlight; Attr.bold ]
+        | Some
+            ( Button.Back | Button.Step | Button.Play | Button.Fold
+            | Button.Accordion | Button.Filter | Button.Quit ) ->
           Theme.fg' Theme.secondary
       in
       View.text ~attrs text)
@@ -142,13 +157,14 @@ let control_at ~width ~playing ~x =
   hit
 ;;
 
-let view ~width ~step ~total ~playing =
+let view ~width ~step ~total ~playing ~accordion =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
     ~bg:Theme.bg
     (Panel.fit
-       (View.vcat [ ticks ~width ~step ~total; controls ~width ~playing ])
+       (View.vcat
+          [ ticks ~width ~step ~total; controls ~width ~playing ~accordion ])
        ~width
        ~height:Layout.strip_height)
 ;;

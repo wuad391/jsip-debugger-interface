@@ -36,7 +36,7 @@ let%expect_test "a nested dump stacks its frames" =
   show_steps replay;
   [%expect
     {|
-    0: [1 live, 1 new] M.add "inner" 2 M.empty — map_nested.ml:5
+    0: [2 live, 1 new] M.add "inner" 2 M.empty — map_nested.ml:5
     1: [1 live, 2 new] M.add "outer" 1 (M.add "inner" 2 M.empty) — map_nested.ml:5
     |}]
 ;;
@@ -46,7 +46,7 @@ let%expect_test "map_fold interleaves depths and reuses structure" =
   show_steps replay;
   [%expect
     {|
-    0: [1 live, 1 new] M.add "b" 2 M.empty — map_fold.ml:8
+    0: [2 live, 1 new] M.add "b" 2 M.empty — map_fold.ml:8
     1: [1 live, 2 new] M.add "a" 1 (M.add "b" 2 M.empty) — map_fold.ml:8
     2: [2 live, 1 new] M.add k (v * 2) acc — map_fold.ml:12
     3: [2 live, 2 new] M.add k (v * 2) acc — map_fold.ml:12

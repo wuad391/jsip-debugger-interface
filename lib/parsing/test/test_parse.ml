@@ -37,6 +37,7 @@ let all_fixtures =
   ; "map_spine_sharing"
   ; "map_versions"
   ; "map_wide_payload"
+  ; "multi_file"
   ; "neg_plain"
   ; "neg_untracked"
   ; "queue_basic"
@@ -172,6 +173,7 @@ let%expect_test "every golden dump parses end to end" =
     map_spine_sharing: 6 events
     map_versions: 5 events
     map_wide_payload: 1 events
+    multi_file: 9 events
     neg_plain: 0 events
     neg_untracked: 0 events
     queue_basic: 5 events

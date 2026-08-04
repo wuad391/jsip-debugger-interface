@@ -22,10 +22,11 @@ end
 type t =
   { info : Info.t
   ; range : int * int
-  (** the 0-based, inclusive span of events (indices into
-      {!Call_stack.t.call_order}) during which this call is on the stack:
-      from its own event until the last event before one at its depth or
-      shallower *)
+  (** the 0-based, inclusive span of this call's subtree (indices into
+      {!Call_stack.t.call_order}). The wire writes an event when its call
+      completes, so the children come first and the call's own event CLOSES
+      the range: [snd range] is the call itself, and everything from
+      [fst range] up to it ran inside it. *)
   }
 [@@deriving sexp_of]
 

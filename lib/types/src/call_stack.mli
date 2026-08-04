@@ -3,8 +3,10 @@
     Built once from the parsed dump, this is the timeline the debugger
     replays: step [s] of the replay is [call_order.(s)], and the call stack
     shown at that step is every call whose {!Call.t.range} spans [s]. Ranges
-    are computed from the dump's depth markers alone — a frame stays live
-    until the next event at its own depth or shallower. *)
+    are computed from the dump's depth markers alone — and since the wire
+    writes an event when its call COMPLETES, a call's children precede it and
+    the frames live at [s] are [s]'s own event plus ancestors that all lie
+    ahead of it in the dump. *)
 
 open! Core
 
