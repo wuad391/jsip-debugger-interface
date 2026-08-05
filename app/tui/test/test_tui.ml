@@ -2503,6 +2503,21 @@ let%expect_test "stack pane: heat colors the callee names, layout untouched" =
     |}]
 ;;
 
+let%expect_test "session bar: the cross-pane legend, whole chips only" =
+  (* wide enough for the pair: the stack ramp labeled by what it measures,
+     and the timeline's two alloc-density ramps in their own hues *)
+  print_view
+    ~width:110
+    ~height:1
+    (Session_bar.view
+       ~width:110
+       ~dump_name:"greet.dump"
+       ~structure:"Map"
+       ~heat:(Some `Compute));
+  [%expect
+    {| ● ocaml-debug │ greet.dump │ Map · replay                       stack █████ compute · timeline ▀▀▀ ▀▀▀ alloc |}]
+;;
+
 let%expect_test "session bar: the heat legend names what the ramp measures" =
   print_view
     ~width:80
@@ -2513,7 +2528,7 @@ let%expect_test "session bar: the heat legend names what the ramp measures" =
        ~structure:"Map"
        ~heat:(Some `Compute));
   [%expect
-    {| ● ocaml-debug │ greet.dump │ Map · replay                   heat █████ compute |}];
+    {| ● ocaml-debug │ greet.dump │ Map · replay                  stack █████ compute |}];
   print_view
     ~width:80
     ~height:1
@@ -2523,7 +2538,7 @@ let%expect_test "session bar: the heat legend names what the ramp measures" =
        ~structure:"Map"
        ~heat:(Some `Calls));
   [%expect
-    {| ● ocaml-debug │ greet.dump │ Map · replay                     heat █████ calls |}];
+    {| ● ocaml-debug │ greet.dump │ Map · replay                    stack █████ calls |}];
   print_view
     ~width:80
     ~height:1
@@ -2532,7 +2547,8 @@ let%expect_test "session bar: the heat legend names what the ramp measures" =
        ~dump_name:"greet.dump"
        ~structure:"Map"
        ~heat:None);
-  [%expect {| ● ocaml-debug │ greet.dump │ Map · replay |}]
+  [%expect
+    {| ● ocaml-debug │ greet.dump │ Map · replay               timeline ▀▀▀ ▀▀▀ alloc |}]
 ;;
 
 let%expect_test "heat ramp buckets are log-spaced" =

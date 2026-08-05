@@ -14,8 +14,15 @@ each callee's name in its function's share of the sampled compute — cold
 slate through gold to red; a call the profile has no data on keeps its
 ordinary color. Without a profile the same ramp falls back to the trace
 itself — each function's share of the dump's events — so a replay still
-reads hot-to-cold at a glance. The session bar's legend names which of
-the two the colors mean (`compute` or `calls`).
+reads hot-to-cold at a glance.
+
+Two color scales are ambient rather than pane-local, and the session
+bar's right end is the one legend for both: `stack █████ compute` (or
+`calls` — the label says which share the callee names carry) and
+`timeline ▀▀▀ ▀▀▀ alloc`, because the tick strip's cells brighten with
+how much their steps *allocated*, within the hue that already means past
+or future — a bright band up top is an allocation burst, not hot code.
+The heap pane keeps its own legend, bottom-right, for its own registers.
 
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells, its warm-gray
@@ -48,7 +55,7 @@ divider line along each seam:
      10    M.fold (fun k v   │   ▏M.add            M.add
      11      acc -> M.add k  │   ▏M.add     M.fold
 ─────────────────────────────┴──────────────────────────────────────────────────────────────
- ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay          heat █████ compute```
+ ● ocaml-debug │ map_fold.dump │ map ⟨s ⇒ i⟩ · replay  stack █████ compute · timeline ▀▀▀ ▀▀▀ alloc```
 
 (In the drawer each label sits on a filled, colored box running the width
 its subtree earned; the gaps are exposed self time.)
