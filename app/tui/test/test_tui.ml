@@ -270,17 +270,17 @@ let%expect_test "the pop-out draws the tree the outline stands for" =
     {|
     ┌──────────────────────────────────────────────────────────────┐
     │ DIAGRAM                     m · int M.t · 2 nodes · esc back │
-    │   ┌ m  new ┐                                                 │
-    │   │"a" → 1 │                                                 │
-    │   └────────┘                                                 │
-    │   ┌────┴────┐                                                │
-    │   l         r                                                │
-    │ ┌┄┄┄┐   ┌── new ┐                                            │
-    │ ┆ ∅ ┆   │"b" → 2│                                            │
-    │ └┄┄┄┘   └───────┘                                            │
     │                                                              │
     │                                                              │
     │                                                              │
+    │                        ┌ m  new ┐                            │
+    │                        │"a" → 1 │                            │
+    │                        └────────┘                            │
+    │                        ┌────┴────┐                           │
+    │                        l         r                           │
+    │                      ┌┄┄┄┐   ┌── new ┐                       │
+    │                      ┆ ∅ ┆   │"b" → 2│                       │
+    │                      └┄┄┄┘   └───────┘                       │
     │                                                              │
     │                                                              │
     │                                                              │
@@ -301,27 +301,25 @@ let%expect_test "the pop-out draws the whole structure, shared nodes and all"
      A node reached twice WITHIN one structure is still a pointer box, which
      is also what stops a cycle. *)
   let replay = replay_of_fixture "map_spine_sharing" in
-  diagram_view ~width:78 ~height:20 replay ~step:(Replay.length replay - 1);
+  diagram_view ~width:78 ~height:18 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
     ┌────────────────────────────────────────────────────────────────────────────┐
     │ DIAGRAM                              bigger · int M.t · 6 nodes · esc back │
-    │             ┌ bigger  new ┐                                                │
-    │             │"f" → 6      │                                                │
-    │             └─────────────┘                                                │
-    │          ┌─────────┴──────────┐                                            │
-    │          l                    r                                            │
-    │      ┌───────┐            ┌── new ┐                                        │
-    │      │"d" → 4│            │"h" → 8│                                        │
-    │      └───────┘            └───────┘                                        │
-    │     ┌────┴────┐         ┌─────┴──────┐                                     │
-    │     l         r         l            r                                     │
-    │ ┌───────┐   ┌┄┄┄┐   ┌── new ┐   ┌────────┐                                 │
-    │ │"b" → 2│   ┆ ∅ ┆   │"g" → 7│   │"j" → 10│                                 │
-    │ └───────┘   └┄┄┄┘   └───────┘   └────────┘                                 │
     │                                                                            │
-    │                                                                            │
-    │                                                                            │
+    │                             ┌ bigger  new ┐                                │
+    │                             │"f" → 6      │                                │
+    │                             └─────────────┘                                │
+    │                          ┌─────────┴──────────┐                            │
+    │                          l                    r                            │
+    │                      ┌───────┐            ┌── new ┐                        │
+    │                      │"d" → 4│            │"h" → 8│                        │
+    │                      └───────┘            └───────┘                        │
+    │                     ┌────┴────┐         ┌─────┴──────┐                     │
+    │                     l         r         l            r                     │
+    │                 ┌───────┐   ┌┄┄┄┐   ┌── new ┐   ┌────────┐                 │
+    │                 │"b" → 2│   ┆ ∅ ┆   │"g" → 7│   │"j" → 10│                 │
+    │                 └───────┘   └┄┄┄┘   └───────┘   └────────┘                 │
     │                                                                            │
     └────────────────────────────────────────────────────────────────────────────┘
     |}]
@@ -339,22 +337,22 @@ let%expect_test "the pop-out follows a reference into the structure it names"
     {|
     ┌────────────────────────────────────────────────────────────────────────────┐
     │ DIAGRAM                           q · int M.t Queue.t · 3 nodes · esc back │
-    │ ┌ q ─────┐                                                                 │
-    │ │length 1│                                                                 │
-    │ └────────┘                                                                 │
-    │      │                                                                     │
-    │    first                                                                   │
-    │  ┌── new ┐                                                                 │
-    │  │slots 2│                                                                 │
-    │  └───────┘                                                                 │
-    │      │                                                                     │
-    │      0                                                                     │
-    │  ┌ m ────┐                                                                 │
-    │  │"k" → 1│                                                                 │
-    │  └───────┘                                                                 │
     │                                                                            │
     │                                                                            │
     │                                                                            │
+    │                                 ┌ q ─────┐                                 │
+    │                                 │length 1│                                 │
+    │                                 └────────┘                                 │
+    │                                      │                                     │
+    │                                    first                                   │
+    │                                  ┌── new ┐                                 │
+    │                                  │slots 2│                                 │
+    │                                  └───────┘                                 │
+    │                                      │                                     │
+    │                                      0                                     │
+    │                                  ┌ m ────┐                                 │
+    │                                  │"k" → 1│                                 │
+    │                                  └───────┘                                 │
     │                                                                            │
     │                                                                            │
     │                                                                            │

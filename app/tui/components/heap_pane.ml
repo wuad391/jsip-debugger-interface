@@ -1735,13 +1735,21 @@ module Diagram = struct
     let inner_width = Int.max 3 (width - 2) in
     let inner_height = Int.max 2 (height - 2) in
     let canvas, drawn = canvas structure ~structures ~nodes ~new_addresses in
+    let body_width = Panel.inner_width ~width:inner_width in
     let body_height = Int.max 1 (inner_height - Panel.header_height) in
-    let scroll = clamp scroll ~max:(View.height canvas - body_height) in
-    let pan =
-      clamp
-        pan
-        ~max:(View.width canvas - Panel.inner_width ~width:inner_width)
+    (* A tree is centered over its children all the way up, so the drawing
+       has a middle and the slab should agree with it. Only where it fits, in
+       both directions independently: past that the padding is zero and
+       [scroll] and [pan] take over from the top-left corner, which is where
+       reading a diagram too big for its slab has to start. *)
+    let canvas =
+      View.pad
+        ~l:(Int.max 0 ((body_width - View.width canvas) / 2))
+        ~t:(Int.max 0 ((body_height - View.height canvas) / 2))
+        canvas
     in
+    let scroll = clamp scroll ~max:(View.height canvas - body_height) in
+    let pan = clamp pan ~max:(View.width canvas - body_width) in
     (* the name goes in the meta rather than in the title: a title names a
        pane and reads uppercased, and [bigger] is the program's word, not
        ours *)

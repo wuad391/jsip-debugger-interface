@@ -291,7 +291,12 @@ val spot_at
 module Diagram : sig
   (** [scroll] and [pan] are the whole interaction — the diagram is as wide
       as the tree makes it, and both clamp to it. [width] and [height] are
-      the slab's, border included. *)
+      the slab's, border included.
+
+      A drawing that fits is centered in the slab, per axis: a tree is
+      centered over its children all the way up, so it has a middle and the
+      slab agrees with it. One too big to fit starts at its top-left corner
+      instead, which is where reading it has to start. *)
   val view
     :  structure:Replay.Structure.t
     -> structures:Replay.Structure.t list
