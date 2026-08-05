@@ -24,8 +24,8 @@ let fraction_of_click (event : Dom_html.mouseEvent Js.t) =
 ;;
 
 (* position is the bright/dim boundary itself: played segments at full
-   strength, the future sunk toward the surface — a separate needle on top
-   of that read as a second, disagreeing cursor *)
+   strength, the future sunk toward the surface — a separate needle on top of
+   that read as a second, disagreeing cursor *)
 let ticks ~theme ~segments ~step ~total ~inject =
   let count = Array.length segments in
   let played = Timeline_model.played ~total ~step ~segments:count in

@@ -17,8 +17,11 @@ module Model = struct
     ; selected_frame : int option (** [None] = innermost frame *)
     ; playing : bool
     ; land_seq : int
-    (** bumped by anything that should bring the walked structure back into
-        the canvas's view — stepping, [.] *)
+    (** bumped by stepping: brings the walked structure back into the
+        canvas's view if it slipped off *)
+    ; focus_seq : int
+    (** bumped by [.] and the heap header's [⌖ latest]: the canvas zooms to
+        the walked structure *)
     ; stack_folds : Int.Set.t
     ; stack_expanded : Int.Set.t
     ; source_folds : Set.M(Action.Source_fold).t
@@ -46,6 +49,7 @@ module Model = struct
     ; selected_frame = None
     ; playing = false
     ; land_seq = 0
+    ; focus_seq = 0
     ; stack_folds = Int.Set.empty
     ; stack_expanded = Int.Set.empty
     ; source_folds = Set.empty (module Action.Source_fold)
@@ -151,9 +155,10 @@ let apply_action
   | Toggle_accordion -> { model with accordion = not model.accordion }
   | Toggle_address_order ->
     { model with sort_by_address = not model.sort_by_address }
-  (* [.]: back to the latest change — clearing the pinned box on the way, so
-     blue follows the walked structure again *)
-  | Focus_latest -> move ~playing:model.playing model.step
+  (* [.]: back to the latest change — the pinned box cleared so blue follows
+     the walked structure again, and the canvas zooms to it *)
+  | Focus_latest ->
+    { model with heap_selected = None; focus_seq = model.focus_seq + 1 }
   (* [/] always starts from empty: the old filter was shaped around whatever
      you were hunting last time *)
   | Begin_filter -> { model with typing_filter = true; heap_filter = "" }
@@ -386,6 +391,7 @@ let component
     let%arr roots, (_ : Heap_scene.Stats.t), layouts = scene
     and { Model.step
         ; land_seq
+        ; focus_seq
         ; heap_selected
         ; heap_filter
         ; typing_filter
@@ -412,6 +418,7 @@ let component
       ; layouts
       ; step
       ; land_seq
+      ; focus_seq
       ; pulse_ids
       ; current_root_id =
           Option.map current ~f:(fun (root : Heap_scene.Root.t) ->
@@ -738,7 +745,11 @@ let component
           <div %{Styles.heap_pane theme}>
             <div %{Styles.heap_header theme}>
               <span %{Styles.pane_title theme}>HEAP</span>
-              <span %{Styles.pane_meta theme}>#{heap_meta}</span>
+              <span>
+                <span %{Styles.hint_chip theme.accent}
+                      on_click=%{fun _ -> inject Action.Focus_latest}>⌖ latest</span>
+                <span %{Styles.pane_meta theme}>#{heap_meta}</span>
+              </span>
             </div>
             <div %{Styles.heap_body}>
               %{heap_canvas}

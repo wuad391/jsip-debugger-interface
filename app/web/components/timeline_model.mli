@@ -15,6 +15,6 @@ val max_segments : int
 (** The step a click at [fraction] (0 = left edge, 1 = right) jumps to. *)
 val step_of_fraction : total:int -> fraction:float -> int
 
-(** How many segments the position has reached — those draw full
-    strength, the future dims. *)
+(** How many segments the position has reached — those draw full strength,
+    the future dims. *)
 val played : total:int -> step:int -> segments:int -> int

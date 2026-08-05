@@ -12,8 +12,11 @@ module Input = struct
     ; layouts : Heap_layout.Tier_layout.t array
     ; step : int
     ; land_seq : int
-    (** bumped by stepping and [.]: the cue to bring the walked structure
-        back into view *)
+    (** bumped by stepping: the cue to bring the walked structure back into
+        view if it slipped off *)
+    ; focus_seq : int
+    (** bumped by [.] and the header's [⌖ latest]: zoom to the walked
+        structure, wherever the view was *)
     ; pulse_ids : string list
     (** boxes allocated at this step — ringed as the step arrives *)
     ; current_root_id : string option
@@ -110,6 +113,11 @@ module State = struct
     ; mutable fitted : bool
     }
 end
+
+(* the wheel stops a third past full detail (tier 3 is fully grown at 1.5×):
+   past that, zoom only magnifies pixels *)
+let max_zoom = 2.0
+let min_zoom = 0.08
 
 let font ?(italic = false) ?(bold = false) size =
   let italic = match italic with true -> "italic " | false -> "" in
@@ -296,6 +304,93 @@ let fit (state : State.t) =
         | false -> 26.);
     state.anchor <- None;
     state.dirty <- true
+;;
+
+(* the ids of the walked structure's own drawing — its root box and the
+   subtree under it *)
+let current_subtree_ids (state : State.t) =
+  match state.input.current_structure_id with
+  | None -> None
+  | Some structure_id ->
+    let rec find (node : Heap_scene.Node.t) =
+      match
+        node.key.structure_id = structure_id && List.is_empty node.key.path
+      with
+      | true -> Some node
+      | false ->
+        List.find_map node.children ~f:(fun ((_ : string), child) ->
+          find child)
+    in
+    List.find_map state.input.roots ~f:(fun (root : Heap_scene.Root.t) ->
+      find root.node)
+    |> Option.map ~f:(fun node ->
+      Heap_scene.Node.fold node ~init:[] ~f:(fun ids child ->
+        Heap_layout.key_id child.key :: ids))
+;;
+
+(* [.]: the walked structure filling the pane at reading detail — pan AND
+   zoom, unconditionally *)
+let focus_on_current (state : State.t) =
+  match current_subtree_ids state with
+  | None | Some [] -> ()
+  | Some ids ->
+    (* measured at the fields tier, which is where focusing lands *)
+    let layout = (layouts state).(2) in
+    let bounds =
+      List.fold ids ~init:None ~f:(fun bounds id ->
+        match Map.find layout.pos id with
+        | None -> bounds
+        | Some box ->
+          (match bounds with
+           | None -> Some (box.x, box.y, box.x +. box.w, box.y +. box.h)
+           | Some (x0, y0, x1, y1) ->
+             Some
+               ( Float.min x0 box.x
+               , Float.min y0 box.y
+               , Float.max x1 (box.x +. box.w)
+               , Float.max y1 (box.y +. box.h) )))
+    in
+    (match bounds with
+     | None -> ()
+     | Some (x0, y0, x1, y1) ->
+       let bw = Float.max 1. (x1 -. x0) in
+       let bh = Float.max 1. (y1 -. y0) in
+       let k =
+         Float.clamp_exn
+           (Float.min
+              ((state.width -. 90.) /. bw)
+              ((state.height -. 120.) /. bh))
+           ~min:(Heap_layout.k_for_tier 1.2)
+           ~max:1.5
+       in
+       state.view.k <- k;
+       state.view.k_target <- k;
+       state.tier_f <- Heap_layout.tier_for ~k;
+       (* the bbox was measured on the fields-tier layout; center on the same
+          nodes at the tier actually landed on *)
+       let cx, cy =
+         let recentered =
+           List.fold ids ~init:None ~f:(fun bounds id ->
+             match box_of state id with
+             | None -> bounds
+             | Some box ->
+               (match bounds with
+                | None -> Some (box.x, box.y, box.x +. box.w, box.y +. box.h)
+                | Some (x0, y0, x1, y1) ->
+                  Some
+                    ( Float.min x0 box.x
+                    , Float.min y0 box.y
+                    , Float.max x1 (box.x +. box.w)
+                    , Float.max y1 (box.y +. box.h) )))
+         in
+         match recentered with
+         | None -> (x0 +. x1) /. 2., (y0 +. y1) /. 2.
+         | Some (x0, y0, x1, y1) -> (x0 +. x1) /. 2., (y0 +. y1) /. 2.
+       in
+       state.view.x <- (state.width /. 2.) -. (cx *. k);
+       state.view.y <- (state.height /. 2.) -. (cy *. k);
+       state.anchor <- None;
+       state.dirty <- true)
 ;;
 
 (* stepping lands the eye on the walked structure — pan, never rezoom, and
@@ -495,8 +590,31 @@ let draw_node
     (Js.float box.h);
   context##clip;
   context##.textBaseline := Js.string "top";
-  (match ct with
-   | 1 ->
+  (match node.kind, ct with
+   | Heap_scene.Kind.Nil, ct when ct >= 1 ->
+     (* the null mark is drawn, not typed: the [∅] glyph is at the mercy of
+        whichever font the canvas fell back to *)
+     let cx = box.x +. (box.w /. 2.) in
+     let cy = box.y +. (box.h /. 2.) in
+     let radius = Float.min box.w box.h *. 0.22 in
+     set_stroke context style.ink;
+     context##.lineWidth := Js.float (1.2 /. k);
+     context##beginPath;
+     context##arc
+       (Js.float cx)
+       (Js.float cy)
+       (Js.float radius)
+       (Js.float 0.)
+       (Js.float (2. *. Float.pi))
+       Js._false;
+     context##stroke;
+     let reach = radius *. 1.45 in
+     context##beginPath;
+     context##moveTo (Js.float (cx -. reach)) (Js.float (cy +. reach));
+     context##lineTo (Js.float (cx +. reach)) (Js.float (cy -. reach));
+     context##stroke
+   | Heap_scene.Kind.Nil, (_ : int) -> ()
+   | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), 1 ->
      set_fill context style.ink;
      context##.font := Js.string (font 12.);
      context##.textAlign := Js.string "center";
@@ -505,7 +623,7 @@ let draw_node
        (Js.float (box.x +. (box.w /. 2.)))
        (Js.float (box.y +. ((box.h -. 12.) /. 2.) -. 1.));
      context##.textAlign := Js.string "left"
-   | 2 | 3 ->
+   | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), (2 | 3) ->
      set_fill context style.ink;
      context##.font := Js.string (font 11.5);
      context##fillText
@@ -559,7 +677,7 @@ let draw_node
             (Js.float (box.x +. 8. +. 26.))
             (Js.float !ry);
           ry := !ry +. 13.))
-   | (_ : int) -> ());
+   | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), (_ : int) -> ());
   context##restore;
   match raised with true -> context##restore | false -> ()
 ;;
@@ -991,7 +1109,10 @@ let on_wheel (state : State.t) (event : Dom_html.wheelEvent Js.t) =
     Float.exp (-.delta *. match ctrl with true -> 0.012 | false -> 0.0022)
   in
   state.view.k_target
-  <- Float.clamp_exn (state.view.k_target *. factor) ~min:0.08 ~max:7.
+  <- Float.clamp_exn
+       (state.view.k_target *. factor)
+       ~min:min_zoom
+       ~max:max_zoom
 ;;
 
 let mini_to (state : State.t) sx sy =
@@ -1111,13 +1232,16 @@ let on_double_click (state : State.t) (event : Dom_html.mouseEvent Js.t) =
   | None -> fit state
   | Some (_ : Heap_layout.Placed.t) ->
     set_anchor state sx sy;
-    state.view.k_target <- Float.min 7. (state.view.k_target *. 2.3)
+    state.view.k_target <- Float.min max_zoom (state.view.k_target *. 2.3)
 ;;
 
 let zoom_by (state : State.t) factor =
   set_anchor state (state.width /. 2.) (state.height /. 2.);
   state.view.k_target
-  <- Float.clamp_exn (state.view.k_target *. factor) ~min:0.08 ~max:7.
+  <- Float.clamp_exn
+       (state.view.k_target *. factor)
+       ~min:min_zoom
+       ~max:max_zoom
 ;;
 
 let pan_by (state : State.t) dx dy =
@@ -1358,6 +1482,9 @@ let update
      <- List.map input.pulse_ids ~f:(fun id -> { Pulse.id; started = time })
         @ previous.pulses;
      land_on_current previous);
+  (match old.focus_seq = input.focus_seq with
+   | true -> ()
+   | false -> focus_on_current previous);
   previous.dirty <- true;
   previous, canvas
 ;;

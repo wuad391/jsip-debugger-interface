@@ -22,9 +22,9 @@ open! Core
 (** A heap address captured by the runtime walker. Prints as a [0x...] atom
     exactly like the wire; reads back any form [Int64.of_string] accepts.
 
-    [int64] rather than [nativeint] because js_of_ocaml gives [nativeint]
-    32 bits and a heap address needs ~48 — the web interface parses dumps
-    in the browser. On 64-bit native the representations coincide. *)
+    [int64] rather than [nativeint] because js_of_ocaml gives [nativeint] 32
+    bits and a heap address needs ~48 — the web interface parses dumps in the
+    browser. On 64-bit native the representations coincide. *)
 module Address : sig
   type t = int64 [@@deriving sexp, bin_io, compare, equal, hash]
 

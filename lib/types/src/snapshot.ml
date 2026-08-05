@@ -2,15 +2,14 @@ open! Core
 
 module Address = struct
   module T = struct
-    (* [int64], not [nativeint]: js_of_ocaml gives [nativeint] 32 bits, and
-       a real heap address needs ~48, so the web interface would reject
-       every dump at its first address. On 64-bit native the two are the
-       same word. *)
+    (* [int64], not [nativeint]: js_of_ocaml gives [nativeint] 32 bits, and a
+       real heap address needs ~48, so the web interface would reject every
+       dump at its first address. On 64-bit native the two are the same word. *)
     type t = int64 [@@deriving bin_io, compare, equal, hash]
 
-    (* [%string] has no hex conversion, and [Int64.Hex] signs addresses
-       past 2^63, so this stays [Printf]. One definition, because the sexp
-       and the on-screen rendering are required to agree. *)
+    (* [%string] has no hex conversion, and [Int64.Hex] signs addresses past
+       2^63, so this stays [Printf]. One definition, because the sexp and the
+       on-screen rendering are required to agree. *)
     let display t = Printf.sprintf "0x%Lx" t
 
     (* The wire prints addresses as [0x...] atoms; mirror that so our sexps

@@ -193,9 +193,9 @@ let all roots = Array.init 4 ~f:(fun tier -> compute roots ~tier)
    nearly finished growing — so text never draws into a box that cannot hold
    it. *)
 
-(* where each detail tier begins, as scale factors: labels arrive well
-   under 1:1, fields around half scale, and the machine-word tier is fully
-   grown by 150% — deep detail should not cost deep zoom *)
+(* where each detail tier begins, as scale factors: labels arrive well under
+   1:1, fields around half scale, and the machine-word tier is fully grown by
+   150% — deep detail should not cost deep zoom *)
 let stops = [| 0.2; 0.45; 0.85; 1.5 |]
 
 let tier_for ~k =
