@@ -8,6 +8,7 @@ module Button = struct
     | Step
     | Play
     | Node
+    | Diagram
     | Fold
     | Accordion
     | Filter
@@ -91,6 +92,8 @@ let segments ~playing =
   ; None, " · "
   ; Some Button.Node, "↑↓ node"
   ; None, " · "
+  ; Some Button.Diagram, "⏎ diagram"
+  ; None, " · "
   ; Some Button.Fold, "h fold"
   ; None, " · "
   ; Some Button.Accordion, "z accordion"
@@ -114,11 +117,11 @@ let start_column ~width ~playing =
   max 0 (width - total - 1)
 ;;
 
-let controls ~width ~playing ~accordion =
+let controls ~width ~playing ~accordion ~diagram =
   let chips =
     List.map (segments ~playing) ~f:(fun (button, text) ->
       (* the chips that name a mode light up while it is on, the same cue for
-         both: you can read the row as state, not just as keys *)
+         all of them: you can read the row as state, not just as keys *)
       let attrs =
         match button with
         | None -> Theme.fg' Theme.ghost
@@ -126,10 +129,12 @@ let controls ~width ~playing ~accordion =
           [ Theme.fg Theme.highlight; Attr.bold ]
         | Some Button.Accordion when accordion ->
           [ Theme.fg Theme.highlight; Attr.bold ]
+        | Some Button.Diagram when diagram ->
+          [ Theme.fg Theme.highlight; Attr.bold ]
         | Some
             ( Button.Back | Button.Step | Button.Play | Button.Node
-            | Button.Fold | Button.Accordion | Button.Filter | Button.Quit )
-          ->
+            | Button.Diagram | Button.Fold | Button.Accordion | Button.Filter
+            | Button.Quit ) ->
           Theme.fg' Theme.secondary
       in
       View.text ~attrs text)
@@ -161,14 +166,16 @@ let control_at ~width ~playing ~x =
   hit
 ;;
 
-let view ~width ~step ~total ~playing ~accordion =
+let view ~width ~step ~total ~playing ~accordion ~diagram =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
     ~bg:Theme.bg
     (Panel.fit
        (View.vcat
-          [ ticks ~width ~step ~total; controls ~width ~playing ~accordion ])
+          [ ticks ~width ~step ~total
+          ; controls ~width ~playing ~accordion ~diagram
+          ])
        ~width
        ~height:Layout.strip_height)
 ;;

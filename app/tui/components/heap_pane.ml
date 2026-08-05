@@ -354,6 +354,14 @@ module Span = struct
       in
       attrs kind ~accent, text)
   ;;
+
+  (* the same pieces as one drawn line, for the diagram, whose boxes are laid
+     out from their own measured widths rather than wrapped to a pane *)
+  let view ~accent spans =
+    View.hcat
+      (List.map (pieces ~accent spans) ~f:(fun (attrs, text) ->
+         View.text ~attrs text))
+  ;;
 end
 
 (* What a row says where the wire gave it nothing to say: an unresolved
@@ -362,15 +370,16 @@ end
    from a bullet in a list. *)
 let null_span = Span.Null, "null"
 
-(* What a row says about the node it stands for. [key → data] where the node
-   holds one of the known binding pairs, [length n] for a counter, the bare
-   value where there is only one, positional values joined where the labels
-   are an array's or a tuple's, and [label=value] otherwise — user records
-   included, which is why the arrow is not simply "any two fields".
+(* What a node says about itself. [key → data] where it holds one of the
+   known binding pairs, [length n] for a counter, the bare value where there
+   is only one, positional values joined where the labels are an array's or a
+   tuple's, and [label=value] otherwise — user records included, which is why
+   the arrow is not simply "any two fields".
 
-   One line, always: a row is a line. A record with several fields reads
-   [a=1  b=2], which is what the outline's value column is for. *)
-let summary_spans leaves ~arity =
+   Returns LINES: a record with several fields gets one per line, which is
+   how the diagram's boxes want them and how a record reads everywhere else
+   OCaml prints one. Everything with one thing to say says it on one line. *)
+let field_lines leaves ~arity =
   let kept = printable_leaves leaves in
   let fields =
     List.map kept ~f:(fun (label, block) ->
@@ -385,21 +394,27 @@ let summary_spans leaves ~arity =
   in
   match fields with
   | [] when positional ->
-    [ Span.Label, "slots "; Value, Int.to_string arity ]
-  | [] -> [ null_span ]
+    [ [ Span.Label, "slots "; Value, Int.to_string arity ] ]
+  | [] -> [ [ null_span ] ]
   | fields when positional ->
-    [ Span.Value, String.concat (List.map fields ~f:snd) ~sep:", " ]
+    [ [ Span.Value, String.concat (List.map fields ~f:snd) ~sep:", " ] ]
   | [ (key_label, key); (data_label, data) ]
     when is_binding (key_label, data_label) ->
-    [ Span.Key, key; Arrow, " → "; Value, data ]
+    [ [ Span.Key, key; Arrow, " → "; Value, data ] ]
   | [ (label, value) ] when is_counter label ->
-    [ Span.Label, [%string "%{label} "]; Value, value ]
-  | [ ((_ : string), value) ] -> [ Span.Value, value ]
+    [ [ Span.Label, [%string "%{label} "]; Value, value ] ]
+  | [ ((_ : string), value) ] -> [ [ Span.Value, value ] ]
   | fields ->
     List.map fields ~f:(fun (label, value) ->
       [ Span.Label, [%string "%{label}="]; Value, value ])
-    |> List.intersperse ~sep:[ Span.Gap, "  " ]
-    |> List.concat
+;;
+
+(* The same thing as one line, for a row of the outline: a row IS a line, so
+   a record reads [a=1  b=2] across it rather than down. *)
+let summary_spans leaves ~arity =
+  field_lines leaves ~arity
+  |> List.intersperse ~sep:[ Span.Gap, "  " ]
+  |> List.concat
 ;;
 
 (* Whether the row's payload is a key-and-data pair — what makes a container
@@ -420,18 +435,19 @@ let is_binding_payload leaves =
    this is a second look at a node someone else is drawing. Claiming here
    would mark a structure drawn on behalf of a row that never draws it, and
    the structure would vanish from the pane. *)
-let shared_spans (node : Snapshot.Node.t) ~ds_type =
+let shared_leaves (node : Snapshot.Node.t) ~ds_type =
   let interior = Snapshot.Ds_type.interior_labels ds_type in
-  let leaves =
-    List.filter node.block ~f:(fun (label, block) ->
-      match (block : Snapshot.Block.t) with
-      | Child | Id (_ : int) -> false
-      | Int 0 -> not (List.mem interior label ~equal:String.equal)
-      | Int _ | Float _ | String _ | Int32 _ | Int64 _ | Nativeint _
-      | Float_array _ | Address _ ->
-        true)
-  in
-  summary_spans leaves ~arity:(List.length node.block)
+  List.filter node.block ~f:(fun (label, block) ->
+    match (block : Snapshot.Block.t) with
+    | Child | Id (_ : int) -> false
+    | Int 0 -> not (List.mem interior label ~equal:String.equal)
+    | Int _ | Float _ | String _ | Int32 _ | Int64 _ | Nativeint _
+    | Float_array _ | Address _ ->
+      true)
+;;
+
+let shared_spans (node : Snapshot.Node.t) ~ds_type =
+  summary_spans (shared_leaves node ~ds_type) ~arity:(List.length node.block)
 ;;
 
 (* the labels a node carries, which is as much of its shape as the wire
@@ -1341,3 +1357,419 @@ let move_cursor
     in
     Option.map moved ~f:Row.spot
 ;;
+
+(* which structure a position is inside — what the diagram pop-out is asked
+   for, since a row is only ever read as part of one *)
+let structure_of_spot
+  ({ Spot.site; address = (_ : Snapshot.Address.t) } : Spot.t)
+  =
+  site.structure
+;;
+
+(* The heap's OTHER rendering: one structure as the diagram it physically is
+   — a box per node, rails for the pointers between them, children spread
+   under their parent — popped out over the outline and dismissed with
+   [Escape].
+
+   The outline is the everyday view precisely because it hides this: a map is
+   an AVL tree, and reading five bindings should not mean reading five levels
+   of rebalancing. But the tree is what the program actually built, and there
+   are questions only its shape answers — why an [add] rebuilt three nodes,
+   which subtree two versions share, how deep a bucket chain ran. That is
+   what this is for, and why it is a pop-out rather than a mode: you arrive
+   with a question and leave with an answer.
+
+   {v
+              ┌ m ────────┐
+              │"d" → 4    │
+              └───────────┘
+               ┌─────┴─────┐
+               l           r
+   ┌───────────┐       ┌┄ ↗ ┄┄┄┄┄┄┐
+   │"b" → 2    │       ┆ "j" → 10 ┆
+   └───────────┘       └┄┄┄┄┄┄┄┄┄┄┘
+   v}
+
+   No selection and no folding in here — one structure at a time and nothing
+   to aim at, so a box is only ever a box. Scroll and pan are the whole
+   interaction, which is where the outline's freed [\[]/[\]] went. *)
+module Diagram = struct
+  (* the space between siblings; also what keeps two rails from touching *)
+  let sibling_gap = 3
+
+  (* a node's box: what it holds, a field to a line, with the structure's
+     name riding the top-left border where this node is one's root and a
+     green [new] tag riding the top right where this step allocated it *)
+  let node_box
+    (node : Snapshot.Node.t)
+    ~leaves
+    ~arity
+    ~(context : Context.t)
+    ~name
+    =
+    let border = Theme.fg' Theme.card_border in
+    let lines =
+      List.map (field_lines leaves ~arity) ~f:(Span.view ~accent:Theme.ident)
+    in
+    let name_tag =
+      match name with
+      | None -> View.none
+      | Some name ->
+        View.text
+          ~attrs:[ Theme.fg Theme.text; Attr.bold ]
+          [%string " %{name} "]
+    in
+    let new_tag =
+      match Set.mem context.new_addresses node.virtual_address with
+      | false -> View.none
+      | true -> View.text ~attrs:(Theme.fg' Theme.fresh) " new "
+    in
+    let riders = View.width name_tag + View.width new_tag in
+    let inner =
+      List.fold lines ~init:riders ~f:(fun widest line ->
+        Int.max widest (View.width line))
+    in
+    let rows =
+      (View.hcat
+         [ View.text ~attrs:border "┌"
+         ; name_tag
+         ; View.text ~attrs:border (Panel.repeat "─" ~width:(inner - riders))
+         ; new_tag
+         ; View.text ~attrs:border "┐"
+         ]
+       :: List.map lines ~f:(fun line ->
+         View.hcat
+           [ View.text ~attrs:border "│"
+           ; Panel.fit line ~width:inner ~height:1
+           ; View.text ~attrs:border "│"
+           ]))
+      @ [ View.text
+            ~attrs:border
+            [%string "└%{Panel.repeat \"─\" ~width:inner}┘"]
+        ]
+    in
+    Panel.fit (View.vcat rows) ~width:(inner + 2) ~height:(List.length rows)
+  ;;
+
+  (* An empty slot is still a slot, so it gets a box too — dotted and grayed.
+     A bare [∅] hanging off a rail read as an annotation on the edge; a box
+     reads as what it is, the thing the pointer does not point at. *)
+  let nil_box =
+    let attrs = Theme.fg' Theme.ghost in
+    View.vcat
+      [ View.text ~attrs "┌┄┄┄┐"
+      ; View.text ~attrs "┆ ∅ ┆"
+      ; View.text ~attrs "└┄┄┄┘"
+      ]
+  ;;
+
+  (* A node the diagram has already drawn, pointed at rather than drawn twice
+     — which is the whole point of a persistent structure: two versions of a
+     map share their subtrees, and redrawing them would bury the one node
+     that differs. Dashed, to say it is not the original, and named by what
+     its target holds rather than by the wire's node number: [↗ "b" → 2]
+     names something on screen, [↗ #11] names nothing. *)
+  let shared_box target ~id ~ds_type =
+    let border = Theme.fg' Theme.ghost in
+    let lines =
+      match target with
+      | Some (node : Snapshot.Node.t) ->
+        List.map
+          (field_lines
+             (shared_leaves node ~ds_type)
+             ~arity:(List.length node.block))
+          ~f:(Span.view ~accent:Theme.ident)
+      | None ->
+        [ View.text ~attrs:(Theme.fg' Theme.muted) [%string "#%{id#Int}"] ]
+    in
+    let arrow = View.text ~attrs:(Theme.fg' Theme.muted) " ↗ " in
+    let inner =
+      List.fold
+        lines
+        ~init:(View.width arrow - 2)
+        ~f:(fun widest line -> Int.max widest (View.width line))
+    in
+    let rows =
+      (View.hcat
+         [ View.text ~attrs:border "┌"
+         ; arrow
+         ; View.text
+             ~attrs:border
+             (Panel.repeat "┄" ~width:(inner + 2 - View.width arrow))
+         ; View.text ~attrs:border "┐"
+         ]
+       :: List.map lines ~f:(fun line ->
+         View.hcat
+           [ View.text ~attrs:border "┆ "
+           ; Panel.fit line ~width:inner ~height:1
+           ; View.text ~attrs:border " ┆"
+           ]))
+      @ [ View.text
+            ~attrs:border
+            [%string "└%{Panel.repeat \"┄\" ~width:(inner + 2)}┘"]
+        ]
+    in
+    Panel.fit (View.vcat rows) ~width:(inner + 4) ~height:(List.length rows)
+  ;;
+
+  (* the [┌──┴──┐] rail between a parent and its children, hooked at each
+     child's center. These lines are the diagram's pointers, so they read a
+     shade ahead of the boxes rather than behind them. *)
+  let rail ~parent_center ~centers =
+    let leftmost =
+      List.min_elt centers ~compare:Int.compare |> Option.value ~default:0
+    in
+    let rightmost =
+      List.max_elt centers ~compare:Int.compare |> Option.value ~default:0
+    in
+    let child_centers = Int.Set.of_list centers in
+    let glyph x =
+      let is_child = Set.mem child_centers x in
+      match x < leftmost || x > rightmost with
+      | true -> " "
+      | false ->
+        (match x = parent_center, is_child with
+         (* a lone child hangs straight down; an aligned middle child crosses
+            the rail *)
+         | true, true ->
+           (match leftmost = rightmost with true -> "│" | false -> "┼")
+         | true, false -> "┴"
+         | false, true ->
+           (match x = leftmost, x = rightmost with
+            | true, _ -> "┌"
+            | _, true -> "┐"
+            | false, false -> "┬")
+         | false, false -> "─")
+    in
+    (* a Buffer rather than [String.concat (List.init ...)]: the glyphs are
+       multi-byte, and a rail is as wide as the widest row of boxes *)
+    let buffer = Buffer.create ((rightmost + 1) * 3) in
+    for x = 0 to rightmost do
+      Buffer.add_string buffer (glyph x)
+    done;
+    View.text ~attrs:(Theme.fg' Theme.rail) (Buffer.contents buffer)
+  ;;
+
+  (* edge labels sitting under their hooks *)
+  let rail_labels ~labeled_centers =
+    let width =
+      List.fold labeled_centers ~init:0 ~f:(fun width (center, label) ->
+        Int.max
+          width
+          (center + 1 + (String.length label / 2) + String.length label))
+    in
+    let buffer = Bytes.make width ' ' in
+    List.iter labeled_centers ~f:(fun (center, label) ->
+      let start = Int.max 0 (center - (String.length label / 2)) in
+      String.iteri label ~f:(fun index char ->
+        let at = start + index in
+        match at < width with
+        | true -> Bytes.set buffer at char
+        | false -> ()));
+    View.text
+      ~attrs:(Theme.fg' Theme.muted)
+      (Bytes.to_string buffer |> String.rstrip)
+  ;;
+
+  (* Lay the subtree out the way a CS diagram draws it: the node's box
+     centered over its children, siblings side by side on one level, a rail
+     from the box down to each child's center. A field holding an [Id] into
+     the registry links that structure's whole tree in as a child — each is
+     drawn once, so a second reference (or a cycle) stays a dashed pointer.
+
+     Returns the canvas, the column the node's own box is centered on, and
+     how wide the subtree came out. *)
+  let rec tree (node : Snapshot.Node.t) ~ds_type ~(context : Context.t) ~name
+    =
+    let edges, leaves = node_edges node ~ds_type ~context in
+    (* a leaf keeps its empty slots to itself *)
+    let edges =
+      match
+        List.for_all edges ~f:(fun ((_ : string), (edge : Edge.t)) ->
+          match edge with Nil -> true | Child _ | Ref _ | Shared _ -> false)
+      with
+      | true -> []
+      | false -> edges
+    in
+    Hash_set.add context.drawn_nodes node.id;
+    let box =
+      node_box node ~leaves ~arity:(List.length node.block) ~context ~name
+    in
+    let box_width = View.width box in
+    match edges with
+    | [] -> box, box_width / 2, box_width
+    | edges ->
+      let rendered =
+        List.map edges ~f:(fun (label, (edge : Edge.t)) ->
+          match edge with
+          | Nil ->
+            label, (nil_box, View.width nil_box / 2, View.width nil_box)
+          | Shared { id; node = target } ->
+            let stub = shared_box target ~id ~ds_type in
+            label, (stub, View.width stub / 2, View.width stub)
+          | Child child -> label, tree child ~ds_type ~context ~name:None
+          | Ref (structure : Replay.Structure.t) ->
+            ( label
+            , tree
+                (Replay.Structure.current_root structure)
+                ~ds_type:structure.snapshot.ds_type
+                ~context
+                ~name:(Some (structure_name structure)) ))
+      in
+      (* siblings in field order, each one [sibling_gap] past the last *)
+      let (_ : int), placed =
+        List.fold_map
+          rendered
+          ~init:0
+          ~f:(fun x (label, (view, center, subtree_width)) ->
+            ( x + subtree_width + sibling_gap
+            , (label, view, x, x + center, subtree_width) ))
+      in
+      let centers =
+        List.map
+          placed
+          ~f:
+            (fun
+              ((_ : string), (_ : View.t), (_ : int), center, (_ : int)) ->
+            center)
+      in
+      let leftmost = List.hd_exn centers in
+      let rightmost = List.last_exn centers in
+      let midpoint = (leftmost + rightmost) / 2 in
+      (* center the box over its children; where the box is wider than they
+         spread, shift them right instead *)
+      let parent_x = Int.max 0 (midpoint - (box_width / 2)) in
+      let shift = Int.max 0 ((box_width / 2) - midpoint) in
+      let centers = List.map centers ~f:(fun center -> center + shift) in
+      let parent_center = parent_x + (box_width / 2) in
+      let labeled_centers =
+        List.zip_exn
+          centers
+          (List.map
+             placed
+             ~f:
+               (fun
+                 (label, (_ : View.t), (_ : int), (_ : int), (_ : int)) ->
+               label))
+        |> List.filter_map ~f:(fun (center, label) ->
+          match String.is_empty label with
+          | true -> None
+          | false -> Some (center, label))
+      in
+      let rail_rows =
+        rail ~parent_center ~centers
+        ::
+        (match List.is_empty labeled_centers with
+         | true -> []
+         | false -> [ rail_labels ~labeled_centers ])
+      in
+      let box_height = View.height box in
+      let children_y = box_height + List.length rail_rows in
+      let children =
+        List.map
+          placed
+          ~f:(fun ((_ : string), view, x, (_ : int), (_ : int)) ->
+            View.pad ~l:(x + shift) ~t:children_y view)
+      in
+      let width =
+        List.fold
+          placed
+          ~init:(parent_x + box_width)
+          ~f:
+            (fun
+              widest
+              ((_ : string), (_ : View.t), x, (_ : int), subtree_width)
+            -> Int.max widest (x + shift + subtree_width))
+      in
+      ( View.zcat
+          ((View.pad ~l:parent_x box
+            :: List.mapi rail_rows ~f:(fun index row ->
+              View.pad ~t:(box_height + index) row))
+           @ children)
+      , parent_center
+      , width )
+  ;;
+
+  (* One structure's whole tree, references followed, and how many nodes that
+     came to. The structure counts as drawn before the walk starts, so a
+     payload pointing back at its own root reads as a pointer rather than
+     recursing forever.
+
+     The count is the boxes actually drawn rather than
+     {!Jsip_types.Snapshot.Node.fold}'s: the wire is a delta, so a
+     structure's own snapshot may define three nodes and reference five more
+     that a version before it defined. The diagram draws all eight, and
+     saying "3 nodes" over eight boxes would be a plain lie. *)
+  let canvas
+    (structure : Replay.Structure.t)
+    ~structures
+    ~nodes
+    ~new_addresses
+    =
+    let context = Context.create ~structures ~nodes ~new_addresses in
+    Hash_set.add context.drawn structure.id;
+    let view, (_ : int), (_ : int) =
+      tree
+        (Replay.Structure.current_root structure)
+        ~ds_type:structure.snapshot.ds_type
+        ~context
+        ~name:(Some (structure_name structure))
+    in
+    view, Hash_set.length context.drawn_nodes
+  ;;
+
+  (* The pop-out itself: the diagram in a bordered slab over the panes. The
+     screen is one surface everywhere else, so a floating thing has to say so
+     twice — a shade above the rest, and a box around it — or it reads as a
+     pane with an odd frame rather than as something on top. *)
+  let view
+    ~(structure : Replay.Structure.t)
+    ~structures
+    ~nodes
+    ~new_addresses
+    ~width
+    ~height
+    ~scroll
+    ~pan
+    =
+    let inner_width = Int.max 3 (width - 2) in
+    let inner_height = Int.max 2 (height - 2) in
+    let canvas, drawn = canvas structure ~structures ~nodes ~new_addresses in
+    let body_height = Int.max 1 (inner_height - Panel.header_height) in
+    let scroll = clamp scroll ~max:(View.height canvas - body_height) in
+    let pan =
+      clamp
+        pan
+        ~max:(View.width canvas - Panel.inner_width ~width:inner_width)
+    in
+    (* the name goes in the meta rather than in the title: a title names a
+       pane and reads uppercased, and [bigger] is the program's word, not
+       ours *)
+    let meta =
+      [%string
+        "%{structure_name structure} · %{structure_type structure} · \
+         %{node_count_label drawn} · esc back"]
+    in
+    let body =
+      Panel.view
+        ~bg:Theme.raised
+        ~title:"diagram"
+        ~meta
+        ~width:inner_width
+        ~height:inner_height
+        (View.crop ~t:scroll ~l:pan canvas)
+    in
+    let edge = [ Theme.fg Theme.border; Attr.bg Theme.raised ] in
+    let horizontal = Panel.repeat "─" ~width:inner_width in
+    let side =
+      View.vcat
+        (List.init inner_height ~f:(fun (_ : int) ->
+           View.text ~attrs:edge "│"))
+    in
+    View.vcat
+      [ View.text ~attrs:edge [%string "┌%{horizontal}┐"]
+      ; View.hcat [ side; body; side ]
+      ; View.text ~attrs:edge [%string "└%{horizontal}┘"]
+      ]
+  ;;
+end

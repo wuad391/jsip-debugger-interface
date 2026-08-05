@@ -135,6 +135,11 @@ val spot_of_structure : Replay.Structure.t -> Spot.t
     accordion mode, where structure folds are the mode's to decide. *)
 val fold_of_spot : Spot.t -> Fold.t
 
+(** Which structure this spot is inside, by {!Jsip_replay.Replay.Structure}
+    id — what {!Diagram} is asked for, since a row is only ever read as part
+    of one structure. *)
+val structure_of_spot : Spot.t -> int
+
 module Direction : sig
   type t =
     | Up
@@ -251,3 +256,50 @@ val spot_at
   -> x:int
   -> y:int
   -> Spot.t option
+
+(** The heap's other rendering: one structure as the diagram it physically is
+    — a box per node, rails for the pointers between them, children spread
+    under their parent — drawn as a slab that sits OVER the panes.
+
+    The outline is the everyday view precisely because it hides this: a map
+    is an AVL tree, and reading five bindings should not mean reading five
+    levels of rebalancing. But the tree is what the program actually built,
+    and there are questions only its shape answers — why an [add] rebuilt
+    three nodes, which subtree two versions share, how deep a bucket chain
+    ran. So this is a pop-out rather than a mode: you arrive with a question
+    and leave with an answer.
+
+    {v
+              ┌ m ────────┐
+              │"d" → 4    │
+              └───────────┘
+               ┌─────┴─────┐
+               l           r
+   ┌───────────┐       ┌┄ ↗ ┄┄┄┄┄┄┐
+   │"b" → 2    │       ┆ "j" → 10 ┆
+   └───────────┘       └┄┄┄┄┄┄┄┄┄┄┘
+    v}
+
+    No selection and no folding: one structure, nothing to aim at, so a box
+    is only ever a box. What the outline hides on purpose is all here — empty
+    slots get a dotted [∅] box of their own, and a node's own key and data
+    stay in the box rather than being flattened into the container's
+    contents. A field reaching another live structure draws that structure's
+    whole tree in place, named on its top box; a second reference to a node
+    already drawn stays a dashed [↗] pointer, which is also what terminates a
+    cycle. *)
+module Diagram : sig
+  (** [scroll] and [pan] are the whole interaction — the diagram is as wide
+      as the tree makes it, and both clamp to it. [width] and [height] are
+      the slab's, border included. *)
+  val view
+    :  structure:Replay.Structure.t
+    -> structures:Replay.Structure.t list
+    -> nodes:Replay.Nodes.t
+    -> new_addresses:Snapshot.Address.Set.t
+    -> width:int
+    -> height:int
+    -> scroll:int
+    -> pan:int
+    -> View.t
+end

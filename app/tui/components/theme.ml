@@ -18,6 +18,11 @@ let color hex =
    their own slab, so a second background would only ever read as a stray
    band where two panes meet *)
 let bg = color 0x1d1b19
+
+(* the one exception, and the reason it is one: a pop-out is meant to be read
+   as sitting ABOVE the panes rather than among them, so it gets the shade
+   that says so. A border alone reads as a pane with an odd frame. *)
+let raised = color 0x272320
 let accent = color 0xd4a24e
 let fresh = color 0x8fd694
 
@@ -49,6 +54,12 @@ let border = color 0x6f6a62
 let hairline = color 0x4a4640
 let tick_past = color 0x2e5578
 let app_purple = color 0xc39ae2
+
+(* the diagram pop-out's two strokes: a node's box, and the rails between
+   boxes. The rails are the diagram's edges — the actual pointers — so they
+   read a shade ahead of the boxes that hang off them. *)
+let card_border = color 0x5d8cc2
+let rail = color 0x9c958c
 
 (* a printed type, in the heap pane's type column: leaning crimson rather
    than toward the accent gold, so a column of them never reads as a column

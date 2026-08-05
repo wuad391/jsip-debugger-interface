@@ -3,10 +3,10 @@
     A per-step tick bar running the full width of the screen (past dimmed to
     the same hue, current in the highlight blue, future hairline; clickable
     to jump) over the controls: right-aligned chips, each naming its key
-    ([◂ back], [step ▸], [[space] play], [↑↓ node], [h fold], [z accordion],
-    [/ filter], [q quit]) — the row is simultaneously the buttons and the key
-    legend, and every chip is clickable. The chips that name a mode (play,
-    accordion) light up while it is on. *)
+    ([◂ back], [step ▸], [[space] play], [↑↓ node], [⏎ diagram], [h fold],
+    [z accordion], [/ filter], [q quit]) — the row is simultaneously the
+    buttons and the key legend, and every chip is clickable. The chips that
+    name a mode (play, accordion, diagram) light up while it is on. *)
 
 open! Core
 module View := Bonsai_term.View
@@ -17,6 +17,9 @@ module Button : sig
     | Step
     | Play
     | Node (** aims the heap outline's cursor at the next row *)
+    | Diagram
+    (** pops the row's structure out as the diagram it physically is, and
+        dismisses it again *)
     | Fold
     | Accordion
     | Filter
@@ -33,6 +36,7 @@ val view
   -> total:int
   -> playing:bool
   -> accordion:bool
+  -> diagram:bool
   -> View.t
 
 (** Which step a click at column [x] of the tick row jumps to. *)

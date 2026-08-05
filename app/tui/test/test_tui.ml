@@ -60,6 +60,37 @@ let heap_view
        ~selection)
 ;;
 
+(* the [Enter] pop-out: the structure this step walked, drawn as the diagram
+   it physically is rather than as the outline that stands for it *)
+let diagram_view
+  ?(width = 64)
+  ?(height = 18)
+  ?(scroll = 0)
+  ?(pan = 0)
+  replay
+  ~step
+  =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let structure =
+    List.find_exn structures ~f:(fun (structure : Replay.Structure.t) ->
+      structure.is_current)
+  in
+  print_view
+    ~width
+    ~height
+    (Heap_pane.Diagram.view
+       ~structure
+       ~structures
+       ~nodes
+       ~new_addresses
+       ~width
+       ~height
+       ~scroll
+       ~pan)
+;;
+
 (* the structure this step walked — what the app selects by default, and so
    the row that shows its address *)
 let current_spot replay ~step =
@@ -227,6 +258,110 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
     |}]
 ;;
 
+let%expect_test "the pop-out draws the tree the outline stands for" =
+  (* the same map the outline reads as two bindings, as the AVL nodes it
+     actually is: a root with an empty [l] and a walked [r], each edge
+     labeled where the wire labeled it. This is the whole point of the
+     pop-out — the shape is the thing the outline is deliberately not
+     showing. *)
+  let replay = replay_of_fixture "map_basic" in
+  diagram_view replay ~step:1;
+  [%expect
+    {|
+    ┌──────────────────────────────────────────────────────────────┐
+    │ DIAGRAM                     m · int M.t · 2 nodes · esc back │
+    │   ┌ m  new ┐                                                 │
+    │   │"a" → 1 │                                                 │
+    │   └────────┘                                                 │
+    │   ┌────┴────┐                                                │
+    │   l         r                                                │
+    │ ┌┄┄┄┐   ┌── new ┐                                            │
+    │ ┆ ∅ ┆   │"b" → 2│                                            │
+    │ └┄┄┄┘   └───────┘                                            │
+    │                                                              │
+    │                                                              │
+    │                                                              │
+    │                                                              │
+    │                                                              │
+    │                                                              │
+    │                                                              │
+    └──────────────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "the pop-out draws the whole structure, shared nodes and all"
+  =
+  (* Six bindings in an AVL tree three levels deep, and the pop-out draws
+     every node of it — including the ones this version did not allocate,
+     which the outline lists as [\u2197] pointers because they are already on
+     the pane under the version that did. In here there is only one
+     structure, so there is nothing to point at, and the count is what was
+     drawn rather than what this version's own snapshot defines.
+
+     A node reached twice WITHIN one structure is still a pointer box, which
+     is also what stops a cycle. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  diagram_view ~width:78 ~height:20 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    ┌────────────────────────────────────────────────────────────────────────────┐
+    │ DIAGRAM                              bigger · int M.t · 6 nodes · esc back │
+    │             ┌ bigger  new ┐                                                │
+    │             │"f" → 6      │                                                │
+    │             └─────────────┘                                                │
+    │          ┌─────────┴──────────┐                                            │
+    │          l                    r                                            │
+    │      ┌───────┐            ┌── new ┐                                        │
+    │      │"d" → 4│            │"h" → 8│                                        │
+    │      └───────┘            └───────┘                                        │
+    │     ┌────┴────┐         ┌─────┴──────┐                                     │
+    │     l         r         l            r                                     │
+    │ ┌───────┐   ┌┄┄┄┐   ┌── new ┐   ┌────────┐                                 │
+    │ │"b" → 2│   ┆ ∅ ┆   │"g" → 7│   │"j" → 10│                                 │
+    │ └───────┘   └┄┄┄┘   └───────┘   └────────┘                                 │
+    │                                                                            │
+    │                                                                            │
+    │                                                                            │
+    │                                                                            │
+    └────────────────────────────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "the pop-out follows a reference into the structure it names"
+  =
+  (* [Queue.add m q] puts a tracked map inside a tracked queue, and the
+     diagram follows the reference the way the outline nests it: the queue's
+     cells, then the map's own tree hanging off the cell that holds it, named
+     on its top box. *)
+  let replay = replay_of_fixture "queue_of_maps" in
+  diagram_view ~width:78 ~height:22 replay ~step:2;
+  [%expect
+    {|
+    ┌────────────────────────────────────────────────────────────────────────────┐
+    │ DIAGRAM                           q · int M.t Queue.t · 3 nodes · esc back │
+    │ ┌ q ─────┐                                                                 │
+    │ │length 1│                                                                 │
+    │ └────────┘                                                                 │
+    │      │                                                                     │
+    │    first                                                                   │
+    │  ┌── new ┐                                                                 │
+    │  │slots 2│                                                                 │
+    │  └───────┘                                                                 │
+    │      │                                                                     │
+    │      0                                                                     │
+    │  ┌ m ────┐                                                                 │
+    │  │"k" → 1│                                                                 │
+    │  └───────┘                                                                 │
+    │                                                                            │
+    │                                                                            │
+    │                                                                            │
+    │                                                                            │
+    │                                                                            │
+    │                                                                            │
+    └────────────────────────────────────────────────────────────────────────────┘
+    |}]
+;;
+
 let%expect_test "multi-file: each live frame knows its own file" =
   (* the dump spans three modules, and mid-fold the live chain crosses two of
      them — [Queue.fold] still open in main.ml while [restock]'s add fires in
@@ -332,18 +467,19 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
 
 let%expect_test "transport: ticks, then the clickable key legend" =
   print_view
-    ~width:84
+    ~width:96
     ~height:3
     (Transport.view
-       ~width:84
+       ~width:96
        ~step:1
        ~total:3
        ~playing:false
-       ~accordion:false);
+       ~accordion:false
+       ~diagram:false);
   [%expect
     {|
-    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-    ◂ back · step ▸ · [space] play · ↑↓ node · h fold · z accordion · / filter · q quit
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+    ◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · q quit
     |}]
 ;;
 
@@ -569,7 +705,9 @@ let%expect_test "heap pane: closures stay opaque" =
 ;;
 
 let%expect_test "control chips hit-test exactly where they render" =
-  let width = 84 in
+  (* the row wants 96 columns now that [⏎ diagram] is on it; narrower than
+     that and [start_column] pins it at 0 and the right-hand chips crop *)
+  let width = 96 in
   let hits =
     List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
       Transport.control_at ~width ~playing:false ~x
@@ -590,10 +728,11 @@ let%expect_test "control chips hit-test exactly where they render" =
     (Step 9 14)
     (Play 18 29)
     (Node 33 39)
-    (Fold 43 48)
-    (Accordion 52 62)
-    (Filter 66 73)
-    (Quit 77 82)
+    (Diagram 43 51)
+    (Fold 55 60)
+    (Accordion 64 74)
+    (Filter 78 85)
+    (Quit 89 94)
     |}]
 ;;
 

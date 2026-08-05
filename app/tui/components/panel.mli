@@ -13,9 +13,12 @@ open! Core
 
 (** Exactly [width * height] cells: the title row, then [body] in the
     remaining rows, inset one column each side ({!inner_width}) and cropped
-    if it overflows. *)
+    if it overflows. Every cell is filled, so a panel is opaque — one drawn
+    over the others hides them. [bg] is the surface it fills with, and only
+    the pop-out has cause to pass anything but the default {!Theme.bg}. *)
 val view
-  :  title:string
+  :  ?bg:Bonsai_term.Attr.Color.t
+  -> title:string
   -> meta:string
   -> width:int
   -> height:int

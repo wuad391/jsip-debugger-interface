@@ -14,6 +14,10 @@ module Attr := Bonsai_term.Attr
     nothing reads as a slab edge. *)
 val bg : Attr.Color.t
 
+(** The one shade above {!bg}, for the one thing that sits above the panes
+    rather than among them: the heap's diagram pop-out. *)
+val raised : Attr.Color.t
+
 (** The brand gold: the session bar's dot. *)
 val accent : Attr.Color.t
 
@@ -56,6 +60,14 @@ val app_purple : Attr.Color.t
 (** A printed type, in the heap pane's type column: a crimson-leaning red, so
     a column of them never reads as a column of highlights. *)
 val type_name : Attr.Color.t
+
+(** A node's box in the diagram pop-out — a calmer blue than {!highlight}. *)
+val card_border : Attr.Color.t
+
+(** The rails joining those boxes. Brighter than {!border}: those lines are
+    the diagram's pointers, so they should read ahead of the pane chrome
+    rather than behind it. *)
+val rail : Attr.Color.t
 
 (* syntax colors for the source pane *)
 val keyword : Attr.Color.t

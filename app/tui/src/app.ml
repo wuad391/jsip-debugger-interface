@@ -61,6 +61,12 @@ module Model = struct
     ; typing_filter : bool
     (** the [/] prompt is open, and keystrokes edit the filter instead of
         driving the panes *)
+    ; popped_out : Heap_pane.Spot.t option
+    (** [Enter] in the heap: the row whose structure is drawn as a diagram
+        over the panes. While it is up it owns the keyboard — so the step
+        cannot move under it — and [Escape] backs out. *)
+    ; pop_scroll : int
+    ; pop_pan : int
     }
   [@@deriving sexp_of, equal]
 
@@ -79,6 +85,9 @@ module Model = struct
     ; accordion = false
     ; heap_filter = ""
     ; typing_filter = false
+    ; popped_out = None
+    ; pop_scroll = 0
+    ; pop_pan = 0
     }
   ;;
 end
@@ -110,6 +119,18 @@ module Action = struct
     | Filter_backspace
     | Commit_filter (** [Enter]: close the prompt, keep the filter *)
     | Cancel_filter (** [Escape]: close the prompt, drop the filter *)
+    | Pop_out
+    (** [Enter] on a heap row: its structure as the diagram it physically is,
+        over the panes. Stops playback, because the slab would otherwise be
+        showing a step that has moved on. *)
+    | Dismiss_pop_out
+    (** [Escape]: back to the outline, nothing else moved *)
+    | Commit_pop_out
+    (** [Enter] again: take the jump the row itself would have taken — to the
+        step that allocated it — and close. Escape backs out, Enter goes
+        through, which is what those two keys mean everywhere. *)
+    | Scroll_pop_out of int
+    | Pan_pop_out of int
   [@@deriving sexp_of]
 end
 
@@ -377,6 +398,31 @@ let apply_action
   | Commit_cursor -> commit model
   | Jump_cursor direction -> commit (aim model ~direction)
   | Select_heap_node spot -> select_heap_node model spot
+  (* the diagram of the row you are on — the cursor first and the selection
+     second, the same reading [h] takes, so it works before you have aimed at
+     anything. Playback stops: the slab is a look at one step. *)
+  | Pop_out ->
+    let { Heap_pane.Selection.selected; cursor } =
+      heap_selection replay model
+    in
+    (match Option.first_some cursor selected with
+     | None -> model
+     | Some spot ->
+       { model with
+         popped_out = Some spot
+       ; pop_scroll = 0
+       ; pop_pan = 0
+       ; playing = false
+       })
+  | Dismiss_pop_out -> { model with popped_out = None }
+  | Commit_pop_out ->
+    (match model.popped_out with
+     | None -> model
+     | Some spot -> select_heap_node { model with popped_out = None } spot)
+  | Scroll_pop_out delta ->
+    { model with pop_scroll = Int.max 0 (model.pop_scroll + delta) }
+  | Pan_pop_out delta ->
+    { model with pop_pan = Int.max 0 (model.pop_pan + delta) }
 ;;
 
 (* each call's share of the profile's sampled compute, joined once up front —
@@ -558,16 +604,55 @@ let render
           ; seam, layout.row_divider.y, "┤"
           ]
   in
+  (* The diagram of the row [Enter] was pressed on, over everything else. It
+     is a slab rather than a pane, so it is inset from the screen's edges
+     instead of taking a place in the layout — the panes it covers are still
+     there, and closing it puts them back untouched. It draws from the
+     unfiltered registry: the [/] filter thins what you are choosing FROM,
+     not what a structure is made of. *)
+  let pop_out =
+    match model.popped_out with
+    | None -> []
+    | Some spot ->
+      let id = Heap_pane.structure_of_spot spot in
+      (match
+         List.find structures ~f:(fun (structure : Replay.Structure.t) ->
+           structure.id = id)
+       with
+       | None -> []
+       | Some structure ->
+         let width =
+           Int.min dimensions.width (Int.max 24 (dimensions.width - 8))
+         in
+         let height =
+           Int.min dimensions.height (Int.max 6 (dimensions.height - 4))
+         in
+         [ View.pad
+             ~l:((dimensions.width - width) / 2)
+             ~t:((dimensions.height - height) / 2)
+             (Heap_pane.Diagram.view
+                ~structure
+                ~structures
+                ~nodes
+                ~new_addresses
+                ~width
+                ~height
+                ~scroll:model.pop_scroll
+                ~pan:model.pop_pan)
+         ])
+  in
   let view =
     View.zcat
-      ((* the focus seams sit on top of every rule and junction they cross *)
-       focus_views
+      (pop_out
+       (* the focus seams sit on top of every rule and junction they cross *)
+       @ focus_views
        @ [ Transport.view
              ~width:dimensions.Dimensions.width
              ~step:model.step
              ~total:(Replay.length replay)
              ~playing:model.playing
              ~accordion:model.accordion
+             ~diagram:(Option.is_some model.popped_out)
          ; place
              layout.stack
              (Stack_pane.view
@@ -663,112 +748,121 @@ let render
   in
   let on_click (position : Position.t) : [ `Act of Action.t | `Quit ] option =
     let act action = `Act action in
-    match Region.contains layout.controls position with
-    | true ->
-      Transport.control_at
-        ~width:layout.controls.width
-        ~playing:model.playing
-        ~x:position.x
-      |> Option.map ~f:(fun button ->
-        match (button : Transport.Button.t) with
-        | Back -> act (Action.Step_delta (-1))
-        | Step -> act (Action.Step_delta 1)
-        | Play -> act Action.Toggle_play
-        | Node -> act (Action.Move_cursor Down)
-        | Fold -> act Action.Toggle_focused_fold
-        | Accordion -> act Action.Toggle_accordion
-        | Filter -> act Action.Begin_filter
-        | Quit -> `Quit)
+    match Option.is_some model.popped_out with
+    (* while the slab is up a click anywhere puts it away, including on the
+       [⏎ diagram] chip that raised it — one rule, and it makes the chip the
+       toggle its lit state says it is *)
+    | true -> Some (act Action.Dismiss_pop_out)
     | false ->
-      (match Region.contains layout.ticks position with
+      (match Region.contains layout.controls position with
        | true ->
-         Transport.step_at
-           ~width:layout.ticks.width
-           ~total:(Replay.length replay)
+         Transport.control_at
+           ~width:layout.controls.width
+           ~playing:model.playing
            ~x:position.x
-         |> Option.map ~f:(fun step -> act (Action.Step_to step))
+         |> Option.map ~f:(fun button ->
+           match (button : Transport.Button.t) with
+           | Back -> act (Action.Step_delta (-1))
+           | Step -> act (Action.Step_delta 1)
+           | Play -> act Action.Toggle_play
+           | Node -> act (Action.Move_cursor Down)
+           | Diagram -> act Action.Pop_out
+           | Fold -> act Action.Toggle_focused_fold
+           | Accordion -> act Action.Toggle_accordion
+           | Filter -> act Action.Begin_filter
+           | Quit -> `Quit)
        | false ->
-         (match Layout.inner_position layout.stack position with
-          | Some { x; y } ->
-            Stack_pane.target_at
-              ~width:layout.stack.width
-              ~height:layout.stack.height
-              ~calls
-              ~heat
-              ~live
-              ~selected
-              ~folds:model.stack_folds
-              ~cursor:model.stack_cursor
-              ~x
-              ~row:y
-            |> Option.map ~f:(fun target ->
-              match (target : Stack_pane.Target.t) with
-              | Frame index -> act (Action.Select_frame index)
-              | Step step -> act (Action.Step_to step)
-              | Toggle call -> act (Action.Toggle_stack_fold call))
-          | None ->
-            (match Layout.inner_position layout.source position with
+         (match Region.contains layout.ticks position with
+          | true ->
+            Transport.step_at
+              ~width:layout.ticks.width
+              ~total:(Replay.length replay)
+              ~x:position.x
+            |> Option.map ~f:(fun step -> act (Action.Step_to step))
+          | false ->
+            (match Layout.inner_position layout.stack position with
              | Some { x; y } ->
-               Source_pane.toggle_at
-                 ~width:layout.source.width
-                 ~height:layout.source.height
-                 ~source
-                 ~folds:source_folds
-                 ~active_line:(Location.line_number location)
-                 ~callsite_line
-                 ~char_range:(Location.char_range location)
+               Stack_pane.target_at
+                 ~width:layout.stack.width
+                 ~height:layout.stack.height
+                 ~calls
+                 ~heat
+                 ~live
+                 ~selected
+                 ~folds:model.stack_folds
+                 ~cursor:model.stack_cursor
                  ~x
-                 ~y
-               |> Option.map ~f:(fun line ->
-                 act
-                   (Action.Toggle_source_fold
-                      { Source_fold.file = file_path; line }))
+                 ~row:y
+               |> Option.map ~f:(fun target ->
+                 match (target : Stack_pane.Target.t) with
+                 | Frame index -> act (Action.Select_frame index)
+                 | Step step -> act (Action.Step_to step)
+                 | Toggle call -> act (Action.Toggle_stack_fold call))
              | None ->
-               (match Layout.inner_position layout.heap position with
+               (match Layout.inner_position layout.source position with
                 | Some { x; y } ->
-                  (* the panel pads the body one column right of the border;
-                     fold glyphs win over the row under them *)
-                  let x = max 0 (x - 1) in
-                  (match
-                     Heap_pane.toggle_at
-                       ~structures:heap_structures
-                       ~nodes
-                       ~new_addresses
-                       ~folds:heap_folds
-                       ~scroll:model.heap_scroll
-                       ~selection
-                       ~width:layout.heap.width
-                       ~height:layout.heap.height
-                       ~x
-                       ~y
-                   with
-                   | Some fold -> Some (act (Action.Toggle_heap_fold fold))
-                   | None ->
-                     Heap_pane.spot_at
-                       ~structures:heap_structures
-                       ~nodes
-                       ~new_addresses
-                       ~folds:heap_folds
-                       ~scroll:model.heap_scroll
-                       ~selection
-                       ~width:layout.heap.width
-                       ~height:layout.heap.height
-                       ~x
-                       ~y
-                     |> Option.map ~f:(fun spot ->
-                       act (Action.Select_heap_node spot)))
-                | None -> None))))
+                  Source_pane.toggle_at
+                    ~width:layout.source.width
+                    ~height:layout.source.height
+                    ~source
+                    ~folds:source_folds
+                    ~active_line:(Location.line_number location)
+                    ~callsite_line
+                    ~char_range:(Location.char_range location)
+                    ~x
+                    ~y
+                  |> Option.map ~f:(fun line ->
+                    act
+                      (Action.Toggle_source_fold
+                         { Source_fold.file = file_path; line }))
+                | None ->
+                  (match Layout.inner_position layout.heap position with
+                   | Some { x; y } ->
+                     (* the panel pads the body one column right of the
+                        border; fold glyphs win over the row under them *)
+                     let x = max 0 (x - 1) in
+                     (match
+                        Heap_pane.toggle_at
+                          ~structures:heap_structures
+                          ~nodes
+                          ~new_addresses
+                          ~folds:heap_folds
+                          ~scroll:model.heap_scroll
+                          ~selection
+                          ~width:layout.heap.width
+                          ~height:layout.heap.height
+                          ~x
+                          ~y
+                      with
+                      | Some fold ->
+                        Some (act (Action.Toggle_heap_fold fold))
+                      | None ->
+                        Heap_pane.spot_at
+                          ~structures:heap_structures
+                          ~nodes
+                          ~new_addresses
+                          ~folds:heap_folds
+                          ~scroll:model.heap_scroll
+                          ~selection
+                          ~width:layout.heap.width
+                          ~height:layout.heap.height
+                          ~x
+                          ~y
+                        |> Option.map ~f:(fun spot ->
+                          act (Action.Select_heap_node spot)))
+                   | None -> None)))))
   in
-  (* the wheel only goes up and down, which is all the heap has left to do:
-     rows wrap rather than running off the edge, so there is nothing sideways
-     to reach *)
+  (* the wheel only goes up and down, which is all either canvas has left to
+     do: rows wrap rather than running off the edge, and the diagram's
+     sideways is on [\[]/[\]] *)
   let on_scroll (position : Position.t) direction : Action.t option =
-    match Region.contains layout.heap position with
-    | false -> None
-    | true ->
-      (match direction with
-       | `Up -> Some (Action.Scroll_heap (-1))
-       | `Down -> Some (Action.Scroll_heap 1))
+    let delta = match direction with `Up -> -1 | `Down -> 1 in
+    match Option.is_some model.popped_out with
+    | true -> Some (Action.Scroll_pop_out delta)
+    | false ->
+      (match Region.contains layout.heap position with
+       | false -> None
+       | true -> Some (Action.Scroll_heap delta))
   in
   { Computed.view; on_click; on_scroll }
 ;;
@@ -818,7 +912,7 @@ let component
   in
   let handler =
     let%arr { Computed.on_click; on_scroll; view = _ } = computed
-    and { Model.typing_filter; _ } = model
+    and { Model.typing_filter; popped_out; focus; _ } = model
     and inject in
     let inject_or_ignore action =
       match action with
@@ -839,6 +933,25 @@ let component
                List.mem mods Event.Modifier.Ctrl ~equal:Event.Modifier.equal
              | _ -> false ->
         exit ()
+      (* The pop-out owns the keyboard while it is up: [Escape] backs out and
+         [Enter] goes through — which is what those two keys mean everywhere
+         — and the rest moves around a diagram bigger than the slab showing
+         it. Nothing steps, because the slab is a look at one step of the
+         run: to carry on you close it first. *)
+      | Key_press { key; mods } when Option.is_some popped_out ->
+        (match key, mods with
+         | Escape, [] -> inject Dismiss_pop_out
+         | Enter, [] -> inject Commit_pop_out
+         | (Arrow `Up | ASCII 'w'), [] -> inject (Scroll_pop_out (-1))
+         | (Arrow `Down | ASCII 's'), [] -> inject (Scroll_pop_out 1)
+         | (Arrow `Left | ASCII 'a'), [] -> inject (Pan_pop_out (-4))
+         | (Arrow `Right | ASCII 'd'), [] -> inject (Pan_pop_out 4)
+         | ASCII '[', [] -> inject (Pan_pop_out (-8))
+         | ASCII ']', [] -> inject (Pan_pop_out 8)
+         | Page `Up, [] -> inject (Scroll_pop_out (-3))
+         | Page `Down, [] -> inject (Scroll_pop_out 3)
+         | ASCII 'q', [] -> exit ()
+         | _ -> Effect.Ignore)
       (* while the [/] prompt is open it owns the keyboard: the letters that
          would otherwise aim, play or quit spell the filter instead *)
       | Key_press { key; mods } when typing_filter ->
@@ -868,7 +981,14 @@ let component
          | Page `Up, [] -> inject (Scroll_heap (-3))
          | Page `Down, [] -> inject (Scroll_heap 3)
          | Tab, [] -> inject Focus_next_pane
-         | Enter, [] -> inject Commit_cursor
+         (* [Enter] in the heap pops the diagram out — the outline is the
+            everyday reading and this is the other one, a keystroke away. In
+            the stack it still commits, where there is no diagram to want and
+            a frame to select. Clicking a heap row commits it either way. *)
+         | Enter, [] ->
+           (match focus with
+            | Pane.Heap -> inject Pop_out
+            | Pane.Stack -> inject Commit_cursor)
          (* the outline is a list of lines, so ↑/↓ run it end to end — the
             motion the heap pane is shaped for, on the keys that mean it. ←/→
             stay on stepping, which is what a replay is for. *)

@@ -22,7 +22,7 @@ divider line along each seam:
 
 ```
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-        ◂ back · step ▸ · [space] play · ↑↓ node · h fold · z accordion · / filter · q quit
+     ◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · q quit
 ─────────────────────────────┬──────────────────────────────────────────────────────────────
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
       M.add "b" 2 M.empty    │ ▾ #1  int M.t  1 binding
@@ -117,12 +117,48 @@ divider line along each seam:
   hidden with it, and folds survive stepping. Clicking a row jumps the
   replay to the step that allocated it; clicking the glyph folds instead;
   the wheel scrolls.
+- **Diagram pop-out** — `Enter` (or the `⏎ diagram` chip) draws the
+  structure the cursor is in the way a CS textbook would, over the panes:
+  a box per node, rails for the pointers, children spread under their
+  parent, empty slots as dotted `∅` boxes. The outline is the everyday
+  reading precisely because it hides all that — but the tree is what the
+  program actually built, and some questions only its shape answers (why
+  one `add` rebuilt three nodes, how deep a bucket chain ran). `Escape`
+  puts it away with everything else exactly where you left it; `Enter`
+  again takes the jump the row would have taken, to the step that
+  allocated it. While it is up it owns the keyboard: `↑↓←→`, `[`/`]` and
+  `PgUp`/`PgDn` move around a diagram bigger than the slab, and nothing
+  steps until you close it.
+
+  ```
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ DIAGRAM                              bigger · int M.t · 6 nodes · esc back │
+  │             ┌ bigger  new ┐                                                │
+  │             │"f" → 6      │                                                │
+  │             └─────────────┘                                                │
+  │          ┌─────────┴──────────┐                                            │
+  │          l                    r                                            │
+  │      ┌───────┐            ┌── new ┐                                        │
+  │      │"d" → 4│            │"h" → 8│                                        │
+  │      └───────┘            └───────┘                                        │
+  │     ┌────┴────┐         ┌─────┴──────┐                                     │
+  │     l         r         l            r                                     │
+  │ ┌───────┐   ┌┄┄┄┐   ┌── new ┐   ┌────────┐                                 │
+  │ │"b" → 2│   ┆ ∅ ┆   │"g" → 7│   │"j" → 10│                                 │
+  │ └───────┘   └┄┄┄┘   └───────┘   └────────┘                                 │
+  └────────────────────────────────────────────────────────────────────────────┘
+  ```
+
+  That is the same `bigger` the outline above reads as five bindings and two
+  `↗` rows. In here there is only one structure, so there is nothing to
+  point at: every node it reaches is drawn, and the count is what was drawn.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —
-  `◂ back · step ▸ · [space] play · ↑↓ node · h fold · z accordion ·
-  / filter · q quit` — every chip clickable, and the mode chips (play,
-  accordion) light up while theirs is on. The session bar (dump name,
-  structure) sits along the bottom.
+  `◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold ·
+  z accordion · / filter · q quit` — every chip clickable, and the mode
+  chips (play, accordion, diagram) light up while theirs is on. The row
+  wants 96 columns; narrower than that and the right-hand chips crop. The
+  session bar (dump name, structure) sits along the bottom.
 
 ## Run it
 
@@ -162,11 +198,15 @@ from the repo root).
 `Tab` moves focus between the call stack and the heap; the focused
 pane's seams turn orange. Inside it, `↑`/`↓` (or `wasd`) aim — the row
 you are aiming at goes orange while the one you chose stays blue, so both
-"where I am" and "where I would land" are on screen at once — and
-`Enter` commits, which does exactly what clicking there does: a heap row
-jumps the replay to the step that allocated it, a live stack row selects
-that frame, a dimmed one jumps to its call. `WASD` skips the aiming step
-and commits in one keystroke.
+"where I am" and "where I would land" are on screen at once.
+
+What `Enter` then does depends on which pane has the keyboard. In the
+**heap** it pops the diagram out (`Escape` back, `Enter` again to go
+through to the allocation step) — the outline is the everyday reading and
+the tree is one keystroke away. In the **call stack** it commits: a live
+row selects that frame, a dimmed one jumps to its call. Clicking a heap
+row commits it either way, and `WASD` aims and commits in one keystroke
+in both panes.
 
 In the heap the cursor walks the outline the way a file tree walks.
 `↑`/`↓` (`w`/`s`) step to the line above and below, crossing from one
@@ -218,7 +258,9 @@ owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
 starts empty.
 
 Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
-to the ends, and `PgUp`/`PgDn` scroll the heap.
+to the ends, and `PgUp`/`PgDn` scroll the heap. `Escape` also clears a
+committed filter, and — like every other key but its own few — it is the
+diagram pop-out's while that is up.
 
 ## Toolchain
 

@@ -50,7 +50,7 @@ let vertical_rule ~height ~color =
 let header_height = 1
 let inner_width ~width = max 0 (width - 2)
 
-let view ~title ~meta ~width ~height body =
+let view ?(bg = Theme.bg) ~title ~meta ~width ~height body =
   let title_view =
     View.text ~attrs:[ Theme.fg Theme.secondary ] (String.uppercase title)
   in
@@ -74,10 +74,12 @@ let view ~title ~meta ~width ~height body =
   in
   (* [with_colors'] *sets* the unspecified background on every cell — a
      rectangle behind the pane would only show through the gaps, leaving text
-     sitting on the terminal's own background instead of the pane's *)
+     sitting on the terminal's own background instead of the pane's. It is
+     also what makes a panel opaque, so one drawn over the others hides them
+     rather than letting them read through. *)
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
-    ~bg:Theme.bg
+    ~bg
     (fit (View.vcat [ fit header ~width ~height:1; body ]) ~width ~height)
 ;;
