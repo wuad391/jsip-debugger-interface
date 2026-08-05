@@ -110,6 +110,9 @@ module Action = struct
     (** [space]: collapse whatever the focused pane is pointing at — the
         structure a heap card belongs to, or a call's descendants *)
     | Toggle_accordion
+    | Focus_latest
+    (** [.]: back to the latest change — the structure this step walked —
+        clearing the aim, the chosen card, and the scroll on the way *)
     | Begin_filter (** [/]: open the prompt, starting from empty *)
     | Filter_input of char
     | Filter_backspace
@@ -168,20 +171,20 @@ let heap_inputs replay (model : Model.t) =
 ;;
 
 (* Where a step (or a committed jump) lands the heap pane: the selection —
-   the walked structure's root until something is chosen — brought into view.
-   Needs the terminal's dimensions, which reach [apply_action] as the state
-   machine's input; while the app is inactive there is nothing to aim, so the
-   top of the canvas does fine. *)
-let landing_scroll replay dimensions (model : Model.t) =
+   the walked structure's root until something is chosen — brought into view,
+   both axes. Needs the terminal's dimensions, which reach [apply_action] as
+   the state machine's input; while the app is inactive there is nothing to
+   aim, so the top of the canvas does fine. *)
+let landing replay dimensions (model : Model.t) =
   match (dimensions : Dimensions.t Bonsai.Computation_status.t) with
-  | Inactive -> 0
+  | Inactive -> 0, 0
   | Active dimensions ->
     let layout = Layout.compute dimensions in
     let { Replay.Step.nodes; new_addresses; _ } =
       Replay.step_exn replay ~step:model.step
     in
     let structures, folds = heap_inputs replay model in
-    Heap_pane.scroll_to_selection
+    Heap_pane.landing
       ~structures
       ~nodes
       ~new_addresses
@@ -243,7 +246,8 @@ let apply_action
       }
     in
     (* land the eye on what the step walked, not on the canvas top *)
-    { stepped with heap_scroll = landing_scroll replay dimensions stepped }
+    let heap_scroll, heap_pan = landing replay dimensions stepped in
+    { stepped with heap_scroll; heap_pan }
   in
   (* committing a heap card is exactly what clicking it does — jump to where
      it was allocated — and additionally pins it as the selection, so the
@@ -278,7 +282,8 @@ let apply_action
     let landed =
       { stepped with heap_selected = selected; heap_cursor = None }
     in
-    { landed with heap_scroll = landing_scroll replay dimensions landed }
+    let heap_scroll, heap_pan = landing replay dimensions landed in
+    { landed with heap_scroll; heap_pan }
   in
   let commit (model : Model.t) =
     match model.focus with
@@ -425,6 +430,8 @@ let apply_action
         | Some call ->
           { model with stack_folds = toggle model.stack_folds call }))
   | Toggle_accordion -> { model with accordion = not model.accordion }
+  (* re-landing on the current step is exactly what stepping to it does *)
+  | Focus_latest -> move ~playing:model.playing model.step
   (* [/] always starts from empty: the old filter was shaped around whatever
      you were hunting last time, and editing it beats out of a prompt this
      small costs more keys than retyping *)
@@ -739,6 +746,7 @@ let render
         | Back -> act (Action.Step_delta (-1))
         | Step -> act (Action.Step_delta 1)
         | Play -> act Action.Toggle_play
+        | Latest -> act Action.Focus_latest
         | Fold -> act Action.Toggle_focused_fold
         | Accordion -> act Action.Toggle_accordion
         | Filter -> act Action.Begin_filter
@@ -932,6 +940,7 @@ let component
             whatever the focused pane is pointing at *)
          | ASCII 'h', [] -> inject Toggle_focused_fold
          | ASCII 'z', [] -> inject Toggle_accordion
+         | ASCII '.', [] -> inject Focus_latest
          | ASCII '/', [] -> inject Begin_filter
          (* clears a committed filter without reopening the prompt *)
          | Escape, [] -> inject Cancel_filter

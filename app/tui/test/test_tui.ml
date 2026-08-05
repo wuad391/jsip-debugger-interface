@@ -401,7 +401,7 @@ let%expect_test "transport: ticks, then the clickable key legend" =
   [%expect
     {|
     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-              ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · q quit
+    ◂ back · step ▸ · [space] play · . latest · h fold · z accordion · / filter · q quit
     |}]
 ;;
 
@@ -692,13 +692,14 @@ let%expect_test "control chips hit-test exactly where they render" =
       [%sexp (button : Transport.Button.t), (first : int), (last : int)]);
   [%expect
     {|
-    (Back 10 15)
-    (Step 19 24)
-    (Play 28 39)
-    (Fold 43 48)
-    (Accordion 52 62)
-    (Filter 66 73)
-    (Quit 77 82)
+    (Back 0 5)
+    (Step 9 14)
+    (Play 18 29)
+    (Latest 33 40)
+    (Fold 44 49)
+    (Accordion 53 63)
+    (Filter 67 74)
+    (Quit 78 83)
     |}]
 ;;
 
@@ -1648,22 +1649,29 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
 ;;
 
 let%expect_test "a step lands the heap on the structure it walked" =
-  (* stepping resets the scroll — but to the walked structure's row, not to
-     the top of the canvas: on a dump with hundreds of structures the new one
-     allocates far below the fold, and a pane that opened on the top showed
-     everything except the thing the step was about *)
+  (* stepping resets the scroll — but to the selection's row, not to the top
+     of the canvas: on a dump with hundreds of structures the walked one can
+     sit far below the fold, and a pane that opened on the top showed
+     everything except the thing the step was about. Aim at the
+     highest-address structure, which the address ordering packs last. *)
   let replay = replay_of_fixture "set_ops" in
   let step = Replay.length replay - 1 in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step
   in
+  let farthest =
+    List.max_elt structures ~compare:(fun (x : Replay.Structure.t) y ->
+      Snapshot.Address.compare x.address y.address)
+    |> Option.value_exn
+  in
   let selection =
-    { Heap_pane.Selection.selected = current_spot replay ~step
+    { Heap_pane.Selection.selected =
+        Some (Heap_pane.spot_of_structure farthest)
     ; cursor = None
     }
   in
-  let scroll =
-    Heap_pane.scroll_to_selection
+  let scroll, pan =
+    Heap_pane.landing
       ~structures
       ~nodes
       ~new_addresses
@@ -1672,23 +1680,23 @@ let%expect_test "a step lands the heap on the structure it walked" =
       ~width:44
       ~height:12
   in
-  printf "scroll=%d\n" scroll;
-  heap_view ~width:44 ~height:12 ~scroll ~selection replay ~step;
+  printf "scroll=%d pan=%d\n" scroll pan;
+  heap_view ~width:44 ~height:12 ~scroll ~pan ~selection replay ~step;
   [%expect
     {|
-    scroll=0
+    scroll=37 pan=0
      HEAP             5 live · 12 nodes · 2 new
-     ▾ #11 · set ⟨int⟩ · 2 nodes
-            ▾┌ #11 ────── new ┐
-             │2               │
-             └ 0x768f6ebdd1f0 ┘
-              ┌──────┴───────┐
-              l              r
-      ┌ new ┐              ┌┄┄┄┐
-      │1    │              ┆ ∅ ┆
-      └─────┘              └┄┄┄┘
+     ┆ ∅ ┆    │4│
+     └┄┄┄┘    └─┘
 
-     ▾ #10 · set ⟨int⟩ · 1 node
+     ▾ a · set ⟨int⟩ · 3 nodes
+     ▾┌ a ─────────────┐
+      │1               │
+      └ 0x768f6ebf2148 ┘
+       ┌──────┴───────┐
+       l              r
+     ┌┄┄┄┐   ▾┌─┐
+     ┆ ∅ ┆    │2│
     |}]
 ;;
 

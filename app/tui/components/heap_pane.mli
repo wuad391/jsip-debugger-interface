@@ -164,13 +164,16 @@ val accordion_folds
     everything. *)
 val matches_filter : Replay.Structure.t -> filter:string -> bool
 
-(** Where a step lands the eye: the scroll that brings the selection's
-    drawing into view — its card or, collapsed, the header wearing its
-    address — centered when it lies far down the canvas. The app calls this
+(** Where a step lands the eye: the [(scroll, pan)] that bring the
+    selection's drawing into view — its card or, collapsed, the header
+    wearing its address — centered when it lies far away. The app calls this
     as it steps, so the pane opens on the structure the event walked (or the
-    card just committed); the result is ordinary scroll state, so the wheel
-    moves freely from there. *)
-val scroll_to_selection
+    card just committed); the results are ordinary scroll and pan state, so
+    the wheel and [\[]/[\]] move freely from there. This one-shot landing is
+    also the only way the SELECTION positions the window — the continuous
+    follow belongs to the cursor alone, or the manual pan could never move
+    the selected card's column. *)
+val landing
   :  structures:Replay.Structure.t list
   -> nodes:Replay.Nodes.t
   -> new_addresses:Snapshot.Address.Set.t
@@ -178,7 +181,7 @@ val scroll_to_selection
   -> selection:Selection.t
   -> width:int
   -> height:int
-  -> int
+  -> int * int
 
 (** [pan] is the manual horizontal offset — [\[]/[\]], or the wheel with ctrl
     or alt held — the sideways twin of [scroll]. The pane still slides on its

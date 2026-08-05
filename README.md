@@ -22,23 +22,23 @@ divider line along each seam:
 
 ```
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                  ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · q quit
+       ◂ back · step ▸ · [space] play · . latest · h fold · z accordion · / filter · q quit
 ─────────────────────────────┬──────────────────────────────────────────────────────────────
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
-      M.add "b" 2 M.empty    │ ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
- ▎▾ M.add "a" 1 (M.add "b" 2 │  ┌ #1 ───┐
- ▎    M.empty)               │  │"b" → 2│
-      M.add k (v * 2) acc    │  └───────┘
-      M.add k (v * 2) acc    │
-  ▾ M.fold (fun k v acc ->   │ ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
-      M.add k (v * 2) acc) m │        ▾┌ m ──────── new ┐
-      M.empty                │         │"b" → 2         │
-─────────────────────────────┤         └ 0x77127f3ee7e8 ┘
- SOURCE map_fold.ml · 15 line│          ┌──────┴───────┐
-         (String)            │          l              r
-     6                       │  ┌── new ┐            ┌┄┄┄┐
-  ▾  7 let () =              │  │"a" → 1│            ┆ ∅ ┆
- ▎   8   let m = M.add "a"   │  └───────┘            └┄┄┄┘
+      M.add "b" 2 M.empty    │ ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
+ ▎▾ M.add "a" 1 (M.add "b" 2 │        ▾┌ m ──────── new ┐
+ ▎    M.empty)               │         │"b" → 2         │
+      M.add k (v * 2) acc    │         └ 0x77127f3ee7e8 ┘
+      M.add k (v * 2) acc    │          ┌──────┴───────┐
+  ▾ M.fold (fun k v acc ->   │          l              r
+      M.add k (v * 2) acc) m │  ┌── new ┐            ┌┄┄┄┐
+      M.empty                │  │"a" → 1│            ┆ ∅ ┆
+─────────────────────────────┤  └───────┘            └┄┄┄┘
+ SOURCE map_fold.ml · 15 line│
+         (String)            │ ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
+     6                       │  ┌ #1 ───┐
+  ▾  7 let () =              │  │"b" → 2│
+ ▎   8   let m = M.add "a"   │  └───────┘
  ▎         1 (M.add "b" 2 M  │
  ▎         .empty) in        │
 ─────────────────────────────┴──────────────────────────────────────────────────────────────
@@ -219,7 +219,10 @@ owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
 starts empty.
 
 Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
-to the ends, `PgUp`/`PgDn` scroll the heap and `[`/`]` pan it.
+to the ends, `PgUp`/`PgDn` scroll the heap and `[`/`]` pan it. Wherever
+browsing has taken you, `.` snaps back to the latest change — the
+structure this step walked — clearing the aim, the chosen card, and the
+scroll on the way.
 
 ## Toolchain
 

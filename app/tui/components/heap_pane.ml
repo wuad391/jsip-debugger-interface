@@ -1435,16 +1435,12 @@ let follow_cursor placed ~body_height ~scroll ~(selection : Selection.t) =
    pane keeps its right-hand cards past the edge forever, so without this the
    cursor walks onto cards nobody can see and [wasd] looks broken. [pan] is
    where the hand left it — [\[]/[\]], or a ctrl- or alt-wheel — and the
-   cursor overrides it exactly the way it overrides the scroll: the smallest
-   adjustment that shows the card being pointed at.
-
-   It follows the selection once the cursor is committed, so [Enter] on a
-   far-right card does not snap the pane back to the left — but only while
-   the card is among the rows on screen. The scroll does not chase the
-   selection the way it chases the cursor, so the selected card can sit far
-   below the window; panning to its column anyway crops the rows you ARE
-   looking at down to whatever happens to cross it, which on a big dump is
-   nothing at all. *)
+   CURSOR overrides it exactly the way it overrides the scroll: the smallest
+   adjustment that shows the card being aimed at, from wherever the hand was.
+   Only the cursor: a committed selection is brought into view once, by
+   {!landing}, and following it continuously here would pin the window to it
+   — the selected card is nearly always on screen now that stepping lands on
+   it, and a follow that keeps it visible is a [\[]/[\]] that cannot move. *)
 let follow_left
   placed
   ~body_width
@@ -1453,7 +1449,7 @@ let follow_left
   ~pan
   ~(selection : Selection.t)
   =
-  match Option.first_some selection.cursor selection.selected with
+  match selection.cursor with
   | None -> pan
   | Some { Spot.site; address = (_ : Snapshot.Address.t) } ->
     (match card_at placed site with
@@ -1492,13 +1488,32 @@ let resolve_scroll placed ~canvas_height ~height ~scroll ~selection =
   |> fun scroll -> clamp_scroll ~canvas_height ~height ~scroll
 ;;
 
-(* Where a step lands the eye: the scroll that brings the selection's drawing
-   into view — its card or, collapsed, the header wearing its address —
-   centered when it lies far down the canvas. The app calls this as it steps,
-   so the pane opens on the structure the event walked (or the card just
-   committed) instead of on whatever sat at the top; the result is ordinary
-   scroll state, so the wheel moves freely from there. *)
-let scroll_to_selection
+let clamp_pan ~canvas_width ~width ~pan =
+  Int.max
+    0
+    (Int.min pan (Int.max 0 (canvas_width - Panel.inner_width ~width)))
+;;
+
+(* runs on the resolved scroll, so "among the rows on screen" means the rows
+   the eye is actually getting *)
+let resolve_left placed ~canvas_width ~width ~height ~scroll ~pan ~selection =
+  follow_left
+    placed
+    ~body_width:(Panel.inner_width ~width)
+    ~body_height:(height - Panel.header_height)
+    ~scroll
+    ~pan
+    ~selection
+  |> fun pan -> clamp_pan ~canvas_width ~width ~pan
+;;
+
+(* Where a step lands the eye: the scroll and pan that bring the selection's
+   drawing into view — its card or, collapsed, the header wearing its address
+   — centered when it lies far away. The app calls this as it steps, so the
+   pane opens on the structure the event walked (or the card just committed)
+   instead of on whatever sat at the top; the results are ordinary scroll and
+   pan state, so the wheel and [\[]/[\]] move freely from there. *)
+let landing
   ~structures
   ~nodes
   ~new_addresses
@@ -1507,7 +1522,11 @@ let scroll_to_selection
   ~width
   ~height
   =
-  let (_ : View.t), ((_ : int), canvas_height), placed, (_ : Toggle.t list) =
+  let ( (_ : View.t)
+      , (canvas_width, canvas_height)
+      , placed
+      , (_ : Toggle.t list) )
+    =
     layout
       ~structures
       ~nodes
@@ -1526,33 +1545,27 @@ let scroll_to_selection
           Snapshot.Address.equal card.address address))
   in
   match target with
-  | None -> 0
+  | None -> 0, 0
   | Some card ->
-    bring_into_view
-      ~at:0
-      ~size:(height - Panel.header_height)
-      ~start:card.y
-      ~length:card.height
-    |> fun scroll -> clamp_scroll ~canvas_height ~height ~scroll
-;;
-
-let clamp_pan ~canvas_width ~width ~pan =
-  Int.max
-    0
-    (Int.min pan (Int.max 0 (canvas_width - Panel.inner_width ~width)))
-;;
-
-(* runs on the resolved scroll, so "among the rows on screen" means the rows
-   the eye is actually getting *)
-let resolve_left placed ~canvas_width ~width ~height ~scroll ~pan ~selection =
-  follow_left
-    placed
-    ~body_width:(Panel.inner_width ~width)
-    ~body_height:(height - Panel.header_height)
-    ~scroll
-    ~pan
-    ~selection
-  |> fun pan -> clamp_pan ~canvas_width ~width ~pan
+    let scroll =
+      bring_into_view
+        ~at:0
+        ~size:(height - Panel.header_height)
+        ~start:card.y
+        ~length:card.height
+      |> fun scroll -> clamp_scroll ~canvas_height ~height ~scroll
+    in
+    let pan =
+      Int.max
+        0
+        (bring_into_view
+           ~at:0
+           ~size:(Panel.inner_width ~width)
+           ~start:card.x
+           ~length:card.width)
+      |> fun pan -> clamp_pan ~canvas_width ~width ~pan
+    in
+    scroll, pan
 ;;
 
 let view
