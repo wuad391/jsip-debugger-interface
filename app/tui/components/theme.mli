@@ -14,6 +14,15 @@ module Attr := Bonsai_term.Attr
     nothing reads as a slab edge. *)
 val bg : Attr.Color.t
 
+(** The one shade above {!bg}, for the one thing that sits above the panes
+    rather than among them: the heap's diagram pop-out. *)
+val raised : Attr.Color.t
+
+(** The call stack's alternating rows — one shade off {!bg}, a band only
+    against its neighbor, so a wall of forty calls reads as rows instead of
+    as a texture. *)
+val stripe_bg : Attr.Color.t
+
 (** The brand gold: the session bar's dot. *)
 val accent : Attr.Color.t
 
@@ -28,22 +37,21 @@ val highlight_bg : Attr.Color.t
 val highlight_deep : Attr.Color.t
 
 (** Where the keyboard is, as opposed to where the selection is: the orange
-    that marks the pane [Tab] last focused and, inside it, the card or row
-    [Enter] would commit to. Blue says "chosen", orange says "about to be" —
-    the two are on screen together while you aim. *)
+    that marks the pane [Tab] last focused and, inside it, the row [Enter]
+    would commit to. Blue says "chosen", orange says "about to be" — the two
+    are on screen together while you aim. *)
 val cursor : Attr.Color.t
 
 val cursor_bg : Attr.Color.t
 val cursor_deep : Attr.Color.t
 
-(** The heap cards' outline — a calmer blue than {!highlight}. *)
-val card_border : Attr.Color.t
+(** The muted halves of the two washes above, for the OTHER drawing of the
+    row being pointed at — a [↗] pointer and the row it names are one node,
+    so both light up. Dimmer than the real thing, so the row you are actually
+    on still wins. *)
+val cursor_echo : Attr.Color.t
 
-(** The rails joining heap cards. Brighter than {!border}: those lines are
-    the diagram's pointers, so they should read ahead of the pane chrome
-    rather than behind it. *)
-val rail : Attr.Color.t
-
+val highlight_echo : Attr.Color.t
 val text : Attr.Color.t
 val secondary : Attr.Color.t
 val muted : Attr.Color.t
@@ -66,6 +74,21 @@ val tick_future_ramp : Attr.Color.t array
 val tick_density : Attr.Color.t array -> density:float -> Attr.Color.t
 
 val app_purple : Attr.Color.t
+
+(** The heap's two text registers: a printed type in the calm blue (the same
+    register as the source pane's identifiers), a walked value in a warm
+    orange dim enough that {!cursor}'s bright orange keeps meaning "aimed". *)
+val type_name : Attr.Color.t
+
+val value_text : Attr.Color.t
+
+(** A node's box in the diagram pop-out — a calmer blue than {!highlight}. *)
+val card_border : Attr.Color.t
+
+(** The rails joining those boxes. Brighter than {!border}: those lines are
+    the diagram's pointers, so they should read ahead of the pane chrome
+    rather than behind it. *)
+val rail : Attr.Color.t
 
 (* syntax colors for the source pane *)
 val keyword : Attr.Color.t
@@ -108,3 +131,12 @@ val flame_label_neutral : Attr.Color.t
 val fg : Attr.Color.t -> Attr.t
 
 val fg' : Attr.Color.t -> Attr.t list
+
+module For_testing : sig
+  (** The role a color plays, by name — ["ghost"], ["card_border"], … The
+      picture tests render through [Notty.Cap.dumb], which drops color
+      entirely, so anything about fading has to be checked by reading the
+      attributes back and naming them. Falls back to the color's sexp for one
+      this module never defined. *)
+  val color_name : Attr.Color.t -> string
+end

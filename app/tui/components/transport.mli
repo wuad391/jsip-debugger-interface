@@ -3,13 +3,15 @@
     A per-step tick bar running the full width of the screen (past dimmed to
     the same hue, current in the highlight blue, future hairline; clickable
     to jump) over the controls: right-aligned chips, each naming its key
-    ([◂ back], [step ▸], [[space] play], [h fold], [z accordion], [/ filter],
-    [f flame], [q quit]) — the row is simultaneously the buttons and the key
-    legend, and every chip is clickable. The chips that name a mode (play,
-    accordion, flame) light up while it is on.
+    ([◂ back], [step ▸], [[space] play], [. latest], [↑↓ node], [⏎ diagram],
+    [h fold], [z accordion], [/ filter], [f flame], [q quit]) — the row is
+    simultaneously the buttons and the key legend, and every chip is
+    clickable. The chips that name a mode (play, accordion, diagram, flame)
+    light up while it is on.
 
     The middle of the row swaps with focus: the flame drawer rebinds [z] from
-    accordion to zoom, so while it holds the keyboard the chips become
+    accordion to zoom, [↑↓] aim its bars, and [⏎] jumps rather than popping
+    the diagram, so while it holds the keyboard the chips become [↑↓ bar],
     [z zoom], [Z reset]. A legend that names keys which no longer work is
     worse than no legend. *)
 
@@ -31,6 +33,14 @@ module Button : sig
     | Back
     | Step
     | Play
+    | Latest
+    (** re-lands the heap pane on the structure the current step walked *)
+    | Node
+    (** aims the focused pane's cursor at the next row — a heap outline row,
+        or a flame bar while the drawer holds the keyboard *)
+    | Diagram
+    (** pops the row's structure out as the diagram it physically is, and
+        dismisses it again *)
     | Fold
     | Accordion
     | Filter
@@ -54,6 +64,7 @@ val view
   -> density:float array
   -> playing:bool
   -> accordion:bool
+  -> diagram:bool
   -> flame:Flame_state.t
   -> View.t
 

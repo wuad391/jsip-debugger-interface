@@ -12,6 +12,8 @@ let info ~depth ~function_info ~line_number : Call.Info.t =
   ; arguments = []
   ; registry = []
   ; ty = None
+  ; binder = None
+  ; scope = None
   ; snapshot = Snapshot.empty
   }
 ;;

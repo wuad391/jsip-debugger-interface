@@ -14,6 +14,12 @@ module Info : sig
     ; ty : Type_info.t option [@sexp.option]
     (** the walked structure's static type, straight off the wire; [None] on
         dumps from a compiler predating the field *)
+    ; binder : Scope.Binder.t option [@sexp.option]
+    (** the binding this event's root is known by — [None] when it was
+        observed without a name (a nested call, a wildcard pattern) *)
+    ; scope : Scope.t option [@sexp.option]
+    (** what each tracked name means where this event fired; [None] on dumps
+        from a compiler predating the field *)
     ; snapshot : Snapshot.t (** the walked shape of the structure *)
     }
   [@@deriving sexp_of]

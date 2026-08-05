@@ -72,12 +72,13 @@ let%expect_test "unsexp one real event line" =
       (args
        ((No_label (expression (Unnamed "\"a\"")))
         (No_label (expression (Unnamed 1))) (No_label (expression (Unnamed m)))))
-      (registry ((1 0x7fa801ff2348 m)))
+      (registry ((1 0x72d2a9feeb50 m)))
       (ty ((printed "int M.t") (params ((key string) (data int)))))
+      (binder Map_basic.m_478) (scope ((m Map_basic.m_478)))
       (snapshot
        ((ds_type Map)
         (root_node
-         ((id 1) (virtual_address 0x7fa801ff2348)
+         ((id 1) (virtual_address 0x72d2a9feeb50)
           (block ((l (Int 0)) (v (String a)) (d (Int 1)) (r (Int 0))))
           (children ())))))))
     |}]
@@ -98,6 +99,34 @@ let%expect_test "an event without a ty field reads as None" =
   let wire = Dump_wire.of_string line |> Or_error.ok_exn in
   print_s [%sexp (wire.ty : Type_info.t option)];
   [%expect {| () |}]
+;;
+
+(* An event that states no scope and an event whose scope is empty are
+   different claims — the first is an older compiler, the second a program
+   point with nothing tracked in scope — and only an option can hold both. *)
+let%expect_test "a stated empty scope is not a missing one" =
+  let event ~fields =
+    {|(event (id 1) |}
+    ^ {|(loc ((file_path t.ml) (line_number 1) (char_range (0 1)))) |}
+    ^ {|(fn (Function_name M.add)) (args ()) (registry ((1 0x10))) |}
+    ^ fields
+    ^ {|(snapshot ((ds_type Map) (root_node ((id 1) (virtual_address 0x10) |}
+    ^ {|(block ()) (children ()))))))|}
+  in
+  let show line =
+    let wire = Dump_wire.of_string line |> Or_error.ok_exn in
+    print_s
+      [%message
+        ""
+          ~binder:(wire.binder : Scope.Binder.t option)
+          ~scope:(wire.scope : Scope.t option)]
+  in
+  show (event ~fields:"");
+  [%expect {| ((binder ()) (scope ())) |}];
+  show (event ~fields:{|(scope ()) |});
+  [%expect {| ((binder ()) (scope (()))) |}];
+  show (event ~fields:{|(binder T.m_9) (scope ((m T.m_9))) |});
+  [%expect {| ((binder (T.m_9)) (scope (((m T.m_9))))) |}]
 ;;
 
 let%expect_test "read a whole real dump into Call.Info values" =

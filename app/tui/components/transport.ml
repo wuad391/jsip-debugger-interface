@@ -20,6 +20,9 @@ module Button = struct
     | Back
     | Step
     | Play
+    | Latest
+    | Node
+    | Diagram
     | Fold
     | Accordion
     | Filter
@@ -121,18 +124,32 @@ let segments ~playing ~flame =
     match playing with true -> "[space] pause" | false -> "[space] play"
   in
   let dot = None, " · " in
-  (* focus rebinds [z] — accordion in the heap, zoom in the flame drawer — so
-     the middle of the row swaps with it. A legend naming keys that do not
-     work is worse than no legend. *)
+  (* focus rebinds keys — [z] is accordion in the heap and zoom in the flame
+     drawer, [↑↓] aim rows there and bars here, [⏎] pops the diagram there
+     and jumps here — so the middle of the row swaps with it. A legend naming
+     keys that do not work is worse than no legend. *)
   let middle =
     match (flame : Flame_state.t) with
     | Shut | Open ->
-      [ Some Button.Fold, "h fold"
+      [ Some Button.Latest, ". latest"
+      ; dot
+      ; Some Button.Node, "↑↓ node"
+      ; dot
+      ; Some Button.Diagram, "⏎ diagram"
+      ; dot
+      ; Some Button.Fold, "h fold"
       ; dot
       ; Some Button.Accordion, "z accordion"
       ]
     | Focused ->
-      [ Some Button.Zoom, "z zoom"; dot; Some Button.Reset_zoom, "Z reset" ]
+      [ Some Button.Latest, ". latest"
+      ; dot
+      ; Some Button.Node, "↑↓ bar"
+      ; dot
+      ; Some Button.Zoom, "z zoom"
+      ; dot
+      ; Some Button.Reset_zoom, "Z reset"
+      ]
   in
   let middle =
     middle
@@ -166,11 +183,11 @@ let start_column ~width ~playing ~flame =
   max 0 (width - total - 1)
 ;;
 
-let controls ~width ~playing ~accordion ~flame =
+let controls ~width ~playing ~accordion ~diagram ~flame =
   let chips =
     List.map (segments ~playing ~flame) ~f:(fun (button, text) ->
       (* the chips that name a mode light up while it is on, the same cue for
-         both: you can read the row as state, not just as keys *)
+         all of them: you can read the row as state, not just as keys *)
       let attrs =
         match button with
         | None -> Theme.fg' Theme.ghost
@@ -178,12 +195,15 @@ let controls ~width ~playing ~accordion ~flame =
           [ Theme.fg Theme.highlight; Attr.bold ]
         | Some Button.Accordion when accordion ->
           [ Theme.fg Theme.highlight; Attr.bold ]
+        | Some Button.Diagram when diagram ->
+          [ Theme.fg Theme.highlight; Attr.bold ]
         | Some Button.Flame when Flame_state.is_open flame ->
           [ Theme.fg Theme.highlight; Attr.bold ]
         | Some
-            ( Button.Back | Button.Step | Button.Play | Button.Fold
-            | Button.Accordion | Button.Filter | Button.Flame | Button.Zoom
-            | Button.Reset_zoom | Button.Quit ) ->
+            ( Button.Back | Button.Step | Button.Play | Button.Latest
+            | Button.Node | Button.Diagram | Button.Fold | Button.Accordion
+            | Button.Filter | Button.Flame | Button.Zoom | Button.Reset_zoom
+            | Button.Quit ) ->
           Theme.fg' Theme.secondary
       in
       View.text ~attrs text)
@@ -215,7 +235,7 @@ let control_at ~width ~playing ~flame ~x =
   hit
 ;;
 
-let view ~width ~step ~total ~density ~playing ~accordion ~flame =
+let view ~width ~step ~total ~density ~playing ~accordion ~diagram ~flame =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
@@ -223,7 +243,7 @@ let view ~width ~step ~total ~density ~playing ~accordion ~flame =
     (Panel.fit
        (View.vcat
           [ ticks ~width ~step ~total ~density
-          ; controls ~width ~playing ~accordion ~flame
+          ; controls ~width ~playing ~accordion ~diagram ~flame
           ])
        ~width
        ~height:Layout.strip_height)

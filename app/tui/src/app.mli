@@ -7,8 +7,9 @@
     - [◂ ▸] / [l n] / [p] — step the replay; [space] plays it at the mockup's
       cadence, stopping on the last step
     - [Tab] — move focus between the call stack and the heap; [wasd] aims
-      inside the focused pane and [Enter] commits, [h] folds what it points
-      at, [z] is accordion mode and [/] filters the heap
+      inside the focused pane and [Enter] commits (in the heap it pops the
+      diagram out instead), [h] folds what it points at, [z] is accordion
+      mode and [/] filters the heap
     - [f] — open and shut the flame drawer ({!Flame_pane}) under the heap.
       Open, it is a pane like any other: [Tab] reaches it, [wasd] aims and
       [Enter] commits, and [z] means zoom there rather than accordion.

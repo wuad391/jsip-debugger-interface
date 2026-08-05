@@ -18,6 +18,16 @@ let color hex =
    their own slab, so a second background would only ever read as a stray
    band where two panes meet *)
 let bg = color 0x1d1b19
+
+(* the one exception, and the reason it is one: a pop-out is meant to be read
+   as sitting ABOVE the panes rather than among them, so it gets the shade
+   that says so. A border alone reads as a pane with an odd frame. *)
+let raised = color 0x272320
+
+(* the call stack's alternating rows: a clearly lighter warm gray — it has to
+   read as a band at a glance, not on inspection, while staying far enough
+   under the text and the picked rows' washes *)
+let stripe_bg = color 0x312c26
 let accent = color 0xd4a24e
 let fresh = color 0x8fd694
 
@@ -33,12 +43,13 @@ let cursor = color 0xf2913d
 let cursor_bg = color 0x4a2c10
 let cursor_deep = color 0xffc489
 
-(* heap node cards outline in a calmer blue than the selection *)
-let card_border = color 0x5d8cc2
-
-(* the rails between cards are the diagram's pointers, not chrome — brighter
-   than the pane dividers so the edges read ahead of them *)
-let rail = color 0x9c958c
+(* One node can be drawn twice — its own row, and a pointer at it from a
+   structure that shares it — and both light up so the pair can be found.
+   These are the muted halves of the two washes above: dim enough that the
+   row actually being pointed at still wins, strong enough to spot from
+   across the pane, which a tinted word alone was not. *)
+let cursor_echo = color 0x3b2712
+let highlight_echo = color 0x122536
 let text = color 0xefebe6
 let secondary = color 0xd8d3cd
 let muted = color 0xbbb5ad
@@ -65,6 +76,22 @@ let tick_density ramp ~density =
   | false, true -> ramp.(1)
   | false, false -> ramp.(0)
 ;;
+
+(* the diagram pop-out's two strokes: a node's box, and the rails between
+   boxes. The rails are the diagram's edges — the actual pointers — so they
+   read a shade ahead of the boxes that hang off them. *)
+let card_border = color 0x5d8cc2
+let rail = color 0x9c958c
+
+(* The heap's two text registers, re-pitched at Robyn's request (2026-08-05):
+   the pane read as busy with values in blue, so the pair swapped. Types are
+   the calm blue now — the same register as the source pane's identifiers —
+   and values the warm one. The value orange sits well under [cursor]'s
+   bright orange and to the red side of [accent]'s gold, so neither the
+   aiming color nor the brand highlight has a twin. Pointedly not green,
+   which the [new] tag owns. *)
+let type_name = color 0x7fb8dc
+let value_text = color 0xd08a54
 
 (* the app's purple, in its syntax-highlighting role *)
 let keyword = app_purple
@@ -134,3 +161,58 @@ let flame ~share =
 
 let fg c = Attr.fg c
 let fg' c = [ Attr.fg c ]
+
+module For_testing = struct
+  (* every role by name, so a test can say which gray a cell is wearing
+     rather than matching hex — and so the answer lives beside the
+     definitions rather than in a copy that goes stale *)
+  let roles =
+    [ "bg", bg
+    ; "raised", raised
+    ; "stripe_bg", stripe_bg
+    ; "accent", accent
+    ; "fresh", fresh
+    ; "highlight", highlight
+    ; "highlight_bg", highlight_bg
+    ; "highlight_deep", highlight_deep
+    ; "cursor", cursor
+    ; "cursor_bg", cursor_bg
+    ; "cursor_deep", cursor_deep
+    ; "cursor_echo", cursor_echo
+    ; "highlight_echo", highlight_echo
+    ; "card_border", card_border
+    ; "rail", rail
+    ; "type_name", type_name
+    ; "value_text", value_text
+    ; "text", text
+    ; "secondary", secondary
+    ; "muted", muted
+    ; "faint", faint
+    ; "ghost", ghost
+    ; "border", border
+    ; "hairline", hairline
+    ; "tick_past", tick_past
+    ; "app_purple", app_purple
+    ; "ident", ident
+    ; "string_lit", string_lit
+    ; "number", number
+    ]
+    (* the timeline ramps' own stops, by index; stop 0 of each is the flat
+       color named above, which wins by listing first *)
+    @ List.concat_map
+        [ "tick_past_ramp", tick_past_ramp
+        ; "tick_future_ramp", tick_future_ramp
+        ]
+        ~f:(fun (name, ramp) ->
+          List.mapi (Array.to_list ramp) ~f:(fun index color ->
+            [%string "%{name}%{index#Int}"], color))
+  ;;
+
+  let color_name color =
+    List.find_map roles ~f:(fun (name, role) ->
+      match Attr.Color.equal color role with
+      | true -> Some name
+      | false -> None)
+    |> Option.value ~default:(Sexp.to_string [%sexp (color : Attr.Color.t)])
+  ;;
+end

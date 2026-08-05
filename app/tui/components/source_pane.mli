@@ -43,6 +43,9 @@ val view
   -> active_line:int
   -> callsite_line:int option
   -> char_range:int * int
+  -> collapsed:bool
+       (** collapsed, the pane renders exactly its title row — [▸] and the
+           file chip — which is also the click target that reopens it *)
   -> View.t
 
 (** The fold-region start a click at pane-body position [(x, y)] toggles —

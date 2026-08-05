@@ -19,6 +19,83 @@ let print_view ?(width = 60) ?(height = 14) view =
   |> print_endline
 ;;
 
+(* The picture tests render through [Cap.dumb], which drops color — so
+   anything about fading has to be read back off the escape codes. Renders
+   with the ANSI cap, then prints each row beside the theme roles its cells
+   are wearing, left to right. *)
+let print_palette ?(width = 56) ?(height = 26) view =
+  let image = Bonsai_term.View.Private.notty_image view in
+  let buffer = Buffer.create 4096 in
+  Notty.Render.to_buffer buffer Notty.Cap.ansi (0, 0) (width, height) image;
+  let rendered = Buffer.contents buffer in
+  (* [\027[38;2;R;G;Bm] sets a 24-bit foreground; [\027[0m] clears it. Every
+     other escape (background, bold, cursor moves) only has to be skipped. *)
+  let rows = ref [] in
+  let row = Buffer.create 128 in
+  let roles = ref [] in
+  let fg = ref None in
+  let note () =
+    match !fg with
+    | None -> ()
+    | Some color ->
+      let name = Theme.For_testing.color_name color in
+      (match !roles with
+       | last :: _ when String.equal last name -> ()
+       | _ :: _ | [] -> roles := name :: !roles)
+  in
+  let end_row () =
+    let text = String.rstrip (Buffer.contents row) in
+    (match String.is_empty text with
+     | true -> ()
+     | false -> rows := (text, List.rev !roles) :: !rows);
+    Buffer.clear row;
+    roles := []
+  in
+  let n = String.length rendered in
+  let i = ref 0 in
+  while !i < n do
+    match rendered.[!i] with
+    | '\027' ->
+      let stop = ref (!i + 1) in
+      while !stop < n && not (Char.equal rendered.[!stop] 'm') do
+        Int.incr stop
+      done;
+      let params = String.slice rendered (!i + 2) (Int.min !stop n) in
+      (* one SGR escape can carry several settings, e.g. [0;38;2;r;g;b] —
+         walk them rather than matching the whole list *)
+      let rec settings = function
+        | "38" :: "2" :: r :: g :: b :: rest ->
+          fg
+          := Some
+               (Bonsai_term.Attr.Color.rgb
+                  ~r:(Int.of_string r)
+                  ~g:(Int.of_string g)
+                  ~b:(Int.of_string b));
+          settings rest
+        | "48" :: "2" :: _ :: _ :: _ :: rest -> settings rest
+        | ("0" | "") :: rest ->
+          fg := None;
+          settings rest
+        | (_ : string) :: rest -> settings rest
+        | [] -> ()
+      in
+      settings (String.split params ~on:';');
+      i := !stop + 1
+    | '\n' ->
+      end_row ();
+      Int.incr i
+    | char ->
+      (match Char.is_whitespace char with true -> () | false -> note ());
+      Buffer.add_char row char;
+      Int.incr i
+  done;
+  end_row ();
+  List.rev !rows
+  |> List.iter ~f:(fun (text, roles) ->
+    print_endline
+      [%string "%{text#String}   [%{String.concat roles ~sep:\" \"}]"])
+;;
+
 (* every dump here is a golden fixture — verbatim compiler output vendored
    under testing/expected/ (see testing/README.md) *)
 let replay_of_fixture name =
@@ -29,13 +106,12 @@ let replay_of_fixture name =
   Replay.create (Call_stack.create ~parsed_info)
 ;;
 
-(* the pane the way it draws with nothing chosen and nothing aimed at: no
-   card spells out its address, which is the common case on screen *)
-let heap_view
-  ?(width = 56)
-  ?(height = 15)
+(* the pane as a view rather than a printout, for [print_palette] — the
+   colors are what these tests read, so they cannot go through the dumb cap *)
+let heap_image
+  ~width
+  ~height
   ?(scroll = 0)
-  ?(pan = 0)
   ?(selection = Heap_pane.Selection.none)
   ?folds
   replay
@@ -44,26 +120,69 @@ let heap_view
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step
   in
+  Heap_pane.view
+    ~note:None
+    ~total:None
+    ~width
+    ~height
+    ~structures
+    ~nodes
+    ~new_addresses
+    ~folds:(Option.value folds ~default:(Set.empty (module Heap_pane.Fold)))
+    ~scroll
+    ~selection
+;;
+
+(* the pane the way it draws with nothing chosen and nothing aimed at: no row
+   spells out its address, which is the common case on screen *)
+let heap_view
+  ?(width = 56)
+  ?(height = 15)
+  ?(scroll = 0)
+  ?(selection = Heap_pane.Selection.none)
+  ?folds
+  replay
+  ~step
+  =
   print_view
     ~width
     ~height
-    (Heap_pane.view
-       ~note:None
-       ~total:None
-       ~width
-       ~height
+    (heap_image ~width ~height ~scroll ~selection ?folds replay ~step)
+;;
+
+(* the [Enter] pop-out: the structure this step walked, drawn as the diagram
+   it physically is rather than as the outline that stands for it *)
+let diagram_view
+  ?(width = 64)
+  ?(height = 18)
+  ?(scroll = 0)
+  ?(pan = 0)
+  replay
+  ~step
+  =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let structure =
+    List.find_exn structures ~f:(fun (structure : Replay.Structure.t) ->
+      structure.is_current)
+  in
+  print_view
+    ~width
+    ~height
+    (Heap_pane.Diagram.view
+       ~structure
        ~structures
        ~nodes
        ~new_addresses
-       ~folds:
-         (Option.value folds ~default:(Set.empty (module Heap_pane.Fold)))
+       ~width
+       ~height
        ~scroll
-       ~pan
-       ~selection)
+       ~pan)
 ;;
 
 (* the structure this step walked — what the app selects by default, and so
-   the card that shows its address *)
+   the row that shows its address *)
 let current_spot replay ~step =
   List.find
     (Replay.step_exn replay ~step).structures
@@ -79,6 +198,10 @@ let calls_of replay =
 (* no profile loaded: every callee keeps its ordinary state color *)
 let no_heat calls = Array.map calls ~f:(fun (_ : Call.t) -> None)
 
+(* most stack tests predate the registration tags; an all-[None] array keeps
+   their pictures about what they were about *)
+let no_registrations calls = Array.map calls ~f:(fun (_ : Call.t) -> None)
+
 let live_of replay ~step =
   let { Replay.Step.frames; _ } = Replay.step_exn replay ~step in
   List.map frames ~f:(fun (frame : Call.t) -> snd frame.range)
@@ -90,26 +213,114 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
      and long argument lists wrap *)
   let replay = replay_of_fixture "map_fold" in
   print_view
-    ~height:10
+    ~height:12
     (Stack_pane.view
        ~width:56
-       ~height:10
+       ~height:12
        ~calls:(calls_of replay)
        ~heat:(no_heat (calls_of replay))
        ~live:(live_of replay ~step:2)
        ~selected:1
        ~folds:Int.Set.empty
        ~cursor:None
-       ~expanded:Int.Set.empty);
+       ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            5 calls · 2 live
+    ▾ CALL STACK                          5 calls · 2 live
          M.add "b" 2 M.empty
+
      ▾ M.add "a" 1 (M.add "b" 2 M.empty)
+
     ▎    M.add k (v * 2) acc
+
          M.add k (v * 2) acc
+
      ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
          M.empty
+    |}]
+;;
+
+let%expect_test "heap pane: a faded structure is faded throughout" =
+  (* the same three [m]s, read back with their colors: the two shadowed
+     structures draw every column in the dim set — guides and glyph down at
+     the hairline grays, name and values at ghost, the stats (and the note
+     itself) at border — while the live one keeps white-bold names, the ident
+     blue on values, and its usual chrome *)
+  let replay = replay_of_fixture "map_basic" in
+  print_palette ~height:12 (heap_image ~width:56 ~height:12 replay ~step:2);
+  [%expect
+    {|
+    HEAP                          3 live · 4 nodes · 224 B   [secondary faint]
+    ▾ m  int M.t  1 binding  1 node · 56 B · shadowed   [border ghost border]
+    └─   "a" → 1   [hairline ghost hairline ghost]
+    ▾ m  int M.t  2 bindings  2 nodes · 112 B · shadowed   [border ghost border]
+    ├─   "a" → 1   [hairline ghost hairline ghost]
+    └─   "b" → 2   [hairline ghost hairline ghost]
+    ▾ m  int M.t  1 binding  1 node · 56 B   [faint highlight_deep type_name muted faint]
+    └─   "b" → 2   [border text ghost value_text]
+       name  type  value  new  ↗ shared  faded=unreachable   [text type_name value_text fresh ghost border]
+    |}]
+;;
+
+let%expect_test "heap pane: rebinding a name fades the versions it left" =
+  (* map_basic's last step is three live maps all called [m] — the whole
+     point of the note. Color carries it on a real terminal (the faded ones
+     drop to the ghost gray); here the words are what shows, which is also
+     what [/] filters on. *)
+  let replay = replay_of_fixture "map_basic" in
+  heap_view replay ~step:2 ~height:12;
+  [%expect
+    {|
+    HEAP                          3 live · 4 nodes · 224 B
+    ▾ m  int M.t  1 binding  1 node · 56 B · shadowed
+    └─   "a" → 1
+
+    ▾ m  int M.t  2 bindings  2 nodes · 112 B · shadowed
+    ├─   "a" → 1
+    └─   "b" → 2
+
+    ▾ m  int M.t  1 binding  1 node · 56 B
+    └─   "b" → 2
+
+       name  type  value  new  ↗ shared  faded=unreachable
+    |}]
+;;
+
+let%expect_test "the pop-out fades with its structure" =
+  (* [Enter] on a shadowed structure: the popped drawing keeps the verdict —
+     boxes and values in the faded set instead of the card blue and white —
+     and the meta says why in words. The [new] tag alone would keep its
+     green: allocation is a fact about the step, not about the name. *)
+  let replay = replay_of_fixture "map_basic" in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step:2
+  in
+  let structure = List.hd_exn structures in
+  print_palette
+    ~width:64
+    ~height:8
+    (Heap_pane.Diagram.view
+       ~structure
+       ~structures
+       ~nodes
+       ~new_addresses
+       ~width:64
+       ~height:8
+       ~scroll:0
+       ~pan:0);
+  [%expect
+    {|
+    ┌──────────────────────────────────────────────────────────────┐   [border]
+    │ DIAGRAM    m · int M.t · shadowed · 1 node · 56 B · esc back │   [border secondary faint border]
+    │                                                              │   [border]
+    │                          ┌ m ────┐                           │   [border ghost border]
+    │                          │"a" → 1│                           │   [border ghost hairline ghost border]
+    │                          └───────┘                           │   [border]
+    │                                                              │   [border]
+    └──────────────────────────────────────────────────────────────┘   [border]
     |}]
 ;;
 
@@ -118,21 +329,39 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   heap_view replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"a" → 1│
-     └───────┘
+    HEAP                  2 live · 3 nodes · 168 B · 2 new
+    ▾ m  int M.t  1 binding  1 node · 56 B · shadowed
+    └─   "a" → 1
 
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
-    ▾┌ m  new ┐
-     │"a" → 1 │
-     └────────┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐    ┌── new ┐
-    ┆ ∅ ┆    │"b" → 2│
-    └┄┄┄┘    └───────┘
+    ▾ m  int M.t  2 bindings  2 nodes · 112 B  new
+    ├─   "a" → 1  new
+    └─   "b" → 2  new
+
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
+    |}]
+;;
+
+let%expect_test "memory: a structure's row sizes it, the meta sums them" =
+  (* the wire's own 64-bit words, priced at 8 bytes each: one binding is the
+     AVL node's five words (header + l v d r) plus the key's string block (a
+     header and one padded word) — 7 words, 56 B. A floor, not a census:
+     undecoded pointers count their slot alone. The meta totals the live
+     structures the same way. *)
+  let replay = replay_of_fixture "map_basic" in
+  heap_view ~height:5 replay ~step:0;
+  [%expect
+    {|
+    HEAP                    1 live · 1 node · 56 B · 1 new
+    ▾ m  int M.t  1 binding  1 node · 56 B  new
+    └─   "a" → 1  new
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -141,21 +370,21 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
   heap_view replay ~step:2;
   [%expect
     {|
-    HEAP                          1 live · 3 nodes · 1 new
-    ▾ q · queue ⟨string⟩ · 3 nodes
-    ▾┌ q ─────┐
-     │length 2│
-     └────────┘
-             │
-           first
-    ▾┌───┐
-     │"x"│
-     └───┘
-             │
-             1
-     ┌ new ┐
-     │"y"  │
-     └─────┘
+    HEAP                  1 live · 3 nodes · 104 B · 1 new
+    ▾ q  string Queue.t  length 2  3 nodes · 104 B
+    ├─   "x"
+    └─   "y"  new
+
+
+
+
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -164,21 +393,21 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
   heap_view replay ~step:2;
   [%expect
     {|
-    HEAP                          3 live · 5 nodes · 2 new
-    ▾ m · map ⟨string ⇒ float⟩ · 1 node
-     ┌ m ────────┐
-     │"pi" → 3.14│
-     └───────────┘
+    HEAP                  3 live · 5 nodes · 312 B · 2 new
+    ▾ m  float M.t  1 binding  1 node · 72 B
+    └─   "pi" → 3.14
 
-    ▾ #2 · map ⟨string ⇒ float⟩ · 2 nodes
-           ▾┌ #2 ───────┐
-            │"pi" → 3.14│
-            └───────────┘
-             ┌──────┴───────┐
-             l              r
-     ┌──────────┐         ┌┄┄┄┐
-     │"e" → 2.71│         ┆ ∅ ┆
-     └──────────┘         └┄┄┄┘
+    ▾ #2  float M.t  2 bindings  2 nodes · 144 B
+    ├─   "pi" → 3.14
+    └─   "e" → 2.71
+
+    ▾ #4  (int * string) M.t  1 element  2 nodes · 96 B
+        new
+    └─ ▾ "pair" →  new
+       └─   d  1, "one"  new
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -191,16 +420,22 @@ let%expect_test "heap pane: a collected structure is simply gone" =
   heap_view ~height:8 replay ~step:1;
   [%expect
     {|
-    HEAP                           1 live · 1 node · 1 new
-    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #1 ─ new ┐
-     │"dead" → 0│
-     └──────────┘
-    HEAP                           1 live · 1 node · 1 new
-    ▾ #2 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #2 ─ new ┐
-     │"live" → 1│
-     └──────────┘
+    HEAP                    1 live · 1 node · 56 B · 1 new
+    ▾ #1  int M.t  1 binding  1 node · 56 B  new
+    └─   "dead" → 0  new
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
+    HEAP                    1 live · 1 node · 56 B · 1 new
+    ▾ #2  int M.t  1 binding  1 node · 56 B  new
+    └─   "live" → 1  new
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -210,21 +445,25 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
      The pane reads that straight off the wire: [tree] is the root's one
      edge, and the nodes below it are Base's own [Leaf]/[Node] shapes. *)
   let replay = replay_of_fixture "core_map_basic" in
-  heap_view ~width:60 ~height:12 replay ~step:2;
+  (* two of the rows carry a wrapped [· shadowed] now, so the height buys the
+     same content two lines further down *)
+  heap_view ~width:60 ~height:14 replay ~step:2;
   [%expect
     {|
-    HEAP                              3 live · 8 nodes · 3 new
-    ▾ m · core.map ⟨string ⇒ int⟩ · 2 nodes
-    ▾┌ m ┐
-     │·  │
-     └───┘
-             │
-           tree
-     ┌───────┐
-     │"b" → 2│
-     └───────┘
+    HEAP                      3 live · 8 nodes · 280 B · 3 new
+    ▾ m  (string, int) Map.t  1 binding  2 nodes · 56 B ·
+        shadowed
+    └─   "b" → 2
 
-    ▾ m · core.map ⟨string ⇒ int⟩ · 3 nodes
+    ▾ m  (string, int) Map.t  2 bindings  3 nodes · 112 B ·
+        shadowed
+    ├─   "b" → 2
+    └─   "a" → 1
+
+    ▾ m  (string, int) Map.t  3 bindings  3 nodes · 112 B  new
+    ├─   "b" → 2  new
+    ├─   ↗ "a" → 1
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -236,28 +475,28 @@ let%expect_test "heap pane: a Core hash queue chains through its elements" =
   heap_view ~width:64 ~height:22 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  1 live · 9 nodes · 2 new
-    ▾ q · core.hash_queue ⟨string ⇒ int⟩ · 9 nodes
-                       ▾┌ q ┐
-                        │·  │
-                        └───┘
-                                │
-                              queue
-                       ▾┌─┐
-                        │·│
-                        └─┘
-                                │
-                            contents
-                       ▾┌─┐
-                        │·│
-                        └─┘
-                                │
-                                0
-                       ▾┌─┐
-                        │·│
-                        └─┘
-             ┌──────────────────┴──────────────────┐
-             v                                   next
+    HEAP                          1 live · 9 nodes · 240 B · 2 new
+    ▾ q  (string, int) Hash_queue.t  4 bindings  9 nodes · 240 B
+    ├─   v  "a" → 1
+    ├─   v  "b" → 2
+    ├─   v  "c" → 3  new
+    └─   ↗ null
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -269,20 +508,147 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
   heap_view ~width:60 ~height:14 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                              3 live · 5 nodes · 1 new
-    ▾ p · user ⟨point⟩ · 1 node
-     ┌ p ┐
-     │x=3│
-     │y=4│
-     └───┘
+    HEAP                      3 live · 5 nodes · 160 B · 1 new
+      p  point  x=3  y=4  1 node · 24 B
 
-    ▾ ts · user ⟨trades⟩ · 1 node
-               ▾┌ ts  new ┐
-                │0        │
-                └─────────┘
-                        │
-                       hd
-               ▾┌ t ┐
+    ▾ ts  trades  0  1 node · 24 B  new
+    └─ ▾ hd  t  trade  101  3 nodes · 112 B
+       ├─   tags  "buy", "limit"
+       └─   span  1, 9
+
+
+
+
+
+
+           name  type  value  new  ↗ shared  faded=unreachable
+    |}]
+;;
+
+let%expect_test "a wrapped record breaks between its fields, never inside \
+                 one"
+  =
+  (* [x=3] is two spans — a muted label and a colored value — with nothing
+     between them, and a break at that seam would leave [x=] ending one line
+     and its [3] beginning the next. A change of color is not a place to
+     break, so the whole field moves down together. *)
+  let replay = replay_of_fixture "user_types" in
+  heap_view ~width:16 ~height:12 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP 3 live · 5
+      p  point
+        x=3  y=4
+        1 node ·
+        24 B
+
+    ▾ ts  trades
+        0  1 node
+        · 24 B
+        new
+    └─ ▾ hd  t
+    |}]
+;;
+
+let%expect_test "the pop-out draws the tree the outline stands for" =
+  (* the same map the outline reads as two bindings, as the AVL nodes it
+     actually is: a root with an empty [l] and a walked [r], each edge
+     labeled where the wire labeled it. This is the whole point of the
+     pop-out — the shape is the thing the outline is deliberately not
+     showing. *)
+  let replay = replay_of_fixture "map_basic" in
+  diagram_view replay ~step:1;
+  [%expect
+    {|
+    ┌──────────────────────────────────────────────────────────────┐
+    │ DIAGRAM             m · int M.t · 2 nodes · 112 B · esc back │
+    │                                                              │
+    │                                                              │
+    │                                                              │
+    │                        ┌ m  new ┐                            │
+    │                        │"a" → 1 │                            │
+    │                        └────────┘                            │
+    │                        ┌────┴────┐                           │
+    │                        l         r                           │
+    │                      ┌┄┄┄┐   ┌── new ┐                       │
+    │                      ┆ ∅ ┆   │"b" → 2│                       │
+    │                      └┄┄┄┘   └───────┘                       │
+    │                                                              │
+    │                                                              │
+    │                                                              │
+    │                                                              │
+    └──────────────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "the pop-out draws the whole structure, shared nodes and all"
+  =
+  (* Six bindings in an AVL tree three levels deep, and the pop-out draws
+     every node of it — including the ones this version did not allocate,
+     which the outline lists as [\u2197] pointers because they are already on
+     the pane under the version that did. In here there is only one
+     structure, so there is nothing to point at, and the count is what was
+     drawn rather than what this version's own snapshot defines.
+
+     A node reached twice WITHIN one structure is still a pointer box, which
+     is also what stops a cycle. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  diagram_view ~width:78 ~height:18 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    ┌────────────────────────────────────────────────────────────────────────────┐
+    │ DIAGRAM                      bigger · int M.t · 6 nodes · 168 B · esc back │
+    │                                                                            │
+    │                             ┌ bigger  new ┐                                │
+    │                             │"f" → 6      │                                │
+    │                             └─────────────┘                                │
+    │                          ┌─────────┴──────────┐                            │
+    │                          l                    r                            │
+    │                      ┌───────┐            ┌── new ┐                        │
+    │                      │"d" → 4│            │"h" → 8│                        │
+    │                      └───────┘            └───────┘                        │
+    │                     ┌────┴────┐         ┌─────┴──────┐                     │
+    │                     l         r         l            r                     │
+    │                 ┌───────┐   ┌┄┄┄┐   ┌── new ┐   ┌────────┐                 │
+    │                 │"b" → 2│   ┆ ∅ ┆   │"g" → 7│   │"j" → 10│                 │
+    │                 └───────┘   └┄┄┄┘   └───────┘   └────────┘                 │
+    │                                                                            │
+    └────────────────────────────────────────────────────────────────────────────┘
+    |}]
+;;
+
+let%expect_test "the pop-out follows a reference into the structure it names"
+  =
+  (* [Queue.add m q] puts a tracked map inside a tracked queue, and the
+     diagram follows the reference the way the outline nests it: the queue's
+     cells, then the map's own tree hanging off the cell that holds it, named
+     on its top box. *)
+  let replay = replay_of_fixture "queue_of_maps" in
+  diagram_view ~width:78 ~height:22 replay ~step:2;
+  [%expect
+    {|
+    ┌────────────────────────────────────────────────────────────────────────────┐
+    │ DIAGRAM                    q · int M.t Queue.t · 3 nodes · 48 B · esc back │
+    │                                                                            │
+    │                                                                            │
+    │                                                                            │
+    │                                 ┌ q ─────┐                                 │
+    │                                 │length 1│                                 │
+    │                                 └────────┘                                 │
+    │                                      │                                     │
+    │                                    first                                   │
+    │                                  ┌── new ┐                                 │
+    │                                  │slots 2│                                 │
+    │                                  └───────┘                                 │
+    │                                      │                                     │
+    │                                      0                                     │
+    │                                  ┌ m ────┐                                 │
+    │                                  │"k" → 1│                                 │
+    │                                  └───────┘                                 │
+    │                                                                            │
+    │                                                                            │
+    │                                                                            │
+    └────────────────────────────────────────────────────────────────────────────┘
     |}]
 ;;
 
@@ -325,6 +691,50 @@ let%expect_test "multi-file: each live frame knows its own file" =
     |}]
 ;;
 
+let%expect_test "the left panes collapse to their title rows" =
+  (* [1] /[2] (or a click on the title) fold a pane to exactly its title —
+         the [▸] and the counts stay, and the layout hands the freed height
+         to the pane underneath (or above) *)
+  let replay = replay_of_fixture "map_fold" in
+  print_view
+    ~width:56
+    ~height:2
+    (Stack_pane.view
+       ~width:56
+       ~height:1
+       ~calls:(calls_of replay)
+       ~heat:(no_heat (calls_of replay))
+       ~live:(live_of replay ~step:2)
+       ~selected:1
+       ~folds:Int.Set.empty
+       ~cursor:None
+       ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
+       ~collapsed:true);
+  let heights ?stack_collapsed ?source_collapsed () =
+    let layout =
+      Layout.compute
+        ?stack_collapsed
+        ?source_collapsed
+        { Bonsai_term.Dimensions.width = 100; height = 40 }
+        ~flame_open:false
+    in
+    layout.stack.height, layout.source.height
+  in
+  print_s
+    [%message
+      ""
+        ~both_open:(heights () : int * int)
+        ~stack_shut:(heights ~stack_collapsed:true () : int * int)
+        ~source_shut:(heights ~source_collapsed:true () : int * int)];
+  [%expect
+    {|
+     ▸ CALL STACK                          5 calls · 2 live
+    ((both_open (19 15)) (stack_shut (1 33)) (source_shut (33 1)))
+    |}]
+;;
+
 let%expect_test "source pane: gutter, active line wash, callsite marker" =
   let source =
     Jsip_parsing.Source_reader.load "../../../testing/cases/map_basic.ml"
@@ -340,10 +750,11 @@ let%expect_test "source pane: gutter, active line wash, callsite marker" =
        ~folds:Int.Set.empty
        ~active_line:8
        ~callsite_line:(Some 7)
-       ~char_range:(10, 23));
+       ~char_range:(10, 23)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE                         map_basic.ml · 10 lines
+    ▾ SOURCE                       map_basic.ml · 10 lines
         2    [empty] (an ident), [find] (returns the
                value) and [ignore] don't. *)
      ▾  3 module M = Map.Make (String)
@@ -376,14 +787,15 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
        ~folds:Int.Set.empty
        ~active_line:1
        ~callsite_line:None
-       ~char_range:(0, 0));
+       ~char_range:(0, 0)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE           gone.ml · missing
+    ▾ SOURCE         gone.ml · missing
 
      lib/gone.ml is not at
-     ./lib/gone.ml — the dump's
-     paths resolve from the replayed
+     ./lib/gone.ml — the dump's paths
+     resolve from the replayed
      program's root, so run there or
      pass -source-root DIR
     |}]
@@ -391,20 +803,21 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
 
 let%expect_test "transport: ticks, then the clickable key legend" =
   print_view
-    ~width:84
+    ~width:117
     ~height:3
     (Transport.view
-       ~width:84
+       ~width:117
        ~step:1
        ~total:3
        ~density:[| 0.0; 1.0; 0.2 |]
        ~playing:false
        ~accordion:false
+       ~diagram:false
        ~flame:Shut);
   [%expect
     {|
-    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-    ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · f flame · q quit
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+    ◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · f flame · q quit
     |}]
 ;;
 
@@ -463,10 +876,11 @@ let%expect_test "source pane: long lines wrap under a blank gutter" =
        ~folds:Int.Set.empty
        ~active_line:9
        ~callsite_line:None
-       ~char_range:(16, 60));
+       ~char_range:(16, 60)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE              map_fold.ml · 15 lines
+    ▾ SOURCE            map_fold.ml · 15 lines
         6
      ▾  7 let () =
         8   let m = M.add "a" 1 (M.add "b" 2
@@ -484,25 +898,26 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
   heap_view ~width:60 replay ~step:2;
   [%expect
     {|
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▾┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-              ┌──────┴───────┐
-              l              r
-            ┌┄┄┄┐    ┌─┐
-            ┆ ∅ ┆    │3│
-            └┄┄┄┘    └─┘
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ a  S.t  3 elements  3 nodes · 96 B
+    ├─   1
+    ├─   2
+    └─   3
+
+    ▾ b  S.t  2 elements  2 nodes · 64 B
+    ├─   3
+    └─   4
+
+    ▾ #6  S.t  4 elements  4 nodes · 128 B  new
+    ├─   3  new
+    ├─   2  new
+    ├─   1  new
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
-let%expect_test "heap clicks land on cards, not the space between" =
+let%expect_test "heap clicks land on a row edge to edge, and nowhere past it"
+  =
   let replay = replay_of_fixture "map_basic" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:1
@@ -515,7 +930,6 @@ let%expect_test "heap clicks land on cards, not the space between" =
       ~new_addresses
       ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
-      ~pan:0
       ~selection:Heap_pane.Selection.none
       ~height:15
       ~x
@@ -523,17 +937,21 @@ let%expect_test "heap clicks land on cards, not the space between" =
     |> Option.value_map ~default:"·" ~f:(fun (spot : Heap_pane.Spot.t) ->
       Snapshot.Address.display spot.address)
   in
-  (* the root card, the second structure's header — a place of its own now —
-     and the empty canvas right of the cards *)
-  print_endline (at ~x:2 ~y:1);
-  print_endline (at ~x:10 ~y:8);
-  print_endline (at ~x:30 ~y:5);
-  print_endline (at ~x:40 ~y:1);
+  (* a row spans the pane, so the far right of a line is still that line and
+     only [y] decides; the blank line between the structures belongs to
+     nobody; the second structure's row past it is a place of its own; and
+     below the last row there is nothing to land on *)
+  print_endline (at ~x:2 ~y:0);
+  print_endline (at ~x:48 ~y:0);
+  print_endline (at ~x:2 ~y:2);
+  print_endline (at ~x:2 ~y:3);
+  print_endline (at ~x:2 ~y:9);
   [%expect
     {|
-    0x7fa801ff2348
-    0x7fa801fee750
-    0x7fa801fee750
+    0x72d2a9feeb50
+    0x72d2a9feeb50
+    ·
+    0x72d2a9fea718
     ·
     |}]
 ;;
@@ -545,16 +963,20 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
   heap_view ~height:14 replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 2 nodes · 1 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
+    HEAP                   2 live · 2 nodes · 80 B · 1 new
+    ▾ m  int M.t  1 binding  1 node · 56 B
+    └─   "k" → 1
 
-    ▾ q · queue ⟨int M.t⟩ · 1 node
-     ┌ q  new ┐
-     │length 0│
-     └────────┘
+      q  int M.t Queue.t  length 0  1 node · 24 B  new
+
+
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -565,21 +987,27 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
   heap_view ~height:21 replay ~step:2;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
+    HEAP                  2 live · 3 nodes · 104 B · 1 new
+    ▾ q  int M.t Queue.t  length 1  2 nodes · 48 B
+    └─ ▾ m  int M.t  1 binding  1 node · 56 B
+       └─   "k" → 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -588,21 +1016,23 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
   heap_view ~width:60 ~height:17 replay ~step:1;
   [%expect
     {|
-    HEAP                              1 live · 3 nodes · 1 new
-    ▾ tbl · hashtbl ⟨string ⇒ int⟩ · 3 nodes
-    ▾┌ tbl ─┐
-     │size 1│
-     └──────┘
-             │
-           data
-    ▾┌────────┐
-     │slots 16│
-     └────────┘
-             │
-             1
-     ┌── new ┐
-     │"a" → 1│
-     └───────┘
+    HEAP                      1 live · 3 nodes · 208 B · 1 new
+    ▾ tbl  (string, int) Hashtbl.t  size 1  3 nodes · 208 B
+    └─   "a" → 1  new
+
+
+
+
+
+
+
+
+
+
+
+
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -642,21 +1072,32 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
   heap_view ~width:60 ~height:26 replay ~step:3;
   [%expect
     {|
-    HEAP                              2 live · 3 nodes · 1 new
-    ▾ qq · queue ⟨'a Queue.t⟩ · 2 nodes
-    ▾┌ qq ────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ q1 ────┐
-     │length 0│
-     └────────┘
+    HEAP                       2 live · 3 nodes · 72 B · 1 new
+    ▾ qq  'a Queue.t Queue.t  length 1  2 nodes · 48 B
+    └─   q1  'a Queue.t  length 0  1 node · 24 B
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -665,21 +1106,27 @@ let%expect_test "heap pane: closures stay opaque" =
   heap_view ~width:60 ~height:13 replay ~step:1;
   [%expect
     {|
-    HEAP                              1 live · 2 nodes · 2 new
-    ▾ q · queue ⟨int -> int⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-     ┌─────────── new ┐
-     │⟨0x73a5227efa18⟩│
-     └────────────────┘
+    HEAP                       1 live · 2 nodes · 48 B · 2 new
+    ▾ q  (int -> int) Queue.t  length 1  2 nodes · 48 B
+    └─   ⟨0x7f8238bebce8⟩  new
+
+
+
+
+
+
+
+
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
 let%expect_test "control chips hit-test exactly where they render" =
-  let width = 84 in
+  (* the row wants 117 columns now that [f flame] rides beyond [/ filter];
+     narrower than that and [start_column] pins it at 0 and the right-hand
+     chips crop *)
+  let width = 117 in
   let show (flame : Transport.Flame_state.t) =
     let hits =
       List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
@@ -704,27 +1151,34 @@ let%expect_test "control chips hit-test exactly where they render" =
     (Back 0 5)
     (Step 9 14)
     (Play 18 29)
-    (Fold 33 38)
-    (Accordion 42 52)
-    (Filter 56 63)
-    (Flame 67 73)
-    (Quit 77 82)
-    (Back 4 9)
-    (Step 13 18)
-    (Play 22 33)
-    (Zoom 37 42)
-    (Reset_zoom 46 52)
-    (Filter 56 63)
-    (Flame 67 73)
-    (Quit 77 82)
+    (Latest 33 40)
+    (Node 44 50)
+    (Diagram 54 62)
+    (Fold 66 71)
+    (Accordion 75 85)
+    (Filter 89 96)
+    (Flame 100 106)
+    (Quit 110 115)
+    (Back 17 22)
+    (Step 26 31)
+    (Play 35 46)
+    (Latest 50 57)
+    (Node 61 66)
+    (Zoom 70 75)
+    (Reset_zoom 79 85)
+    (Filter 89 96)
+    (Flame 100 106)
+    (Quit 110 115)
     |}]
 ;;
 
-let%expect_test "heap fold: a card keeps itself, hides its kids" =
-  let replay = replay_of_fixture "map_basic" in
+let%expect_test "heap fold: a row keeps itself, hides its kids" =
+  let replay = replay_of_fixture "queue_of_maps" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
-    Replay.step_exn replay ~step:1
+    Replay.step_exn replay ~step:2
   in
+  (* the map nests under the queue element it became; folding it leaves the
+     row that says what it is and takes away the binding under it *)
   print_view
     ~height:10
     (Heap_pane.view
@@ -736,24 +1190,21 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
        ~nodes
        ~new_addresses
        ~folds:
-         (Set.of_list
-            (module Heap_pane.Fold)
-            [ Heap_pane.Fold.Node (2, []) ])
+         (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 1 ])
        ~scroll:0
-       ~pan:0
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"a" → 1│
-     └───────┘
+    HEAP                  2 live · 3 nodes · 104 B · 1 new
+    ▾ q  int M.t Queue.t  length 1  2 nodes · 48 B
+    └─ ▸ m  int M.t  1 binding  1 node · 56 B  ⋯ 1
 
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
-    ▸┌ m  new ┐
-     │"a" → 1 │
-     └────────┘
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -777,12 +1228,17 @@ let%expect_test "heap fold: a structure collapses to its header" =
        ~folds:
          (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 2 ])
        ~scroll:0
-       ~pan:0
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 1 new
-    ▸ q · queue ⟨int M.t⟩ · 2 nodes
+    HEAP                  2 live · 3 nodes · 104 B · 1 new
+    ▸ q  int M.t Queue.t  length 1  2 nodes · 48 B  ⋯ 2
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -812,7 +1268,6 @@ let heap_lines
        ~new_addresses
        ~folds
        ~scroll:0
-       ~pan:0
        ~selection)
   |> fun image ->
   let buffer = Buffer.create 1024 in
@@ -820,12 +1275,11 @@ let heap_lines
   Buffer.contents buffer |> String.split_lines |> List.map ~f:String.rstrip
 ;;
 
-let%expect_test "aiming moves the card, not the diagram" =
-  (* The address rides the bottom border rather than taking a row, and every
-     card is spaced as though it were showing one — so picking a card widens
-     that card into room already set aside for it. Nothing else may move a
-     cell, which is what these line numbers are: only the three rows of the
-     card being aimed at differ. *)
+let%expect_test "aiming lights the one row it lands on, and no other" =
+  (* The address rides the right margin, so revealing one cannot move
+     anything to its left. Nothing else on the pane may change a cell, which
+     is what these line numbers are: exactly the line being aimed at differs.
+     (Row 0 is the pane's own header.) *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let at_rest =
@@ -861,22 +1315,20 @@ let%expect_test "aiming moves the card, not the diagram" =
       print_s [%message name ~rows_that_changed:(moved : int list)]);
   [%expect
     {|
-    (root (rows_that_changed ()))
-    ("its child" (rows_that_changed (2 3 4)))
+    (root (rows_that_changed (1)))
+    ("its child" (rows_that_changed (2)))
     |}]
 ;;
 
-let%expect_test "collapsing a structure keeps the others in their column" =
-  (* [pack] chooses a column from the footprint a structure has EXPANDED, so
-     folding one moves it up its own column and leaves the rest where they
-     are. The freed space is still freed — only the sideways placement is
-     pinned, which is why the columns below are identical and the rows are
-     not. *)
+let%expect_test "collapsing a structure moves the rows below it up, only up" =
+  (* An outline is one column, so a fold can only ever take lines away: every
+     structure's glyph stays in column 0 whatever is folded, and the rows
+     below the folded one close up by exactly what it was hiding. *)
   let replay = replay_of_fixture "set_ops" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:2
   in
-  (* each section's header glyph, found where the pane says a click on it
+  (* each structure's own glyph, found where the pane says a click on it
      would toggle that structure *)
   let headers folds =
     List.cartesian_product (List.range 0 40) (List.range 0 60)
@@ -888,7 +1340,6 @@ let%expect_test "collapsing a structure keeps the others in their column" =
           ~new_addresses
           ~folds
           ~scroll:0
-          ~pan:0
           ~selection:Heap_pane.Selection.none
           ~width:60
           ~height:40
@@ -919,7 +1370,7 @@ let%expect_test "collapsing a structure keeps the others in their column" =
   [%expect
     {|
     ((columns_expanded ((1 0) (4 0) (6 0))) (columns_folded ((1 0) (4 0) (6 0)))
-     (rows_expanded (0 15 25)) (rows_folded (0 2 12)))
+     (rows_expanded (0 5 9)) (rows_folded (0 2 6)))
     |}]
 ;;
 
@@ -936,7 +1387,6 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
       ~new_addresses
       ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
-      ~pan:0
       ~selection:Heap_pane.Selection.none
       ~height:12
       ~x
@@ -944,17 +1394,21 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
     |> Option.value_map ~default:"·" ~f:(fun fold ->
       Sexp.to_string [%sexp (fold : Heap_pane.Fold.t)])
   in
-  (* #1's header glyph; #1's card is a leaf (no glyph); #2's header and
-     root-card glyphs; a plain card cell *)
+  (* #1's own glyph; the binding under it is a leaf, so no glyph; the gap
+     between the structures has nothing to toggle; #2's own glyph past it; a
+     cell that is not the glyph column; past the last row *)
   print_endline (toggle ~x:0 ~y:0);
   print_endline (toggle ~x:0 ~y:1);
-  print_endline (toggle ~x:0 ~y:6);
-  print_endline (toggle ~x:0 ~y:7);
-  print_endline (toggle ~x:3 ~y:8);
-  [%expect {|
+  print_endline (toggle ~x:0 ~y:2);
+  print_endline (toggle ~x:0 ~y:3);
+  print_endline (toggle ~x:3 ~y:3);
+  print_endline (toggle ~x:0 ~y:9);
+  [%expect
+    {|
     (Structure 1)
     ·
-    (Node 2())
+    ·
+    (Structure 2)
     ·
     ·
     |}]
@@ -963,23 +1417,29 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
 let%expect_test "stack fold: a call's range tucks behind a count" =
   let replay = replay_of_fixture "map_fold" in
   print_view
-    ~height:7
+    ~height:9
     (Stack_pane.view
        ~width:56
-       ~height:7
+       ~height:9
        ~calls:(calls_of replay)
        ~heat:(no_heat (calls_of replay))
        ~live:(live_of replay ~step:4)
        ~selected:0
        ~folds:(Int.Set.of_list [ 1 ])
        ~cursor:None
-       ~expanded:Int.Set.empty);
+       ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            5 calls · 1 live
+    ▾ CALL STACK                          5 calls · 1 live
      ▸ M.add "a" 1 (M.add "b" 2 M.empty) ⋯ 1
+
          M.add k (v * 2) acc
+
          M.add k (v * 2) acc
+
     ▎▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
     ▎    M.empty
     |}]
@@ -1000,10 +1460,11 @@ let%expect_test "source fold: a definition folds to its first line" =
        ~folds:(Int.Set.of_list [ 5 ])
        ~active_line:8
        ~callsite_line:None
-       ~char_range:(10, 23));
+       ~char_range:(10, 23)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE                         map_basic.ml · 10 lines
+    ▾ SOURCE                       map_basic.ml · 10 lines
      ▾  1 (* The canonical positive case: add/add/remove
             fire (3 events);
         2    [empty] (an ident), [find] (returns the
@@ -1015,10 +1476,8 @@ let%expect_test "source fold: a definition folds to its first line" =
 ;;
 
 let%expect_test "heap fold keeps the rest of the diagram still" =
-  (* set a's spine: 1 → r → 2 → r → 3. Folding the "2" card hides "3";
-     everything else — the "a · 1" card centered above, the rail, the ∅ —
-     must not move a cell, because the folded card keeps its expanded
-     footprint *)
+  (* folding [b] takes away exactly the two elements it was listing: [a]
+     above it does not move a cell, and the union below closes up by two *)
   let replay = replay_of_fixture "set_ops" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:2
@@ -1037,57 +1496,55 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
          ~new_addresses
          ~folds
          ~scroll:0
-         ~pan:0
          ~selection:Heap_pane.Selection.none)
   in
   render (Set.empty (module Heap_pane.Fold));
-  render
-    (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Node (1, [ 1 ]) ]);
+  render (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 4 ]);
   [%expect
     {|
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▾┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-              ┌──────┴───────┐
-              l              r
-            ┌┄┄┄┐    ┌─┐
-            ┆ ∅ ┆    │3│
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▸┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-             ⋯ 1 hidden
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ a  S.t  3 elements  3 nodes · 96 B
+    ├─   1
+    ├─   2
+    └─   3
 
-    ▾ b · set ⟨int⟩ · 2 nodes
-    ▾┌ b ┐
+    ▾ b  S.t  2 elements  2 nodes · 64 B
+    ├─   3
+    └─   4
+
+    ▾ #6  S.t  4 elements  4 nodes · 128 B  new
+    ├─   3  new
+    ├─   2  new
+           name  type  value  new  ↗ shared  faded=unreachable
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ a  S.t  3 elements  3 nodes · 96 B
+    ├─   1
+    ├─   2
+    └─   3
+
+    ▸ b  S.t  2 elements  2 nodes · 64 B  ⋯ 2
+
+    ▾ #6  S.t  4 elements  4 nodes · 128 B  new
+    ├─   3  new
+    ├─   2  new
+    ├─   1  new
+    └─   4  new
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
 (* Every glyph the interface draws must be one terminal cell wide, or the
-   text after it slides and a card's wash appears to spill past its border.
-   Notty measures them here — but the terminal has the final say, and the two
-   can disagree.
+   text after it slides and a row's columns stop lining up with the rows
+   above and below. Notty measures them here — but the terminal has the final
+   say, and the two can disagree.
 
-   So the card interior obeys a second rule this list cannot check: it uses
-   only ASCII and glyphs in the same East Asian width class (Ambiguous) as
-   the box-drawing characters that frame it. A terminal that widened those
-   would visibly shred the whole frame, so it cannot quietly widen the
-   contents alone. [→] (U+2192, Ambiguous) is in; [↦] (U+21A6, Neutral) was
-   the one exception and is out — a font fallback rendering it double-width
-   pushed the closing [│] one cell past the wash. *)
+   So a row obeys a second rule this list cannot check: it uses only ASCII
+   and glyphs in the same East Asian width class (Ambiguous) as the
+   box-drawing characters that draw the tree guides. A terminal that widened
+   those would visibly shred every guide on the pane, so it cannot quietly
+   widen a value alone. [→] (U+2192, Ambiguous) is in; [↦] (U+21A6, Neutral)
+   was the one exception and is out — a font fallback rendering it
+   double-width pushed everything after it a cell along. *)
 let%expect_test "every drawn glyph is one cell wide" =
   let glyphs =
     [ 0x2500, "─"
@@ -1121,6 +1578,11 @@ let%expect_test "every drawn glyph is one cell wide" =
     ; 0x2524, "┤"
     ; 0x252c, "┬"
     ; 0x2580, "▀"
+      (* the heap outline's tree guides, and the key the footer names for
+         walking them *)
+    ; 0x251c, "├"
+    ; 0x2191, "↑"
+    ; 0x2193, "↓"
     ]
   in
   List.iter glyphs ~f:(fun (scalar, glyph) ->
@@ -1132,7 +1594,7 @@ let%expect_test "every drawn glyph is one cell wide" =
     | width ->
       print_s [%message "not one cell" (glyph : string) (width : int)]);
   print_s [%sexp (List.length glyphs : int)];
-  [%expect {| 31 |}]
+  [%expect {| 34 |}]
 ;;
 
 let%expect_test "delta wire: a revisit stub replays the earlier shape" =
@@ -1142,15 +1604,15 @@ let%expect_test "delta wire: a revisit stub replays the earlier shape" =
   heap_view ~height:9 replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #1 ───┐
-     │"a" → 1│
-     └───────┘
+    HEAP                  2 live · 3 nodes · 168 B · 2 new
+    ▾ #1  int M.t  1 binding  1 node · 56 B
+    └─   "a" → 1
 
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
-    ▾┌ m  new ┐
-     │"a" → 1 │
+    ▾ m  int M.t  2 bindings  2 nodes · 112 B  new
+    ├─   "a" → 1  new
+    └─   "b" → 2  new
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1160,36 +1622,36 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  4 live · 7 nodes · 3 new
-    ▾ #2 · map ⟨string ⇒ point⟩ · 1 node
-            ▾┌ #2 ┐
-             │"p" │
-             └────┘
-      ┌──────────────┼──────────────┐
-      l              d              r
-    ┌┄┄┄┐    ┌ p ┐                ┌┄┄┄┐
-    ┆ ∅ ┆    │x=1│                ┆ ∅ ┆
-    └┄┄┄┘    │y=2│                └┄┄┄┘
-             └───┘
+    HEAP                          4 live · 7 nodes · 360 B · 3 new
+    ▾ #2  point M.t  1 element  1 node · 56 B
+    └─ ▾ "p" →
+       └─   d  p  point  x=1  y=2  1 node · 24 B
 
-    ▾ m · map ⟨string ⇒ point⟩ · 2 nodes
-                    ▾┌ m ┐
-                     │"p"│
-                     └───┘
-      ┌───────────────┬──────┴──────────────────────┐
-      l               d                             r
-    ┌┄┄┄┐   ┌ ↗ ┄┄┐                        ▾┌───┐
-    ┆ ∅ ┆   ┆ x=1 ┆                         │"q"│
-    └┄┄┄┘   ┆ y=2 ┆                         └───┘
-            └┄┄┄┄┄┘                  ┌──────────────┴┬────────────
-                                     l               d
-                                   ┌┄┄┄┐   ┌ ↗ ┄┄┐
-                                   ┆ ∅ ┆   ┆ x=1 ┆
-                                   └┄┄┄┘   ┆ y=2 ┆
-                                           └┄┄┄┄┄┘
+    ▾ m  point M.t  2 elements  2 nodes · 112 B
+    ├─ ▾ "p" →
+    │  └─   d  ↗ x=1  y=2
+    └─ ▾ "q" →
+       └─   d  ↗ x=1  y=2
 
-    ▾ #5 · map ⟨string ⇒ point⟩ · 3 nodes
-                        ▾┌ #5  new ┐
+    ▾ #5  point M.t  3 elements  3 nodes · 168 B  new
+    ├─ ▾ "p" →  new
+    │  └─   d  ↗ x=1  y=2
+    ├─ ▾ "q" →  new
+    │  └─   d  ↗ x=1  y=2
+    └─ ▾ "r" →  new
+       └─   d  ↗ x=1  y=2
+
+
+
+
+
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1200,36 +1662,42 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
   heap_view ~width:64 ~height:36 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
-     ┌───────┐            ┌┄┄┄┐   ┌┄┄┄┐    ┌────────┐
-     │"b" → 2│            ┆ ∅ ┆   ┆ ∅ ┆    │"j" → 10│
-     └───────┘            └┄┄┄┘   └┄┄┄┘    └────────┘
+    HEAP                          2 live · 6 nodes · 336 B · 3 new
+    ▾ m  int M.t  5 bindings  3 nodes · 168 B
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
 
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger  new ┐
-                      │"f" → 6      │
-                      └─────────────┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┐                       ▾┌── new ┐
-    ┆ "d" → 4 ┆                        │"h" → 8│
-    └┄┄┄┄┄┄┄┄┄┘                        └───────┘
-                                    ┌──────────┴───────────┐
-                                    l                      r
-                            ┌── new ┐            ┌ ↗ ┄┄┄┄┄┄┄┐
-                            │"g" → 7│            ┆ "j" → 10 ┆
-                            └───────┘            └┄┄┄┄┄┄┄┄┄┄┘
+    ▾ bigger  int M.t  5 bindings  3 nodes · 168 B  new
+    ├─   "f" → 6  new
+    ├─   ↗ "d" → 4
+    ├─   "h" → 8  new
+    ├─   "g" → 7  new
+    └─   ↗ "j" → 10
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1238,22 +1706,36 @@ let%expect_test "delta wire: a payload cycle terminates" =
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 3 nodes · 1 new
-    ▾ q · queue ⟨cyc⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ r ────────┐
-     │name="loop"│
-     │self=0     │
-     └───────────┘
+    HEAP                           2 live · 3 nodes · 88 B · 1 new
+    ▾ q  cyc Queue.t  length 1  2 nodes · 48 B
+    └─   r  cyc  name="loop"  self=0  1 node · 40 B
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1262,37 +1744,36 @@ let%expect_test "delta wire: version chains share their spines" =
   heap_view ~width:64 ~height:20 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 8 nodes · 4 new
-    ▾ #7 · map ⟨string ⇒ int⟩ · 4 nodes
-               ▾┌ #7 ───┐
-                │"b" → 2│
-                └───────┘
-             ┌──────────┴──────────┐
-             l                     r
-     ┌───────┐            ▾┌───────┐
-     │"a" → 1│             │"c" → 3│
-     └───────┘             └───────┘
-                            ┌──────┴───────┐
-                            l              r
-                          ┌┄┄┄┐    ┌───────┐
-                          ┆ ∅ ┆    │"d" → 4│
-                          └┄┄┄┘    └───────┘
+    HEAP                          2 live · 8 nodes · 448 B · 4 new
+    ▾ #7  int M.t  4 bindings  4 nodes · 224 B
+    ├─   "b" → 2
+    ├─   "a" → 1
+    ├─   "c" → 3
+    └─   "d" → 4
 
-    ▾ #11 · map ⟨string ⇒ int⟩ · 4 nodes
-                ▾┌ #11  new ┐
-                 │"b" → 2   │
-                 └──────────┘
+    ▾ #11  int M.t  5 bindings  4 nodes · 224 B  new
+    ├─   "b" → 2  new
+    ├─   ↗ "a" → 1
+    ├─   "c" → 3  new
+    ├─   "d" → 4  new
+    └─   "e" → 5  new
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
-let%expect_test "selection: only the chosen and aimed cards spell an address"
-  =
+let%expect_test "selection: only the chosen and aimed rows spell an address" =
   (* map_spine_sharing's last step: [bigger] is what the step walked, so it
-     is selected by default. Aiming one card down lands on the [↗] pointer
-     under it — which names [m]'s "d" subtree — so the pointer and the card
-     it points at are picked out together, wearing the one address between
-     them. Nothing else spells an address, which is what lets the trees fit
-     side by side. *)
+     is selected by default. Aiming one row down lands on that structure's
+     first binding, which IS its root — so the structure's row and the row it
+     points at are picked out together, wearing the one address between them.
+     Nothing else spells an address, which is what lets the trees fit side by
+     side. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let selected = current_spot replay ~step in
@@ -1314,52 +1795,56 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
     ~step;
   [%expect
     {|
-    HEAP                                              2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
-     ┌───────┐            ┌┄┄┄┐   ┌┄┄┄┐    ┌────────┐
-     │"b" → 2│            ┆ ∅ ┆   ┆ ∅ ┆    │"j" → 10│
-     └───────┘            └┄┄┄┘   └┄┄┄┘    └────────┘
+    HEAP                                      2 live · 6 nodes · 336 B · 3 new
+    ▾ m  int M.t  5 bindings  3 nodes · 168 B
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
 
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger ─── new ┐
-                      │"f" → 6         │
-                      └ 0x78de5b5fff78 ┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ▾┌── new ┐
-    ┆ "d" → 4          ┆               │"h" → 8│
-    ┆  0x78de5b5e1d10  ┆               └───────┘
-    └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘            ┌──────────┴───────────┐
+    ▾ bigger  int M.t  5 bindings  3 nodes · 168 B  new         0x7334179fff78
+    ├─   "f" → 6  new                                           0x7334179fff78
+    ├─   ↗ "d" → 4
+    ├─   "h" → 8  new
+    ├─   "g" → 7  new
+    └─   ↗ "j" → 10
+
+
+
+
+
+
+
+
+
+
+
+                           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
-let%expect_test "selection: [wasd] walks the tree, not the picture" =
-  (* map_spine_sharing's last step draws [m]'s five-node tree and the version
-     derived from it. [s] descends, [a]/[d] run along a layer — "b" and "j"
-     are cousins, two subtrees apart, but they share a depth — and [s] off a
-     leaf falls through to the next structure.
+let%expect_test "selection: the cursor walks the outline, along it and into \
+                 it"
+  =
+  (* map_spine_sharing's last step lists [m]'s five bindings and the version
+     derived from it. [w]/[s] step to the line above and below and cross the
+     boundary between the two structures without being asked to; [a] climbs
+     to the line this one hangs under and [d] drops into the first line under
+     it.
 
-     The last three presses are the point: [s] lands on [bigger]'s [↗]
-     pointer, which names [m]'s "d" subtree — and [d] then runs along
-     [bigger]'s layer and [w] climbs to [bigger]'s root, not [m]'s. Standing
-     on a pointer lights up the card it names but leaves the cursor where it
-     is, in the tree being read. *)
+     [bigger] shares [m]'s subtrees, so its first binding IS its root — which
+     is why [d] off [bigger] lands on something the screen still calls
+     [bigger] — and the lines under it are [↗] rows naming [m]'s bindings.
+     Standing on one lights up the row it names but leaves the cursor where
+     it is, in the structure being read. The last [d] is the point: a row
+     with nothing under it goes nowhere, rather than falling sideways. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step
   in
-  (* name a card the way the screen does: its structure's name if it is a
+  (* name a row the way the screen does: its structure's name if it is a
      root, otherwise the map key it holds. The delta wire keeps interior
      nodes in the id table rather than inline under the root, so that is
      where the keys are looked up. *)
@@ -1421,27 +1906,27 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
       print_endline [%string "%{key} -> %{landed}"]);
   [%expect
     {|
-    w -> bigger
+    w -> "j"
     s -> bigger
+    d -> bigger
+    s -> "d"
+    a -> bigger
+    a -> (nothing that way)
+    w -> "j"
+    s -> bigger
+    s -> bigger
+    s -> "d"
     d -> (nothing that way)
-    s -> "d"
-    a -> (nothing that way)
-    a -> (nothing that way)
-    w -> bigger
-    s -> "d"
-    s -> (nothing that way)
-    s -> (nothing that way)
-    d -> "h"
     w -> bigger
     |}]
 ;;
 
 let%expect_test "selection: the cursor can stand on a whole structure" =
-  (* A collapsed structure is nothing but its header, so the header has to be
+  (* A collapsed structure is nothing but its own row, so that row has to be
      somewhere the cursor can go — otherwise folding one would put it beyond
-     reach. It sits one rung above the tree's root card: [w] off the root
-     lands on it, [w] again steps to the structure before, and [s] descends
-     back into the tree. *)
+     reach. Expanded, [w] off a binding walks up through the bindings above
+     it; collapsed, [m]'s row is the whole of [m] and the first line of the
+     pane, so [w] reaches it and then has nowhere left to go. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
@@ -1493,12 +1978,12 @@ let%expect_test "selection: the cursor can stand on a whole structure" =
   [%expect
     {|
     -- everything expanded
-    (w (landed ((structure 12) (path ()) (is_header true))))
-    (w (landed ((structure 9) (path ()) (is_header true))))
-    (s (landed ((structure 9) (path ()) (is_header false))))
+    (w (landed ((structure 9) (path (1 1)) (is_header false))))
+    (w (landed ((structure 9) (path (1)) (is_header false))))
+    (s (landed ((structure 9) (path (1 1)) (is_header false))))
     -- with [m] collapsed, its header is all there is of it
-    (w (landed ((structure 12) (path ()) (is_header true))))
     (w (landed ((structure 9) (path ()) (is_header true))))
+    (w (landed "(nothing that way)"))
     (s (landed ((structure 12) (path ()) (is_header true))))
     |}]
 ;;
@@ -1506,9 +1991,9 @@ let%expect_test "selection: the cursor can stand on a whole structure" =
 let%expect_test "[h]'s target: the node under the cursor; the whole \
                  structure from its header"
   =
-  (* the two glyphs stacked at a section's top left are two different folds —
-     the header's hides the structure, the root card's tucks its children —
-     and [h] toggles whichever one the cursor is standing on *)
+  (* a structure's own row and a row inside one are two different folds — the
+     structure's hides the whole thing, a row's tucks its children away — and
+     [h] toggles whichever one the cursor is standing on *)
   let replay = replay_of_fixture "map_basic" in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
     Replay.step_exn replay ~step:1
@@ -1530,6 +2015,51 @@ let%expect_test "[h]'s target: the node under the cursor; the whole \
     |> Option.value_exn
   in
   print_s [%sexp (Heap_pane.fold_of_spot header : Heap_pane.Fold.t)];
+  [%expect {|
+    (Structure 2)
+    (Node 1 ())
+    |}]
+;;
+
+let%expect_test "[h] on a row a fold hid resolves to what still draws it" =
+  (* The cursor can be standing on a row inside a structure when the whole
+     structure folds up — the fallback after stepping does exactly that. [h]
+     resolves the spot against the outline before folding: the hidden row's
+     node is now drawn only by the structure's own row (they share the root's
+     address), whose fold is the structure itself, so [h] reopens it instead
+     of flipping a node fold nobody can see. *)
+  let replay = replay_of_fixture "map_basic" in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step:1
+  in
+  let root =
+    List.find_exn structures ~f:(fun (s : Replay.Structure.t) ->
+      s.is_current)
+    |> Heap_pane.spot_of_structure
+  in
+  (* drop off the header onto the root binding's own row *)
+  let inside =
+    Heap_pane.move_cursor
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~selection:{ Heap_pane.Selection.selected = Some root; cursor = None }
+      ~direction:Heap_pane.Direction.Right
+    |> Option.value_exn
+  in
+  print_s [%sexp (Heap_pane.fold_of_spot inside : Heap_pane.Fold.t)];
+  let resolved =
+    Heap_pane.resolve_spot
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:
+        (Set.of_list (module Heap_pane.Fold) [ Heap_pane.fold_of_spot root ])
+      inside
+    |> Option.value_exn
+  in
+  print_s [%sexp (Heap_pane.fold_of_spot resolved : Heap_pane.Fold.t)];
   [%expect {|
     (Node 2 ())
     (Structure 2)
@@ -1568,7 +2098,6 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
          ~new_addresses
          ~folds:(effective selection)
          ~scroll:0
-         ~pan:0
          ~selection)
   in
   let selection =
@@ -1593,18 +2122,18 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   show !selection;
   [%expect
     {|
-    HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▸ m · map ⟨string ⇒ int⟩ · 3 nodes
+    HEAP          accordion · 2 live · 6 nodes · 336 B · 3 new
+    ▸ m  int M.t  5 bindings  3 nodes · 168 B  ⋯ 5
 
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger ─── new ┐
-                      │"f" → 6         │
-                      └ 0x78de5b5fff78 ┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┐                       ▾┌── new ┐
-    ┆ "d" → 4 ┆                        │"h" → 8│
-    └┄┄┄┄┄┄┄┄┄┘                        └───────┘
+    ▾ bigger  int M.t  5 bindings  3 nodes · 168 B  new
+                                                0x7334179fff78
+    ├─   "f" → 6  new
+    ├─   ↗ "d" → 4
+    ├─   "h" → 8  new
+    ├─   "g" → 7  new
+    └─   ↗ "j" → 10
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}];
   (* [w] to the open structure's header, [w] onto the one before it: the
      arrival opens [m], and [bigger] folds up behind us *)
@@ -1613,38 +2142,123 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   show !selection;
   [%expect
     {|
-    HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
+    HEAP          accordion · 2 live · 6 nodes · 336 B · 3 new
+    ▾ m  int M.t  5 bindings  3 nodes · 168 B   0x733427af6a08
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
+
+    ▸ bigger  int M.t  5 bindings  3 nodes · 168 B  ⋯ 5  new
+                                                0x7334179fff78
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
-let%expect_test "the heap pans by hand, and the cursor still overrides" =
-  (* [\[]/[\]] slide the window sideways across a canvas wider than the pane;
-     with nothing aimed at, the offset is exactly where the hand left it
-     (clamped to the canvas), and aiming pulls the window back only far
-     enough to show the card *)
+let%expect_test "a step lands the heap on the structure it walked" =
+  (* Stepping resets the scroll — but to the selection's row, roughly
+     centered, not to the top of the canvas: on a dump with hundreds of
+     structures the walked one can sit far below the fold, and a pane that
+     opened on the top showed everything except the thing the step was about.
+     [bigger] is the walked structure here and sits below [m]'s six lines, so
+     the landing is a real scroll, inside the outline — and the render at it
+     has [bigger]'s row on screen. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
-  heap_view ~width:36 ~height:8 replay ~step;
-  heap_view ~width:36 ~height:8 ~pan:12 replay ~step;
-  (* far past the canvas edge: clamps to the right edge, not to nowhere *)
-  heap_view ~width:36 ~height:8 ~pan:1000 replay ~step;
-  (* aiming wins over the hand: the same wild pan lands wherever shows the
-     cursor's card — which, being the cursor, spells out its address *)
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let selection =
+    { Heap_pane.Selection.selected = None
+    ; cursor = current_spot replay ~step
+    }
+  in
+  let scroll =
+    Heap_pane.landing
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~selection
+      ~width:44
+      ~height:8
+  in
+  printf "scroll=%d\n" scroll;
+  heap_view ~width:44 ~height:8 ~scroll ~selection replay ~step;
+  [%expect
+    {|
+    scroll=4
+     HEAP      2 live · 6 nodes · 336 B · 3 new
+     ├─   "h" → 8
+     └─   "j" → 10
+
+     ▾ bigger  int M.t  5 bindings  3 nodes ·
+         168 B  new              0x7334179fff78
+     ├─   "f" → 6  new
+    |}]
+;;
+
+let%expect_test "[o]: address order packs allocation neighbors together" =
+  (* Registry order is creation order — [m] before [bigger] — but the
+     [Gc.full_major] between them moved [m], so ascending addresses put
+     [bigger] first. The sort is applied by the app's [heap_inputs] (the [o]
+     toggle), top level only; the pane draws whatever order it is given. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  let step = Replay.length replay - 1 in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let order structures =
+    List.map structures ~f:(fun (s : Replay.Structure.t) ->
+      [%string
+        "%{Replay.Structure.display s} %{Snapshot.Address.display s.address}"])
+  in
+  print_s [%sexp (order structures : string list)];
+  print_s [%sexp (order (Heap_pane.by_address structures) : string list)];
+  print_view
+    ~width:44
+    ~height:5
+    (Heap_pane.view
+       ~note:(Some "by address")
+       ~total:None
+       ~width:44
+       ~height:5
+       ~structures:(Heap_pane.by_address structures)
+       ~nodes
+       ~new_addresses
+       ~folds:
+         (Set.of_list
+            (module Heap_pane.Fold)
+            (List.map structures ~f:(fun (s : Replay.Structure.t) ->
+               Heap_pane.Fold.Structure s.id)))
+       ~scroll:0
+       ~selection:Heap_pane.Selection.none);
+  [%expect
+    {|
+    ("m 0x733427af6a08" "bigger 0x7334179fff78")
+    ("bigger 0x7334179fff78" "m 0x733427af6a08")
+     HEAP by address · 2 live · 6 nodes · 336 B
+     ▸ bigger  int M.t  6 bindings  3 nodes ·
+         168 B  ⋯ 6  new
+    |}]
+;;
+
+let%expect_test "a row wider than the pane wraps, and is still one row" =
+  (* Nothing runs off the edge and nothing pans: a row too wide breaks onto
+     continuation lines, hanging under its own first column so the guides
+     still read down the page.
+
+     The address is placed after the wrapping is settled — the last line of
+     the row if it has room, a line of its own if it does not — so revealing
+     one cannot reflow the row it belongs to. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  let step = Replay.length replay - 1 in
+  heap_view ~width:34 ~height:12 replay ~step;
   heap_view
-    ~width:36
-    ~height:8
-    ~pan:1000
+    ~width:34
+    ~height:12
     ~selection:
       { Heap_pane.Selection.selected = None
       ; cursor = current_spot replay ~step
@@ -1653,38 +2267,28 @@ let%expect_test "the heap pans by hand, and the cursor still overrides" =
     ~step;
   [%expect
     {|
-    HEAP      2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴──────
-                    l
-           ▾┌───────┐             ▾┌──
-    HEAP      2 live · 6 nodes · 3 new
-    tring ⇒ int⟩ · 3 nodes
-          ▾┌ m ────┐
-           │"f" → 6│
-           └───────┘
-        ┌──────────┴───────────┐
-        l                      r
-    ────┐             ▾┌───────┐
-    HEAP      2 live · 6 nodes · 3 new
-    ⟩ · 3 nodes
-    ────┐
-     → 6│
-    ────┘
-    ────┴───────────┐
-                    r
-           ▾┌───────┐
-    HEAP      2 live · 6 nodes · 3 new
+    HEAP 2 live · 6 nodes · 336 B · 3
+    ▾ m  int M.t  5 bindings  3
+        nodes · 168 B
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
 
-    · map ⟨string ⇒ int⟩ · 3 nodes
-            ▾┌ bigger ─── new ┐
-             │"f" → 6         │
-             └ 0x78de5b5fff78 ┘
-     ┌───────────────┴────────────────
-     l
+    ▾ bigger  int M.t  5 bindings  3
+        nodes · 168 B  new
+    HEAP 2 live · 6 nodes · 336 B · 3
+        nodes · 168 B
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
+
+    ▾ bigger  int M.t  5 bindings  3
+        nodes · 168 B  new
+                      0x7334179fff78
     |}]
 ;;
 
@@ -1712,39 +2316,40 @@ let%expect_test "filter: only matching structures stay on the canvas" =
          ~new_addresses
          ~folds:(Set.empty (module Heap_pane.Fold))
          ~scroll:0
-         ~pan:0
          ~selection:Heap_pane.Selection.none)
   in
   show "queue";
   [%expect
     {|
-    HEAP             /queue · 1 of 2 live · 1 node · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 1 node
-     ┌ q  new ┐
-     │length 0│
-     └────────┘
+    HEAP      /queue · 1 of 2 live · 1 node · 24 B · 1 new
+      q  int M.t Queue.t  length 0  1 node · 24 B  new
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}];
   (* matching is case-insensitive, and the kind is part of the header's
      words, so [/MAP] finds the map *)
   show "MAP";
   [%expect
     {|
-    HEAP               /MAP · 1 of 2 live · 1 node · 1 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
+    HEAP        /MAP · 1 of 2 live · 1 node · 56 B · 1 new
+    ▾ m  int M.t  1 binding  1 node · 56 B
+    └─   "k" → 1
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
 let%expect_test "selection: committing a link follows the node to its step" =
   (* [Enter] on a [↗] pointer jumps the replay to where that node was
      allocated — a step at which the structure the pointer lived in does not
-     exist yet, so the site it named is gone. The chosen card has to follow
+     exist yet, so the site it named is gone. The chosen row has to follow
      the node to whatever tree draws it there rather than vanishing — to the
-     node's own card, not to another pointer at it. [add "b" 2 m3] rebuilt
-     the spine, so the "d" node the pointer named was allocated here, in the
-     structure at the bottom: that is the card wearing the address. *)
+     node's own row, not to another pointer at it. [add "b" 2 m3] rebuilt the
+     spine, so the "d" node the pointer named was allocated here, in the
+     structure at the bottom: that is the row wearing the address. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let last = Replay.length replay - 1 in
   let folds = Set.empty (module Heap_pane.Fold) in
@@ -1787,21 +2392,21 @@ let%expect_test "selection: committing a link follows the node to its step" =
     ~step:birth;
   [%expect
     {|
-    (birth 3)
-     HEAP                                  4 live · 8 nodes · 3 new
-     ┆ "d" → 4 ┆             │"h" → 8│
-     └┄┄┄┄┄┄┄┄┄┘             └───────┘
+    (birth 5)
+     HEAP                          2 live · 6 nodes · 336 B · 3 new
+     ├─   "f" → 6
+     ├─   "d" → 4
+     ├─   "b" → 2
+     ├─   "h" → 8
+     └─   "j" → 10
 
-     ▾ #6 · map ⟨string ⇒ int⟩ · 3 nodes
-                        ▾┌ #6  new ┐
-                         │"f" → 6  │
-                         └─────────┘
-                     ┌───────────┴───────────┐
-                     l                       r
-            ▾┌─────────── new ┐    ┌ ↗ ┄┄┄┄┄┄┐
-             │"d" → 4         │    ┆ "h" → 8 ┆
-             └ 0x78de5b5e1d10 ┘    └┄┄┄┄┄┄┄┄┄┘
-              ┌──────┴───────┐
+     ▾ bigger  int M.t  5 bindings  3 nodes · 168 B  new
+     ├─   "f" → 6  new                               0x7334179fff78
+     ├─   ↗ "d" → 4
+     ├─   "h" → 8  new
+     ├─   "g" → 7  new
+     └─   ↗ "j" → 10
+                name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1833,17 +2438,21 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
        ~selected:1
        ~folds:Int.Set.empty
        ~cursor
-       ~expanded:Int.Set.empty);
+       ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
+       ~collapsed:false);
   [%expect
     {|
     (cursor (1))
-     CALL STACK                            5 calls · 2 live
+     ▾ CALL STACK                          5 calls · 2 live
           M.add "b" 2 M.empty
+
      ▎▾ M.add "a" 1 (M.add "b" 2 M.empty)
+
      ▎    M.add k (v * 2) acc
+
           M.add k (v * 2) acc
-      ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
-          M.empty
     |}]
 ;;
 
@@ -1875,17 +2484,38 @@ let%expect_test "stack pane: heat colors the callee names, layout untouched" =
        ~selected:1
        ~folds:Int.Set.empty
        ~cursor:None
-       ~expanded:Int.Set.empty);
+       ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                     5 calls · 2 live · heat
+    ▾ CALL STACK                   5 calls · 2 live · heat
          M.add "b" 2 M.empty
+
      ▾ M.add "a" 1 (M.add "b" 2 M.empty)
+
     ▎    M.add k (v * 2) acc
+
          M.add k (v * 2) acc
+
      ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
-         M.empty
     |}]
+;;
+
+let%expect_test "session bar: the cross-pane legend, whole chips only" =
+  (* wide enough for the pair: the stack ramp labeled by what it measures,
+     and the timeline's two alloc-density ramps in their own hues *)
+  print_view
+    ~width:110
+    ~height:1
+    (Session_bar.view
+       ~width:110
+       ~dump_name:"greet.dump"
+       ~structure:"Map"
+       ~heat:(Some `Compute));
+  [%expect
+    {| ● ocaml-debug │ greet.dump │ Map · replay                       stack █████ compute · timeline ▀▀▀ ▀▀▀ alloc |}]
 ;;
 
 let%expect_test "session bar: the heat legend names what the ramp measures" =
@@ -1898,7 +2528,7 @@ let%expect_test "session bar: the heat legend names what the ramp measures" =
        ~structure:"Map"
        ~heat:(Some `Compute));
   [%expect
-    {| ● ocaml-debug │ greet.dump │ Map · replay                   heat █████ compute |}];
+    {| ● ocaml-debug │ greet.dump │ Map · replay                  stack █████ compute |}];
   print_view
     ~width:80
     ~height:1
@@ -1908,7 +2538,7 @@ let%expect_test "session bar: the heat legend names what the ramp measures" =
        ~structure:"Map"
        ~heat:(Some `Calls));
   [%expect
-    {| ● ocaml-debug │ greet.dump │ Map · replay                     heat █████ calls |}];
+    {| ● ocaml-debug │ greet.dump │ Map · replay                    stack █████ calls |}];
   print_view
     ~width:80
     ~height:1
@@ -1917,7 +2547,8 @@ let%expect_test "session bar: the heat legend names what the ramp measures" =
        ~dump_name:"greet.dump"
        ~structure:"Map"
        ~heat:None);
-  [%expect {| ● ocaml-debug │ greet.dump │ Map · replay |}]
+  [%expect
+    {| ● ocaml-debug │ greet.dump │ Map · replay               timeline ▀▀▀ ▀▀▀ alloc |}]
 ;;
 
 let%expect_test "heat ramp buckets are log-spaced" =
@@ -1954,6 +2585,8 @@ let run_heavy_stack () =
     ; arguments = []
     ; registry = []
     ; ty = None
+    ; binder = None
+    ; scope = None
     ; snapshot = Snapshot.empty
     }
   in
@@ -1979,12 +2612,17 @@ let%expect_test "stack pane: a repeat run collapses behind ×N" =
        ~selected:0
        ~folds:Int.Set.empty
        ~cursor:None
-       ~expanded:Int.Set.empty);
+       ~expanded:Int.Set.empty
+       ~registered:(no_registrations calls)
+       ~scroll:0
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            8 calls · 1 live
+    ▾ CALL STACK                          8 calls · 1 live
     ▎  start
+
      ▸ Queue.add  ⋯ ×6
+
        finish
     |}]
 ;;
@@ -1992,27 +2630,37 @@ let%expect_test "stack pane: a repeat run collapses behind ×N" =
 let%expect_test "stack pane: an expanded run shows every repeat" =
   let calls = (run_heavy_stack ()).call_order in
   print_view
-    ~height:10
+    ~height:16
     (Stack_pane.view
        ~width:56
-       ~height:10
+       ~height:16
        ~calls
        ~heat:(no_heat calls)
        ~live:[ 0 ]
        ~selected:0
        ~folds:Int.Set.empty
        ~cursor:None
-       ~expanded:(Int.Set.of_list [ 1 ]));
+       ~expanded:(Int.Set.of_list [ 1 ])
+       ~registered:(no_registrations calls)
+       ~scroll:0
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            8 calls · 1 live
+    ▾ CALL STACK                          8 calls · 1 live
     ▎  start
+
      ▾ Queue.add
+
        Queue.add
+
        Queue.add
+
        Queue.add
+
        Queue.add
+
        Queue.add
+
        finish
     |}]
 ;;
@@ -2020,27 +2668,37 @@ let%expect_test "stack pane: an expanded run shows every repeat" =
 let%expect_test "stack pane: a run holding the selection never collapses" =
   let calls = (run_heavy_stack ()).call_order in
   print_view
-    ~height:10
+    ~height:16
     (Stack_pane.view
        ~width:56
-       ~height:10
+       ~height:16
        ~calls
        ~heat:(no_heat calls)
        ~live:[ 3 ]
        ~selected:0
        ~folds:Int.Set.empty
        ~cursor:None
-       ~expanded:Int.Set.empty);
+       ~expanded:Int.Set.empty
+       ~registered:(no_registrations calls)
+       ~scroll:0
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            8 calls · 1 live
+    ▾ CALL STACK                          8 calls · 1 live
        start
+
        Queue.add
+
        Queue.add
+
     ▎  Queue.add
+
        Queue.add
+
        Queue.add
+
        Queue.add
+
        finish
     |}]
 ;;
@@ -2105,6 +2763,8 @@ let flame_info ~depth ~name : Call.Info.t =
   ; arguments = []
   ; registry = []
   ; ty = None
+  ; binder = None
+  ; scope = None
   ; snapshot = Snapshot.empty
   }
 ;;

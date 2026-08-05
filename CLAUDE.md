@@ -160,8 +160,9 @@ One input constraint that keeps getting rediscovered: **`shift`+wheel never
 arrives.** The terminal wire has a shift bit for mouse events but notty
 never decodes it, so a shift-held wheel reaches the app as a plain wheel —
 sideways scrolling rides on `ctrl`/`alt` instead, with a key fallback
-(`[`/`]`). `app/tui/src/app.ml:839` is the comment of record. Any new
-binding should keep a key equivalent for the same reason.
+(`[`/`]`). The comment over `on_scroll` in `app/tui/src/app.ml` is the
+one of record. Any new binding should keep a key equivalent for the same
+reason.
 
 ## The wire contract
 
@@ -201,7 +202,15 @@ Rules that keep it working:
   **20** — the three to add before vendoring their fixtures are
   `Core_union_find`, `Core_map_tree` and `Core_set_tree` (a union-find node
   labels its pointers `node`/`parent`/`root`, a bare tree `l`/`r`, which is
-  what `interior_labels` needs).
+  what `interior_labels` needs), and the five cases naming them are the
+  ones `testing/` deliberately does not carry.
+- **`binder` and `scope` say what a name MEANS** where an event fired,
+  beside the registry saying what a structure is CALLED — see
+  `lib/types/src/scope.mli`. Both are optional on the way in: a dump from a
+  compiler predating them leaves every structure's visibility `Unknown`,
+  which draws exactly as it did before. Don't turn a missing scope into an
+  empty one; the whole point of the option is that they are different
+  claims.
 - **`Ds_type.layers` is gone and must not come back.** The interface used
   to mirror the compiler's per-layer interior/payload masks; the
   self-describing wire replaced that, and the compiler's tables have since

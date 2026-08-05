@@ -71,7 +71,21 @@ type t =
   }
 [@@deriving sexp_of]
 
-val compute : Dimensions.t -> flame_open:bool -> t
+(** A collapsed left pane keeps exactly its title row — the affordance for
+    reopening it — and the other left pane takes the height it gave up.
+    Collapsing both leaves the leftover blank. [flame_open] splits the right
+    column the same way, from the other end: shut, the drawer keeps
+    {!collapsed_flame_height} and the heap everything else. *)
+val compute
+  :  ?stack_collapsed:bool
+  -> ?source_collapsed:bool
+  -> Dimensions.t
+  -> flame_open:bool
+  -> t
+
+(** Whether a click landed on the pane's title row — the target that
+    collapses and reopens it. *)
+val on_title : Region.t -> Position.t -> bool
 
 (** A screen position translated into a pane's body coordinates (below the
     title row, inside the padding), or [None] when it falls outside — which

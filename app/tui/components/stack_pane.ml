@@ -15,11 +15,15 @@ end
 module Row = struct
   type t =
     { lines : View.t list
+    ; lead : int
+    (** blank lines above the row — the breathing room between calls. Part of
+        the row's extent for the line arithmetic, but not of the row: neither
+        the zebra stripe nor a wash paints it, and nothing is there to hit. *)
     ; call : int
     ; target : Target.t
     ; glyph_x : int option
     ; glyph_target : Target.t option
-    ; height : int
+    ; height : int (** [lead] plus the wrapped lines *)
     }
 end
 
@@ -104,8 +108,20 @@ let run_head ~calls ~folds ~live ~selected index =
 
 (* the whole run, one row per visible call: the live chain bright, everything
    else dimmed; a call with descendants gets a fold glyph, and folding tucks
-   its range away behind a [⋯ n] count *)
-let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor ~expanded =
+   its range away behind a [⋯ n] count. A collapsed repeat run is one row —
+   its head, wearing the [⋯ ×N] — and its members are not rows at all, so the
+   zebra bands stay alternating over what is actually drawn. *)
+let build_rows
+  ~width
+  ~calls
+  ~heat
+  ~live
+  ~selected
+  ~folds
+  ~cursor
+  ~expanded
+  ~registered
+  =
   let spans = run_spans ~calls ~folds ~live ~selected in
   Array.to_list calls
   |> List.filter_mapi ~f:(fun step (call : Call.t) ->
@@ -119,147 +135,252 @@ let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor ~expanded =
       | Some (_ : int * int) | None -> `Plain
     in
     match is_hidden ~folds ~calls step, run with
-    | true, _ | false, `Member -> None
+    | true, (`Collapsed_head (_ : int) | `Expanded_head | `Member | `Plain)
+    | false, `Member ->
+      None
     | false, ((`Collapsed_head _ | `Expanded_head | `Plain) as run) ->
-      let live_index =
-        List.findi live ~f:(fun (_ : int) index -> index = step)
-        |> Option.map ~f:fst
-      in
-      let is_selected =
-        match live_index with
-        | Some frame -> frame = selected
-        | None ->
-          (* a fold hiding the selected call lights up in its place *)
-          (match List.nth live selected with
-           | Some selected_step ->
-             let lo, (_ : int) = call.range in
-             Set.mem folds step
-             && lo <= selected_step
-             && selected_step < step
-           | None -> false)
-      in
-      (* the row the keyboard is aiming at wins the wash: it is the transient
-         one, and the selection it is drawn over is where you came from *)
-      let is_cursor =
-        match cursor with Some cursor -> cursor = step | None -> false
-      in
-      let bg =
-        match is_cursor, is_selected with
-        | true, _ -> Some Theme.cursor_bg
-        | false, true -> Some Theme.highlight_bg
-        | false, false -> None
-      in
-      let fn_color, fn_bold, args_color =
-        match is_cursor, live_index, is_selected with
-        | true, _, _ -> Theme.cursor_deep, true, Theme.secondary
-        | false, (Some _ | None), true ->
-          Theme.highlight_deep, true, Theme.secondary
-        | false, Some _, false -> Theme.text, true, Theme.secondary
-        | false, None, false -> Theme.ghost, false, Theme.ghost
-      in
-      (* heat rides on the callee's name itself: its color becomes the
-         function's share of sampled compute. The cursor and selection keep
-         their own text colors — their washes already say where you are — and
-         a call the profile has no data on keeps the state color it would
-         have had. *)
-      let fn_color =
-        match is_cursor || is_selected, heat.(step) with
-        | false, Some share -> Theme.heat ~share
-        | true, _ | _, None -> fn_color
-      in
-      let fn_attrs =
-        match fn_bold with
-        | true -> [ Theme.fg fn_color; Attr.bold ]
-        | false -> [ Theme.fg fn_color ]
-      in
-      let indent = 2 * (call.info.depth - 1) in
-      let folded = Set.mem folds step in
-      let foldable = descendants calls step > 0 in
-      let glyph, glyph_target =
-        match run, foldable, folded with
-        | `Collapsed_head (_ : int), _, _ -> "▸", Some (Target.Expand step)
-        | `Expanded_head, _, _ -> "▾", Some (Target.Expand step)
-        | `Plain, false, _ -> " ", None
-        | `Plain, true, true -> "▸", Some (Target.Toggle step)
-        | `Plain, true, false -> "▾", Some (Target.Toggle step)
-      in
-      let fn = Function_info.display call.info.function_info in
-      let args =
-        List.map call.info.arguments ~f:Argument.display
-        |> String.concat ~sep:" "
-      in
-      let hidden_note =
-        match run, folded with
-        | `Collapsed_head count, _ ->
-          (* the whole run behind one row: same shape as a fold's count, but
-             ×N — these are repeats, not descendants *)
-          [ `Hidden, [%string " ⋯ ×%{count#Int}"] ]
-        | (`Expanded_head | `Plain), true ->
-          [ `Hidden, [%string " ⋯ %{descendants calls step#Int}"] ]
-        | (`Expanded_head | `Plain), false -> []
-      in
-      (* the row is the call and nothing else: where it was written is
-         already on screen, highlighted, in the source pane below — a
-         [file.ml:line] chip on every row said it a second time and cost the
-         column a third of its width *)
-      let available = width - 1 - indent - 2 in
-      let wrapped =
-        Wrap.spans
-          ([ `Fn, fn; `Args, [%string " %{args}"] ] @ hidden_note)
-          ~first_width:(max 8 available)
-          ~width:(max 8 (available - 2))
-      in
-      let bar =
-        match is_cursor, is_selected with
-        | true, _ -> View.text ~attrs:(Theme.fg' Theme.cursor) "▎"
-        | false, true -> View.text ~attrs:(Theme.fg' Theme.highlight) "▎"
-        | false, false -> View.text " "
-      in
-      let render_span (tag, text) =
-        match tag with
-        | `Fn -> View.text ~attrs:fn_attrs text
-        | `Args -> View.text ~attrs:(Theme.fg' args_color) text
-        | `Hidden ->
-          View.text ~attrs:[ Theme.fg Theme.muted; Attr.italic ] text
-      in
-      let glyph_x = 1 + indent in
-      let lines =
-        List.mapi wrapped ~f:(fun line_index spans ->
-          let lead =
-            match line_index with
-            | 0 ->
-              [ bar
-              ; View.text (String.make indent ' ')
-              ; View.text ~attrs:(Theme.fg' Theme.secondary) glyph
-              ; View.text " "
-              ]
-            | _ -> [ bar; View.text (String.make (indent + 4) ' ') ]
-          in
-          Panel.row
-            ?bg
-            (View.hcat (lead @ List.map spans ~f:render_span))
-            ~width)
-      in
-      let target =
-        match live_index with
-        | Some frame -> Target.Frame frame
-        | None -> Target.Step step
-      in
-      Some
-        { Row.lines
-        ; call = step
-        ; target
-        ; glyph_x =
-            (match glyph_target with
-             | Some (_ : Target.t) -> Some glyph_x
-             | None -> None)
-        ; glyph_target
-        ; height = List.length lines
-        })
+      Some (step, call, run))
+  |> List.mapi ~f:(fun row_index (step, (call : Call.t), run) ->
+    let live_index =
+      List.findi live ~f:(fun (_ : int) index -> index = step)
+      |> Option.map ~f:fst
+    in
+    let is_selected =
+      match live_index with
+      | Some frame -> frame = selected
+      | None ->
+        (* a fold hiding the selected call lights up in its place *)
+        (match List.nth live selected with
+         | Some selected_step ->
+           let lo, (_ : int) = call.range in
+           Set.mem folds step && lo <= selected_step && selected_step < step
+         | None -> false)
+    in
+    (* the row the keyboard is aiming at wins the wash: it is the transient
+       one, and the selection it is drawn over is where you came from *)
+    let is_cursor =
+      match cursor with Some cursor -> cursor = step | None -> false
+    in
+    let bg =
+      (* every other visible row wears a barely-lighter band, so a wall of
+         forty calls reads as rows instead of as a texture; the picked rows'
+         washes win over it *)
+      match is_cursor, is_selected with
+      | true, _ -> Some Theme.cursor_bg
+      | false, true -> Some Theme.highlight_bg
+      | false, false ->
+        (match row_index % 2 = 1 with
+         | true -> Some Theme.stripe_bg
+         | false -> None)
+    in
+    let fn_color, fn_bold, args_color =
+      match is_cursor, live_index, is_selected with
+      | true, _, _ -> Theme.cursor_deep, true, Theme.secondary
+      | false, (Some _ | None), true ->
+        Theme.highlight_deep, true, Theme.secondary
+      | false, Some _, false -> Theme.text, true, Theme.secondary
+      | false, None, false -> Theme.ghost, false, Theme.ghost
+    in
+    (* heat rides on the callee's name itself: its color becomes the
+       function's share of sampled compute. The cursor and selection keep
+       their own text colors — their washes already say where you are — and a
+       call the profile has no data on keeps the state color it would have
+       had. *)
+    let fn_color =
+      match is_cursor || is_selected, heat.(step) with
+      | false, Some share -> Theme.heat ~share
+      | true, _ | _, None -> fn_color
+    in
+    let fn_attrs =
+      match fn_bold with
+      | true -> [ Theme.fg fn_color; Attr.bold ]
+      | false -> [ Theme.fg fn_color ]
+    in
+    let indent = 2 * (call.info.depth - 1) in
+    let folded = Set.mem folds step in
+    let foldable = descendants calls step > 0 in
+    let glyph, glyph_target =
+      match run, foldable, folded with
+      | `Collapsed_head (_ : int), (_ : bool), (_ : bool) ->
+        "▸", Some (Target.Expand step)
+      | `Expanded_head, (_ : bool), (_ : bool) ->
+        "▾", Some (Target.Expand step)
+      | `Plain, false, (_ : bool) -> " ", None
+      | `Plain, true, true -> "▸", Some (Target.Toggle step)
+      | `Plain, true, false -> "▾", Some (Target.Toggle step)
+    in
+    let fn = Function_info.display call.info.function_info in
+    let args =
+      List.map call.info.arguments ~f:Argument.display
+      |> String.concat ~sep:" "
+    in
+    let hidden_note =
+      match run, folded with
+      | `Collapsed_head count, (_ : bool) ->
+        (* the whole run behind one row: same shape as a fold's count, but ×N
+           — these are repeats, not descendants *)
+        [ `Hidden, [%string " ⋯ ×%{count#Int}"] ]
+      | (`Expanded_head | `Plain), true ->
+        [ `Hidden, [%string " ⋯ %{descendants calls step#Int}"] ]
+      | (`Expanded_head | `Plain), false -> []
+    in
+    (* what this call put into the registry, by the name the heap pane lists
+       it under — [· m], [· #826] — so the heap's anonymous [#N]s point at a
+       findable row here. Committing the heap row already jumps to this step;
+       the tag is that correspondence made visible. *)
+    let registered_note =
+      match registered.(step) with
+      | None -> []
+      | Some label -> [ `Registered, [%string " · %{label}"] ]
+    in
+    (* the row is the call and nothing else: where it was written is already
+       on screen, highlighted, in the source pane below — a [file.ml:line]
+       chip on every row said it a second time and cost the column a third of
+       its width *)
+    let available = width - 1 - indent - 2 in
+    let wrapped =
+      Wrap.spans
+        ([ `Fn, fn; `Args, [%string " %{args}"] ]
+         @ registered_note
+         @ hidden_note)
+        ~first_width:(max 8 available)
+        ~width:(max 8 (available - 2))
+    in
+    let bar =
+      match is_cursor, is_selected with
+      | true, _ -> View.text ~attrs:(Theme.fg' Theme.cursor) "▎"
+      | false, true -> View.text ~attrs:(Theme.fg' Theme.highlight) "▎"
+      | false, false -> View.text " "
+    in
+    let render_span (tag, text) =
+      match tag with
+      | `Fn -> View.text ~attrs:fn_attrs text
+      | `Args -> View.text ~attrs:(Theme.fg' args_color) text
+      | `Hidden ->
+        View.text ~attrs:[ Theme.fg Theme.muted; Attr.italic ] text
+      (* the same voice the heap pane's names speak in, so [#826] here and
+         [#826] there read as one thing *)
+      | `Registered -> View.text ~attrs:(Theme.fg' Theme.muted) text
+    in
+    let glyph_x = 1 + indent in
+    let lines =
+      List.mapi wrapped ~f:(fun line_index spans ->
+        let lead =
+          match line_index with
+          | 0 ->
+            [ bar
+            ; View.text (String.make indent ' ')
+            ; View.text ~attrs:(Theme.fg' Theme.secondary) glyph
+            ; View.text " "
+            ]
+          | _ -> [ bar; View.text (String.make (indent + 4) ' ') ]
+        in
+        Panel.row
+          ?bg
+          (View.hcat (lead @ List.map spans ~f:render_span))
+          ~width)
+    in
+    let target =
+      match live_index with
+      | Some frame -> Target.Frame frame
+      | None -> Target.Step step
+    in
+    (* every call after the first takes a blank line of lead — between the
+       rows, so the last one runs flush to the pane's bottom edge *)
+    let lead = match row_index with 0 -> 0 | _ -> 1 in
+    { Row.lines
+    ; lead
+    ; call = step
+    ; target
+    ; glyph_x =
+        (match glyph_target with
+         | Some (_ : Target.t) -> Some glyph_x
+         | None -> None)
+    ; glyph_target
+    ; height = lead + List.length lines
+    })
 ;;
 
-(* keep the row the eye is on centered among the wrapped rows: the cursor
-   while one is aimed, otherwise the selected call — or the fold hiding it *)
+(* One frame's rows, remembered under everything they read. Every heap scroll
+   tick re-renders the app, and rebuilding (and re-wrapping) a thousand-call
+   history each time is most of what made scrolling drag — the calls array
+   itself never changes, so one slot keyed by the handful of inputs that do
+   is enough. *)
+module Rows_key = struct
+  type t =
+    { width : int
+    ; calls : Call.t array
+    ; heat : float option array
+    ; live : int list
+    ; selected : int
+    ; folds : Int.Set.t
+    ; cursor : int option
+    ; expanded : Int.Set.t
+    ; registered : string option array
+    }
+
+  let equal a b =
+    a.width = b.width
+    && phys_equal a.calls b.calls
+    && phys_equal a.heat b.heat
+    && [%equal: int list] a.live b.live
+    && a.selected = b.selected
+    && Set.equal a.folds b.folds
+    && [%equal: int option] a.cursor b.cursor
+    && Set.equal a.expanded b.expanded
+    && phys_equal a.registered b.registered
+  ;;
+end
+
+let rows_cache : (Rows_key.t * Row.t list) option ref = ref None
+
+let rows
+  ~width
+  ~calls
+  ~heat
+  ~live
+  ~selected
+  ~folds
+  ~cursor
+  ~expanded
+  ~registered
+  =
+  let key =
+    { Rows_key.width
+    ; calls
+    ; heat
+    ; live
+    ; selected
+    ; folds
+    ; cursor
+    ; expanded
+    ; registered
+    }
+  in
+  match !rows_cache with
+  | Some (cached, result) when Rows_key.equal cached key -> result
+  | Some _ | None ->
+    let result =
+      build_rows
+        ~width
+        ~calls
+        ~heat
+        ~live
+        ~selected
+        ~folds
+        ~cursor
+        ~expanded
+        ~registered
+    in
+    rows_cache := Some (key, result);
+    result
+;;
+
+(* Keep the row the eye is on centered among the wrapped rows: the cursor
+   while one is aimed, otherwise the selected call — or the fold hiding it.
+   [scroll] is the wheel's say on top of that centering, clamped to the run
+   of rows; stepping and aiming reset it, so the centering wins whenever
+   something moves and the hand wins between moves. *)
 let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
   let target_step =
     match cursor with
@@ -295,47 +416,82 @@ let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
     (Int.max 0 (total - height))
 ;;
 
-let view ~width ~height ~calls ~heat ~live ~selected ~folds ~cursor ~expanded
+(* the wheel's offset laid over the centering, kept inside the rows *)
+let resolve_offset rows ~height ~calls ~live ~selected ~folds ~cursor ~scroll
   =
-  let inner_width = Panel.inner_width ~width in
-  let inner_height = height - Panel.header_height in
-  let rows =
-    rows
-      ~width:inner_width
-      ~calls
-      ~heat
-      ~live
-      ~selected
-      ~folds
-      ~cursor
-      ~expanded
+  let centered =
+    scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor
   in
-  let offset =
-    scroll_offset
-      rows
-      ~height:inner_height
-      ~calls
-      ~live
-      ~selected
-      ~folds
-      ~cursor
+  let total =
+    List.sum (module Int) rows ~f:(fun (row : Row.t) -> row.height)
   in
-  let body =
-    List.concat_map rows ~f:(fun (row : Row.t) -> row.lines)
-    |> fun lines -> List.drop lines offset
+  Int.max 0 (Int.min (centered + scroll) (Int.max 0 (total - height)))
+;;
+
+let view
+  ~width
+  ~height
+  ~calls
+  ~heat
+  ~live
+  ~selected
+  ~folds
+  ~cursor
+  ~expanded
+  ~registered
+  ~scroll
+  ~collapsed
+  =
+  (* collapsed, the pane is its title row — the [▸] is the way back in *)
+  let title =
+    match collapsed with true -> "▸ call stack" | false -> "▾ call stack"
   in
   let heat_meta =
     match has_heat heat with false -> "" | true -> " · heat"
   in
-  Panel.view
-    ~title:"call stack"
-    ~meta:
-      [%string
-        "%{Array.length calls#Int} calls · %{List.length live#Int} \
-         live%{heat_meta}"]
-    ~width
-    ~height
-    (View.vcat body)
+  let meta =
+    [%string
+      "%{Array.length calls#Int} calls · %{List.length live#Int} \
+       live%{heat_meta}"]
+  in
+  match collapsed with
+  | true -> Panel.view ~title ~meta ~width ~height View.none
+  | false ->
+    let inner_width = Panel.inner_width ~width in
+    let inner_height = height - Panel.header_height in
+    let rows =
+      rows
+        ~width:inner_width
+        ~calls
+        ~heat
+        ~live
+        ~selected
+        ~folds
+        ~cursor
+        ~expanded
+        ~registered
+    in
+    let offset =
+      resolve_offset
+        rows
+        ~height:inner_height
+        ~calls
+        ~live
+        ~selected
+        ~folds
+        ~cursor
+        ~scroll
+    in
+    let body =
+      (* a row's gap stays plain — unwashed, unstriped background is what
+         separates the bands *)
+      List.concat_map rows ~f:(fun (row : Row.t) ->
+        List.init row.lead ~f:(fun (_ : int) ->
+          Panel.row (View.text "") ~width:inner_width)
+        @ row.lines)
+      |> fun lines -> List.drop lines offset
+    in
+    Panel.view ~title ~meta ~width ~height (View.vcat body)
 ;;
 
 let target_at
@@ -348,6 +504,8 @@ let target_at
   ~folds
   ~cursor
   ~expanded
+  ~registered
+  ~scroll
   ~x
   ~row
   =
@@ -363,9 +521,10 @@ let target_at
       ~folds
       ~cursor
       ~expanded
+      ~registered
   in
   let offset =
-    scroll_offset
+    resolve_offset
       rows
       ~height:inner_height
       ~calls
@@ -373,21 +532,36 @@ let target_at
       ~selected
       ~folds
       ~cursor
+      ~scroll
   in
   let target_line = row + offset in
   let rec find rows ~line =
     match rows with
     | [] -> None
-    | ({ Row.height; target; glyph_x; glyph_target; call = _; lines = _ } :
+    | ({ Row.height
+       ; lead
+       ; target
+       ; glyph_x
+       ; glyph_target
+       ; call = _
+       ; lines = _
+       } :
         Row.t)
       :: rest ->
       (match line < height with
        | true ->
-         (* only the glyph cell on the row's first line toggles *)
-         (match glyph_x, glyph_target, line with
-          | Some glyph_x, Some glyph_target, 0 when x = glyph_x ->
-            Some glyph_target
-          | _ -> Some target)
+         (* a line in the gap above a row belongs to nobody *)
+         (match line < lead with
+          | true -> None
+          | false ->
+            (* only the glyph cell on the row's first line toggles — a fold
+               glyph folds, a run glyph expands *)
+            (match glyph_x, glyph_target, line - lead with
+             | Some glyph_x, Some glyph_target, 0 when x = glyph_x ->
+               Some glyph_target
+             | Some (_ : int), (_ : Target.t option), (_ : int)
+             | None, (_ : Target.t option), (_ : int) ->
+               Some target))
        | false -> find rest ~line:(line - height))
   in
   find rows ~line:target_line
