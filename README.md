@@ -236,9 +236,9 @@ its subtree earned; the gaps are exposed self time.)
   the trace); its **color** is that function's share of sampled compute
   (from `-perf-file`). Gregg colors boxes at random, from a warm palette,
   purely to separate neighbours; this spends the channel on the profile
-  instead, and does it in blue — muted slate, sky, azure, vivid blue,
-  bright cyan — so intensity climbs with the share and the hottest box is
-  the one your eye lands on. The two channels are different measurements
+  instead, and does it in muted blue — a grayed slate paling through
+  powder blue to a soft sky — so the share climbs as lightness and the
+  hottest box, the palest and brightest, is the one your eye lands on. The two channels are different measurements
   on purpose — a wide pale box is a function called too often, a narrow hot
   one is a function that is slow, and those have opposite fixes.
   Identical call paths pool into one box, so "called four hundred times"

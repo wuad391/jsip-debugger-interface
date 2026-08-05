@@ -128,16 +128,17 @@ let heat ~share =
    BACKGROUND ramp and has to stay light enough all the way along for dark
    text to sit on it. Brendan Gregg's flame graphs pick random warm colors
    purely to tell neighbouring boxes apart; ours carry the compute share
-   instead, and it does that in blue: a muted slate through sky and azure to
-   a bright electric cyan. Intensity still climbs with the share, so the
-   hottest box is the most saturated and the brightest, and it is the one the
-   eye lands on. *)
+   instead, and it does that in blue — muted on purpose. The share climbs as
+   LIGHTNESS, a grayed slate paling through powder blue to a soft sky, with
+   saturation held well short of neon the whole way; the hottest box is the
+   palest and brightest, so it is still the one the eye lands on, it just no
+   longer glows next to the panes above it. *)
 let flame_ramp =
-  [| color 0x7d8f9c
-   ; color 0x5f9fc4
-   ; color 0x3fb0e0
-   ; color 0x2ec5f5
-   ; color 0x5fe0ff
+  [| color 0x76858f
+   ; color 0x7fa0b4
+   ; color 0x8ab5c9
+   ; color 0x97c6d9
+   ; color 0xaad9e6
   |]
 ;;
 

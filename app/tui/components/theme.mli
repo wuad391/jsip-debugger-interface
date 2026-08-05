@@ -108,9 +108,10 @@ val heat : share:float -> Attr.Color.t
     background colors and every stop stays light enough for {!flame_label} to
     sit on it. Brendan Gregg's flame graphs colour boxes at random, from a
     warm palette, purely to tell neighbours apart; this carries each
-    function's share of sampled compute instead, running cold-to-hot — muted
-    slate, sky, azure, vivid blue, bright cyan — so intensity climbs with the
-    share and the hottest box is the one the eye lands on. *)
+    function's share of sampled compute instead, running cold-to-hot as a
+    climb in lightness — a grayed slate paling through powder blue to a soft
+    sky, never reaching neon — so the hottest box is the palest and brightest
+    and still the one the eye lands on. *)
 val flame_ramp : Attr.Color.t array
 
 (** The ramp stop for a compute share in [0, 1] — the same log-spaced buckets
