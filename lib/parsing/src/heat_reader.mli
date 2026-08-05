@@ -11,3 +11,7 @@ open! Core
 open Jsip_types
 
 val load : string -> Heat_profile.t Or_error.t
+
+(** The same reader over a profile already in memory — the web interface's
+    entry point after fetching [heat.sexp] over HTTP. *)
+val parse : string -> Heat_profile.t Or_error.t

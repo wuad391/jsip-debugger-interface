@@ -11,3 +11,9 @@ open Jsip_types
     unreadable file, a malformed event, a dump that never returns to depth 0
     — come back tagged with the line they were found on. *)
 val read : string -> Call.Info.t Queue.t Or_error.t
+
+(** The same reader over a dump already in memory — what the web interface
+    feeds after fetching the dump over HTTP. [parse contents] and [read] of a
+    file holding [contents] agree exactly, malformed-line diagnostics
+    included. *)
+val parse : string -> Call.Info.t Queue.t Or_error.t

@@ -34,24 +34,32 @@ let parse_line line ~current_depth =
       Some (Dump_wire.to_call_info wire ~depth))
 ;;
 
+(* one fold over lines, shared by the file and in-memory entry points, so a
+   dump fetched over HTTP parses exactly as one read off disk *)
+let parse_lines lines =
+  let current_depth = ref 0 in
+  let parsed = Queue.create () in
+  List.fold lines ~init:(Ok 1) ~f:(fun acc line ->
+    match acc with
+    | Error _ as error -> error
+    | Ok line_number ->
+      (match parse_line line ~current_depth with
+       (* the position is the whole diagnostic for a malformed dump, so it
+          is attached here rather than left to the caller *)
+       | Error error ->
+         Error (Error.tag_s error ~tag:[%message (line_number : int)])
+       | Ok None -> Ok (line_number + 1)
+       | Ok (Some info) ->
+         Queue.enqueue parsed info;
+         Ok (line_number + 1)))
+  |> Or_error.map ~f:(fun (_ : int) -> parsed)
+;;
+
+let parse contents = parse_lines (String.split_lines contents)
+
 let read file_path =
   Or_error.join
     (Or_error.try_with (fun () ->
-       let current_depth = ref 0 in
-       let parsed = Queue.create () in
        In_channel.with_file file_path ~f:(fun channel ->
-         In_channel.fold_lines channel ~init:(Ok 1) ~f:(fun acc line ->
-           match acc with
-           | Error _ as error -> error
-           | Ok line_number ->
-             (match parse_line line ~current_depth with
-              (* the position is the whole diagnostic for a malformed dump,
-                 so it is attached here rather than left to the caller *)
-              | Error error ->
-                Error (Error.tag_s error ~tag:[%message (line_number : int)])
-              | Ok None -> Ok (line_number + 1)
-              | Ok (Some info) ->
-                Queue.enqueue parsed info;
-                Ok (line_number + 1))))
-       |> Or_error.map ~f:(fun (_ : int) -> parsed)))
+         parse_lines (In_channel.input_lines channel))))
 ;;

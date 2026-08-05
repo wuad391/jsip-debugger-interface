@@ -112,15 +112,37 @@ Formatting is checked in CI, so run `dune fmt` before pushing.
 lib/types/     wire-shaped data: calls, locations, snapshots, registry
                entries, static types, the call stack, the heat profile
 lib/parsing/   readers for the three inputs — the dump (depth markers +
-               event sexps), the source files, the heat profile
+               event sexps), the source files, the heat profile — and the
+               Syntax highlighter both interfaces color source with
 lib/replay/    the replay model: per-step frames, fresh addresses, captions
 app/tui/       the bonsai_term interface
   components/  reusable building blocks: panes, bars, panel, theme, layout
   src/         the app itself: state machine, event loop, wiring
   test/        picture tests over the components and app pieces
 app/bin/       the executable (Command_unix; the three flags above)
+app/web/       the bonsai_web interface (the zoomable-heap browser twin)
+  components/  pure data for the panes: heap scene + tier layouts, stack
+               rows, source rows, timeline buckets, flame bars, the
+               dark/light Theme records — no browser anywhere, so all of
+               it is expect-tested over the golden dumps
+  src/         the Bonsai app: model/actions, ppx_html views, and the
+               canvas heap engine (js_of_ocaml; the one imperative bit)
+  client/      the js_of_ocaml executable + index.html
+  server/      serve.exe — cohttp-async, the TUI's flags plus -port,
+               client bundle embedded via ocaml-embed-file
+  test/        expect tests over app/web/components
 testing/       golden dumps + their programs, vendored from the compiler repo
 ```
+
+The web heap draws the TUI diagram pop-out's reading — physical boxes,
+`∅` slots, `↗` pointer stubs, referenced structures inlined once — for
+every structure at once, made legible by SEMANTIC ZOOM (four detail
+tiers interpolated in `Heap_layout`) instead of the outline's
+flattening. The two interfaces share `lib/*` and the `Syntax`
+highlighter but no view code: `jsip_tui_components` links bonsai_term,
+which js_of_ocaml cannot, so the outline rules the web scene restates
+live in `app/web/components/heap_scene.ml` with `Heap_pane`'s comments
+as their long form.
 
 Two of the three inputs are mirrored types rather than parsers: `Snapshot`
 + `Dump_wire` mirror the compiler's `vreplay/sexp.mli` (see "The wire

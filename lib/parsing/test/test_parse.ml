@@ -243,6 +243,24 @@ let%expect_test "labelled and optional arguments carry their labels" =
     |}]
 ;;
 
+let%expect_test "parse over a dump's contents agrees with read, exactly" =
+  (* the web interface fetches the dump over HTTP and feeds [parse]; the
+     TUI [read]s the file — they must be one reader *)
+  let disagreements =
+    List.count all_fixtures ~f:(fun name ->
+      let from_file = Dump_reader.read (fixture name) in
+      let from_memory =
+        Dump_reader.parse (In_channel.read_all (fixture name))
+      in
+      not
+        (Sexp.equal
+           [%sexp (from_file : Call.Info.t Queue.t Or_error.t)]
+           [%sexp (from_memory : Call.Info.t Queue.t Or_error.t)]))
+  in
+  print_s [%message (disagreements : int)];
+  [%expect {| (disagreements 0) |}]
+;;
+
 let%expect_test "a dump that does not return to depth 0 is rejected" =
   let file = "truncated_dump.txt" in
   let truncated =

@@ -11,6 +11,7 @@
 
 open! Core
 open Jsip_types
+module Syntax := Jsip_parsing.Syntax
 module View := Bonsai_term.View
 
 (** A source file with its highlighting and fold regions precomputed — do
