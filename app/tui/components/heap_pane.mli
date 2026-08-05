@@ -56,6 +56,17 @@
     tints the other's border to match — the border only, so the card you are
     actually on is still the one wearing the wash and the address.
 
+    A structure whose name no longer reaches it fades: the header and the
+    name riding its root card drop to the ghost gray, and the header says
+    which of the two happened — [· shadowed] when a later [let] took the name
+    over, [· out of scope] when nothing on the stack binds it any more (see
+    {!Jsip_replay.Replay.Visibility}). Since the note is part of the header
+    text, [/] filters on it too. What fades is only the NAME: the cards keep
+    their outlines and contents, because an old version's blocks are usually
+    the live version's blocks — after [let m = M.remove "a" m] the surviving
+    subtree is one object drawn under two headers, and dimming it in one
+    would be a lie about the heap.
+
     {v
     ▾ m · map ⟨string ⇒ int⟩            ▾ bigger · map ⟨string ⇒ int⟩
     ▾┌ m ──────── new ┐                 ▾┌ bigger ─── new ┐

@@ -113,13 +113,45 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
     |}]
 ;;
 
+let%expect_test "heap pane: rebinding a name fades the versions it left" =
+  (* map_basic's last step is three live maps all called [m] — the whole
+     point of the note. Colour carries it on a real terminal (the faded ones
+     drop to the ghost gray); here the words are what shows, which is also
+     what [/] filters on. *)
+  let replay = replay_of_fixture "map_basic" in
+  heap_view replay ~step:2 ~height:26;
+  [%expect
+    {|
+    HEAP                                  3 live · 4 nodes
+    ▾ m · map ⟨string ⇒ int⟩ · shadowed · 1 node
+     ┌ m ────┐
+     │"a" → 1│
+     └───────┘
+
+    ▾ m · map ⟨string ⇒ int⟩ · shadowed · 2 nodes
+    ▾┌ m ────┐
+     │"a" → 1│
+     └───────┘
+      ┌──────┴───────┐
+      l              r
+    ┌┄┄┄┐    ┌ m ────┐
+    ┆ ∅ ┆    │"b" → 2│
+    └┄┄┄┘    └───────┘
+
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+     ┌ m ────┐
+     │"b" → 2│
+     └───────┘
+    |}]
+;;
+
 let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   let replay = replay_of_fixture "map_basic" in
   heap_view replay ~step:1;
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+    ▾ m · map ⟨string ⇒ int⟩ · shadowed · 1 node
      ┌ m ────┐
      │"a" → 1│
      └───────┘
@@ -214,7 +246,7 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
   [%expect
     {|
     HEAP                              3 live · 8 nodes · 3 new
-    ▾ m · core.map ⟨string ⇒ int⟩ · 2 nodes
+    ▾ m · core.map ⟨string ⇒ int⟩ · shadowed · 2 nodes
     ▾┌ m ┐
      │·  │
      └───┘
@@ -224,7 +256,7 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
      │"b" → 2│
      └───────┘
 
-    ▾ m · core.map ⟨string ⇒ int⟩ · 3 nodes
+    ▾ m · core.map ⟨string ⇒ int⟩ · shadowed · 3 nodes
     |}]
 ;;
 
@@ -530,9 +562,9 @@ let%expect_test "heap clicks land on cards, not the space between" =
   print_endline (at ~x:40 ~y:1);
   [%expect
     {|
-    0x7fa801ff2348
-    0x7fa801fee750
-    0x7fa801fee750
+    0x72d2a9feeb50
+    0x72d2a9fea718
+    0x72d2a9fea718
     ·
     |}]
 ;;
@@ -672,7 +704,7 @@ let%expect_test "heap pane: closures stay opaque" =
              │
            first
      ┌─────────── new ┐
-     │⟨0x73a5227efa18⟩│
+     │⟨0x7f8238bebce8⟩│
      └────────────────┘
     |}]
 ;;
@@ -730,7 +762,7 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+    ▾ m · map ⟨string ⇒ int⟩ · shadowed · 1 node
      ┌ m ────┐
      │"a" → 1│
      └───────┘
@@ -1318,12 +1350,12 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
     ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
                      ▾┌ bigger ─── new ┐
                       │"f" → 6         │
-                      └ 0x78de5b5fff78 ┘
+                      └ 0x7334179fff78 ┘
               ┌───────────────┴────────────────┐
               l                                r
     ┌ ↗ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ▾┌── new ┐
     ┆ "d" → 4          ┆               │"h" → 8│
-    ┆  0x78de5b5e1d10  ┆               └───────┘
+    ┆  0x7334179decd8  ┆               └───────┘
     └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘            ┌──────────┴───────────┐
     |}]
 ;;
@@ -1584,7 +1616,7 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
     ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
                      ▾┌ bigger ─── new ┐
                       │"f" → 6         │
-                      └ 0x78de5b5fff78 ┘
+                      └ 0x7334179fff78 ┘
               ┌───────────────┴────────────────┐
               l                                r
     ┌ ↗ ┄┄┄┄┄┄┐                       ▾┌── new ┐
@@ -1667,7 +1699,7 @@ let%expect_test "the heap pans by hand, and the cursor still overrides" =
     · map ⟨string ⇒ int⟩ · 3 nodes
             ▾┌ bigger ─── new ┐
              │"f" → 6         │
-             └ 0x78de5b5fff78 ┘
+             └ 0x7334179fff78 ┘
      ┌───────────────┴────────────────
      l
     |}]
@@ -1785,7 +1817,7 @@ let%expect_test "selection: committing a link follows the node to its step" =
                      l                       r
             ▾┌─────────── new ┐    ┌ ↗ ┄┄┄┄┄┄┐
              │"d" → 4         │    ┆ "h" → 8 ┆
-             └ 0x78de5b5e1d10 ┘    └┄┄┄┄┄┄┄┄┄┘
+             └ 0x7334179decd8 ┘    └┄┄┄┄┄┄┄┄┄┘
               ┌──────┴───────┐
     |}]
 ;;
@@ -1939,6 +1971,8 @@ let run_heavy_stack () =
     ; arguments = []
     ; registry = []
     ; ty = None
+    ; binder = None
+    ; scope = None
     ; snapshot = Snapshot.empty
     }
   in

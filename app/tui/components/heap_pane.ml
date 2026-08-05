@@ -455,9 +455,15 @@ let node_box
     match root_structure with
     | None -> View.none
     | Some structure ->
-      let attrs =
-        Selection.Mark.label_attrs mark ~plain:(Theme.fg' Theme.text)
+      (* the name is what goes out of scope, so the name is what fades: a
+         shadowed version's card keeps its outline and contents, because the
+         blocks are still there and are usually shared with the live one *)
+      let plain =
+        match Replay.Visibility.is_reachable structure.visibility with
+        | true -> Theme.fg' Theme.text
+        | false -> Theme.fg' Theme.ghost
       in
+      let attrs = Selection.Mark.label_attrs mark ~plain in
       View.text ~attrs [%string " %{Replay.Structure.display structure} "]
   in
   let new_tag =
@@ -1067,17 +1073,33 @@ let node_count_label count =
   match count with 1 -> "1 node" | count -> [%string "%{count#Int} nodes"]
 ;;
 
+(* why a structure's name is drawn faded — said in words as well as in
+   colour, since "which of these three [m]s is the live one" is the question
+   the fading exists to answer *)
+let visibility_note (visibility : Replay.Visibility.t) =
+  match visibility with
+  | In_scope | Unknown -> None
+  | Shadowed -> Some "shadowed"
+  | Out_of_scope -> Some "out of scope"
+;;
+
 (* the name · kind · type line — what a structure's header says about it, and
-   so also what [/] lets you filter by *)
+   so also what [/] lets you filter by, which is why the note lives in the
+   text and not beside it: [/shadowed] then picks out the faded ones *)
 let header_text (structure : Replay.Structure.t) =
   let label =
     [%string
       "%{Replay.Structure.display structure} · %{Snapshot.Ds_type.display \
        structure.snapshot.ds_type}"]
   in
-  match structure.ty with
+  let label =
+    match structure.ty with
+    | None -> label
+    | Some ty -> [%string "%{label} %{Type_info.display ty}"]
+  in
+  match visibility_note structure.visibility with
   | None -> label
-  | Some ty -> [%string "%{label} %{Type_info.display ty}"]
+  | Some note -> [%string "%{label} · %{note}"]
 ;;
 
 let matches_filter structure ~filter =
@@ -1108,9 +1130,13 @@ let structure_header (structure : Replay.Structure.t) ~folded ~mark =
     | Cursor -> [ Theme.fg Theme.cursor_deep; Attr.bold ]
     | Selected -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
     | Linked_to_selected | Linked_to_cursor | Plain ->
-      (match structure.is_current with
-       | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
-       | false -> Theme.fg' Theme.muted)
+      (match
+         ( structure.is_current
+         , Replay.Visibility.is_reachable structure.visibility )
+       with
+       | true, (true | false) -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
+       | false, true -> Theme.fg' Theme.muted
+       | false, false -> Theme.fg' Theme.ghost)
   in
   Selection.Mark.wash
     mark

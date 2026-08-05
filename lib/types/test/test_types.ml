@@ -12,6 +12,8 @@ let info ~depth ~name : Call.Info.t =
   ; arguments = []
   ; registry = []
   ; ty = None
+  ; binder = None
+  ; scope = None
   ; snapshot = Snapshot.empty
   }
 ;;
