@@ -100,11 +100,14 @@ divider line along each seam:
   holds rather than by the wire's id (`↗ "d" → 4`, not `↗ #7`); picking
   either one tints the other's border to match, so a shared subtree
   reads as one object drawn twice. Cards allocated *at this step* carry a green `new` tag in
-  the border's top right. Structures lay side by side, up to three to a
-  row, packed bottom-left so a collapse frees real space; a structure's
-  column is chosen from its expanded footprint, so collapsing one leaves
-  the others where they are. Clicking a card jumps the replay to the
-  step that allocated it; the wheel scrolls.
+  the border's top right. Structures lay side by side, and while there is
+  room for them they sit centered — one or five, as a group, in the middle
+  of the pane and level with each other. Too many for one row and they
+  pack bottom-left instead, up to three abreast, so a collapse frees real
+  space; either way a structure's column is chosen from its expanded
+  footprint, so collapsing one leaves the others where they are. Clicking
+  a card jumps the replay to the step that allocated it; the wheel
+  scrolls.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —
   `◂ back · step ▸ · [space] play · h fold · z accordion · / filter ·

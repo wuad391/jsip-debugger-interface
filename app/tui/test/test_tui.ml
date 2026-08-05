@@ -142,20 +142,20 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
   [%expect
     {|
     HEAP                          1 live · 3 nodes · 1 new
-    ▾ q · queue ⟨string⟩ · 3 nodes
-    ▾┌ q ─────┐
-     │length 2│
-     └────────┘
-             │
-           first
-    ▾┌───┐
-     │"x"│
-     └───┘
-             │
-             1
-     ┌ new ┐
-     │"y"  │
-     └─────┘
+                ▾ q · queue ⟨string⟩ · 3 nodes
+                ▾┌ q ─────┐
+                 │length 2│
+                 └────────┘
+                         │
+                       first
+                ▾┌───┐
+                 │"x"│
+                 └───┘
+                         │
+                         1
+                 ┌ new ┐
+                 │"y"  │
+                 └─────┘
     |}]
 ;;
 
@@ -192,15 +192,17 @@ let%expect_test "heap pane: a collected structure is simply gone" =
   [%expect
     {|
     HEAP                           1 live · 1 node · 1 new
-    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #1 ─ new ┐
-     │"dead" → 0│
-     └──────────┘
+
+              ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
+               ┌ #1 ─ new ┐
+               │"dead" → 0│
+               └──────────┘
     HEAP                           1 live · 1 node · 1 new
-    ▾ #2 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #2 ─ new ┐
-     │"live" → 1│
-     └──────────┘
+
+              ▾ #2 · map ⟨string ⇒ int⟩ · 1 node
+               ┌ #2 ─ new ┐
+               │"live" → 1│
+               └──────────┘
     |}]
 ;;
 
@@ -565,20 +567,23 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
+
+
+
+               ▾ q · queue ⟨int M.t⟩ · 2 nodes
+               ▾┌ q ─────┐
+                │length 1│
+                └────────┘
+                        │
+                      first
+               ▾┌── new ┐
+                │slots 2│
+                └───────┘
+                        │
+                        0
+                ┌ m ────┐
+                │"k" → 1│
+                └───────┘
     |}]
 ;;
 
@@ -588,20 +593,21 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
   [%expect
     {|
     HEAP                              1 live · 3 nodes · 1 new
-    ▾ tbl · hashtbl ⟨string ⇒ int⟩ · 3 nodes
-    ▾┌ tbl ─┐
-     │size 1│
-     └──────┘
-             │
-           data
-    ▾┌────────┐
-     │slots 16│
-     └────────┘
-             │
-             1
-     ┌── new ┐
-     │"a" → 1│
-     └───────┘
+
+             ▾ tbl · hashtbl ⟨string ⇒ int⟩ · 3 nodes
+             ▾┌ tbl ─┐
+              │size 1│
+              └──────┘
+                      │
+                    data
+             ▾┌────────┐
+              │slots 16│
+              └────────┘
+                      │
+                      1
+              ┌── new ┐
+              │"a" → 1│
+              └───────┘
     |}]
 ;;
 
@@ -642,20 +648,25 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
   [%expect
     {|
     HEAP                              2 live · 3 nodes · 1 new
-    ▾ qq · queue ⟨'a Queue.t⟩ · 2 nodes
-    ▾┌ qq ────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ q1 ────┐
-     │length 0│
-     └────────┘
+
+
+
+
+
+               ▾ qq · queue ⟨'a Queue.t⟩ · 2 nodes
+               ▾┌ qq ────┐
+                │length 1│
+                └────────┘
+                        │
+                      first
+               ▾┌── new ┐
+                │slots 2│
+                └───────┘
+                        │
+                        0
+                ┌ q1 ────┐
+                │length 0│
+                └────────┘
     |}]
 ;;
 
@@ -665,15 +676,16 @@ let%expect_test "heap pane: closures stay opaque" =
   [%expect
     {|
     HEAP                              1 live · 2 nodes · 2 new
-    ▾ q · queue ⟨int -> int⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-     ┌─────────── new ┐
-     │⟨0x73a5227efa18⟩│
-     └────────────────┘
+
+                ▾ q · queue ⟨int -> int⟩ · 2 nodes
+                ▾┌ q ─────┐
+                 │length 1│
+                 └────────┘
+                         │
+                       first
+                 ┌─────────── new ┐
+                 │⟨0x73a5227efa18⟩│
+                 └────────────────┘
     |}]
 ;;
 
@@ -767,7 +779,10 @@ let%expect_test "heap fold: a structure collapses to its header" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 1 new
-    ▸ q · queue ⟨int M.t⟩ · 2 nodes
+
+
+
+               ▸ q · queue ⟨int M.t⟩ · 2 nodes
     |}]
 ;;
 
@@ -1224,21 +1239,28 @@ let%expect_test "delta wire: a payload cycle terminates" =
   [%expect
     {|
     HEAP                                  2 live · 3 nodes · 1 new
-    ▾ q · queue ⟨cyc⟩ · 2 nodes
-    ▾┌ q ─────┐
-     │length 1│
-     └────────┘
-             │
-           first
-    ▾┌── new ┐
-     │slots 2│
-     └───────┘
-             │
-             0
-     ┌ r ────────┐
-     │name="loop"│
-     │self=0     │
-     └───────────┘
+
+
+
+
+
+
+
+                     ▾ q · queue ⟨cyc⟩ · 2 nodes
+                     ▾┌ q ─────┐
+                      │length 1│
+                      └────────┘
+                              │
+                            first
+                     ▾┌── new ┐
+                      │slots 2│
+                      └───────┘
+                              │
+                              0
+                      ┌ r ────────┐
+                      │name="loop"│
+                      │self=0     │
+                      └───────────┘
     |}]
 ;;
 
@@ -1704,10 +1726,10 @@ let%expect_test "filter: only matching structures stay on the canvas" =
   [%expect
     {|
     HEAP             /queue · 1 of 2 live · 1 node · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 1 node
-     ┌ q  new ┐
-     │length 0│
-     └────────┘
+                ▾ q · queue ⟨int M.t⟩ · 1 node
+                 ┌ q  new ┐
+                 │length 0│
+                 └────────┘
     |}];
   (* matching is case-insensitive, and the kind is part of the header's
      words, so [/MAP] finds the map *)
@@ -1715,10 +1737,10 @@ let%expect_test "filter: only matching structures stay on the canvas" =
   [%expect
     {|
     HEAP               /MAP · 1 of 2 live · 1 node · 1 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
+              ▾ m · map ⟨string ⇒ int⟩ · 1 node
+               ┌ m ────┐
+               │"k" → 1│
+               └───────┘
     |}]
 ;;
 
@@ -2072,5 +2094,111 @@ let%expect_test "timeline density brightens within each state's hue" =
     0. -> past 0, future 0
     0.2 -> past 1, future 1
     0.7 -> past 2, future 2
+    |}]
+;;
+
+let%expect_test "heap pane: a lone structure takes the whole pane" =
+  (* nothing else is live, so the map gets the pane to itself: centered
+     across it and down it rather than hugging the top-left corner *)
+  let replay = replay_of_fixture "map_basic" in
+  heap_view ~width:60 ~height:12 replay ~step:0;
+  [%expect
+    {|
+    HEAP                               1 live · 1 node · 1 new
+
+
+
+                ▾ m · map ⟨string ⇒ int⟩ · 1 node
+                 ┌ m  new ┐
+                 │"a" → 1 │
+                 └────────┘
+    |}]
+;;
+
+let%expect_test "heap pane: structures that fit abreast share the row" =
+  (* two versions of the map, and a pane wide enough for both: the slack
+     between their own widths and the pane is handed back to them in
+     proportion, and each centers in the cell it got. Side by side and level
+     with each other is the comparison this pane exists to make. *)
+  let replay = replay_of_fixture "map_versions" in
+  heap_view ~width:100 ~height:16 replay ~step:1;
+  [%expect
+    {|
+    HEAP                                                                      2 live · 3 nodes · 2 new
+
+
+
+                                                      ▾ m1 · map ⟨string ⇒ int⟩ · 2 nodes
+                                                      ▾┌ m1  new ┐
+                 ▾ #1 · map ⟨string ⇒ int⟩ · 1 node    │"a" → 1  │
+                  ┌ #1 ───┐                            └─────────┘
+                  │"a" → 1│                             ┌──────┴───────┐
+                  └───────┘                             l              r
+                                                      ┌┄┄┄┐    ┌── new ┐
+                                                      ┆ ∅ ┆    │"b" → 2│
+                                                      └┄┄┄┘    └───────┘
+    |}]
+;;
+
+let%expect_test "clicks follow the structures into their cells" =
+  (* the same centered pair the picture above draws: hit-testing runs the
+     same layout, so a click lands on the card the eye is on rather than
+     where the corner-packed canvas used to put it *)
+  let replay = replay_of_fixture "map_versions" in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step:1
+  in
+  let at ~x ~y =
+    Heap_pane.spot_at
+      ~width:100
+      ~height:16
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~scroll:0
+      ~pan:0
+      ~selection:Heap_pane.Selection.none
+      ~x
+      ~y
+    |> Option.value_map ~default:"·" ~f:(fun (spot : Heap_pane.Spot.t) ->
+      Snapshot.Address.display spot.address)
+  in
+  (* the left structure's card, the right one's root, and the margin the
+     centering opened up on the far left, which is nobody's *)
+  print_endline (at ~x:19 ~y:6);
+  print_endline (at ~x:57 ~y:4);
+  print_endline (at ~x:1 ~y:6);
+  [%expect {|
+    0x7922681f11f0
+    0x7922681ed688
+    ·
+    |}]
+;;
+
+let%expect_test "heap pane: one section too many falls back to packing" =
+  (* the same run one step on. Three sections no longer fit in a row, so the
+     skyline takes over: they pack bottom-left, top-aligned, exactly as they
+     did before the spread existed. *)
+  let replay = replay_of_fixture "map_versions" in
+  heap_view ~width:100 ~height:16 replay ~step:2;
+  [%expect
+    {|
+    HEAP                                                                      3 live · 6 nodes · 3 new
+    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node   ▾ m1 · map ⟨string ⇒ int⟩ · 2 nodes
+     ┌ #1 ───┐                           ▾┌ m1 ───┐
+     │"a" → 1│                            │"a" → 1│
+     └───────┘                            └───────┘
+                                           ┌──────┴───────┐
+                                           l              r
+                                         ┌┄┄┄┐    ┌───────┐
+                                         ┆ ∅ ┆    │"b" → 2│
+                                         └┄┄┄┘    └───────┘
+
+    ▾ m2 · map ⟨string ⇒ int⟩ · 3 nodes
+    ▾┌ m2  new ┐
+     │"a" → 1  │
+     └─────────┘
+      ┌──────┴───────┐
     |}]
 ;;

@@ -13,12 +13,17 @@
     [Queue.add m q] runs, the map's tree hangs off the queue cell's [v→]
     edge.
 
-    Structures lay side by side rather than stacking — packed bottom-left
-    against a skyline, each taking the width it needs, floored at a third of
-    the pane so no more than three sit abreast. Two versions of a map beside
-    each other is the comparison this pane exists to make. A structure's
-    column is chosen from its EXPANDED footprint, so collapsing one moves it
-    up its own column and leaves the rest where they are.
+    Structures lay side by side rather than stacking: two versions of a map
+    beside each other is the comparison this pane exists to make. While there
+    is room for them they sit centered — one structure or five, as a group,
+    in the middle of the pane rather than in its top-left corner, keeping
+    their own widths and the ordinary gap between them, each centered
+    vertically so they hang off one midline whatever their heights. When the
+    row is too long for that — cards are text and cannot shrink — they pack
+    bottom-left against a skyline instead, each taking the width it needs,
+    floored at a third of the pane so no more than three sit abreast. Either
+    way a structure's column comes from its EXPANDED footprint, so collapsing
+    one leaves the rest where they are.
 
     Any node folds: a [▾]/[▸] glyph sits in the column before each card with
     something below it (and before each section header); clicking the glyph

@@ -1250,19 +1250,61 @@ let columns = 3
 let column_gap = 3
 let row_gap = 1
 
-(* Sections lay side by side rather than stacking in one column. A run
-   allocates many small structures and a few large ones, and a single column
-   spent most of a pane — now two thirds of the screen — on nothing: a map
-   beside the queue holding it beside the version one more [add] returned is
-   the comparison the pane exists to make.
+(* While there is room for them, the structures sit centered — one of them or
+   five, as a group, in the middle of the pane rather than in its top-left
+   corner. They keep their own widths and the ordinary gap between them:
+   stretching them apart to fill the pane pushes two versions of a map to
+   opposite edges, and comparing them is what this pane is for. The leftover
+   width goes half to each side, and each section centers itself vertically,
+   so they hang off one midline whatever their heights.
 
-   They pack bottom-left against a skyline rather than into rows or into
-   fixed columns. Rows were as tall as their tallest member, which on a dump
-   with a thousand structures left more blank canvas than diagram; fixed
-   columns made a section a shade too wide claim two of them and waste the
-   rest. A section takes the width it actually needs, floored at a third of
-   the pane so no more than three ever sit abreast, and drops into the
-   highest place it fits.
+   [None] as soon as the row is too long to hold: there is no honest way to
+   spread what already overflows, and cards are text — they cannot shrink to
+   fit. That case is the skyline's, below.
+
+   The row is measured in RESERVED widths, so folding a structure does not
+   move its neighbors sideways; the vertical centering uses the drawn height,
+   so a collapse genuinely frees the space it was using. *)
+let spread sections ~body_width ~body_height =
+  let count = List.length sections in
+  let natural =
+    List.map sections ~f:(fun (section : Section.t) ->
+      Int.max 1 section.reserved_width)
+  in
+  let row_width =
+    List.sum (module Int) natural ~f:Fn.id + ((count - 1) * column_gap)
+  in
+  match count = 0 || row_width > body_width with
+  | true -> None
+  | false ->
+    let left = (body_width - row_width) / 2 in
+    let (_ : int), cells =
+      List.fold_map
+        (List.zip_exn sections natural)
+        ~init:left
+        ~f:(fun x ((section : Section.t), natural_width) ->
+          x + natural_width + column_gap, (section, x))
+    in
+    let place (views, all_placed, all_toggles) ((section : Section.t), x) =
+      let y = Int.max 0 ((body_height - section.height) / 2) in
+      ( View.pad ~l:x ~t:y section.view :: views
+      , List.map section.placed ~f:(Placed.shift ~dx:x ~dy:y) @ all_placed
+      , List.map section.toggles ~f:(Toggle.shift ~dx:x ~dy:y) @ all_toggles
+      )
+    in
+    let views, placed, toggles =
+      List.fold cells ~init:([], [], []) ~f:place
+    in
+    Some (View.zcat views, placed, toggles)
+;;
+
+(* Too many to hold in one row, and they pack bottom-left against a skyline
+   rather than into rows or into fixed columns. Rows were as tall as their
+   tallest member, which on a dump with a thousand structures left more blank
+   canvas than diagram; fixed columns made a section a shade too wide claim
+   two of them and waste the rest. A section takes the width it actually
+   needs, floored at a third of the pane so no more than three ever sit
+   abreast, and drops into the highest place it fits.
 
    x is chosen against the RESERVED skyline — heights as if nothing were
    folded — so collapsing a structure moves it up its column without moving
@@ -1323,10 +1365,22 @@ let pack sections ~body_width =
   View.zcat views, placed, toggles
 ;;
 
-let layout ~structures ~nodes ~new_addresses ~folds ~selection ~body_width =
-  pack
-    (sections ~structures ~nodes ~new_addresses ~folds ~selection)
-    ~body_width
+(* the spread first, the skyline when the row will not have it *)
+let layout
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ~selection
+  ~body_width
+  ~body_height
+  =
+  let sections =
+    sections ~structures ~nodes ~new_addresses ~folds ~selection
+  in
+  match spread sections ~body_width:(Int.max 1 body_width) ~body_height with
+  | Some spread -> spread
+  | None -> pack sections ~body_width
 ;;
 
 (* Bring one span into a window of [size], from an offset of [at].
@@ -1460,6 +1514,7 @@ let view
       ~folds
       ~selection
       ~body_width:(Panel.inner_width ~width)
+      ~body_height:(height - Panel.header_height)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   let left =
@@ -1515,6 +1570,7 @@ let toggle_at
       ~folds
       ~selection
       ~body_width:(Panel.inner_width ~width)
+      ~body_height:(height - Panel.header_height)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   let left =
@@ -1548,6 +1604,7 @@ let spot_at
       ~folds
       ~selection
       ~body_width:(Panel.inner_width ~width)
+      ~body_height:(height - Panel.header_height)
   in
   let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
   let left =
