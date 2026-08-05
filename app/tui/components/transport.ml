@@ -10,6 +10,7 @@ module Button = struct
     | Fold
     | Accordion
     | Filter
+    | Close
     | Quit
   [@@deriving sexp_of, equal]
 end
@@ -100,7 +101,7 @@ let ticks ~width ~step ~total ~density =
    controls and the whole key legend — the one place control info lives — and
    every chip is clickable. Layout math lives here so the view and
    [control_at] can never disagree. *)
-let segments ~playing =
+let segments ~playing ~detail =
   let play_label =
     match playing with true -> "[space] pause" | false -> "[space] play"
   in
@@ -116,26 +117,31 @@ let segments ~playing =
   ; None, " · "
   ; Some Button.Filter, "/ filter"
   ; None, " · "
-  ; Some Button.Quit, "q quit"
   ]
+  (* only while a structure is open full-pane: the chip is the way back, so
+     showing it any other time would advertise a no-op *)
+  @ (match detail with
+     | false -> []
+     | true -> [ Some Button.Close, "esc close"; None, " · " ])
+  @ [ Some Button.Quit, "q quit" ]
 ;;
 
 (* display columns, not bytes — ◂ ▸ · are multi-byte glyphs *)
 let segment_columns text = View.width (View.text text)
 
-let start_column ~width ~playing =
+let start_column ~width ~playing ~detail =
   let total =
     List.sum
       (module Int)
-      (segments ~playing)
+      (segments ~playing ~detail)
       ~f:(fun ((_ : Button.t option), text) -> segment_columns text)
   in
   max 0 (width - total - 1)
 ;;
 
-let controls ~width ~playing ~accordion =
+let controls ~width ~playing ~accordion ~detail =
   let chips =
-    List.map (segments ~playing) ~f:(fun (button, text) ->
+    List.map (segments ~playing ~detail) ~f:(fun (button, text) ->
       (* the chips that name a mode light up while it is on, the same cue for
          both: you can read the row as state, not just as keys *)
       let attrs =
@@ -147,26 +153,26 @@ let controls ~width ~playing ~accordion =
           [ Theme.fg Theme.highlight; Attr.bold ]
         | Some
             ( Button.Back | Button.Step | Button.Play | Button.Fold
-            | Button.Accordion | Button.Filter | Button.Quit ) ->
-          Theme.fg' Theme.secondary
+            | Button.Accordion | Button.Filter | Button.Close | Button.Quit
+            ) -> Theme.fg' Theme.secondary
       in
       View.text ~attrs text)
   in
   Panel.fit
     (View.hcat
        (View.transparent_rectangle
-          ~width:(start_column ~width ~playing)
+          ~width:(start_column ~width ~playing ~detail)
           ~height:1
         :: chips))
     ~width
     ~height:1
 ;;
 
-let control_at ~width ~playing ~x =
+let control_at ~width ~playing ~detail ~x =
   let (_ : int), hit =
     List.fold
-      (segments ~playing)
-      ~init:(start_column ~width ~playing, None)
+      (segments ~playing ~detail)
+      ~init:(start_column ~width ~playing ~detail, None)
       ~f:(fun (column, hit) (button, text) ->
         let stop = column + segment_columns text in
         let hit =
@@ -179,7 +185,7 @@ let control_at ~width ~playing ~x =
   hit
 ;;
 
-let view ~width ~step ~total ~density ~playing ~accordion =
+let view ~width ~step ~total ~density ~playing ~accordion ~detail =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
@@ -187,7 +193,7 @@ let view ~width ~step ~total ~density ~playing ~accordion =
     (Panel.fit
        (View.vcat
           [ ticks ~width ~step ~total ~density
-          ; controls ~width ~playing ~accordion
+          ; controls ~width ~playing ~accordion ~detail
           ])
        ~width
        ~height:Layout.strip_height)

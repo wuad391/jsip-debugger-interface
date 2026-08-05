@@ -1,4 +1,5 @@
 module App = App
+module Heap_overview = Jsip_tui_components.Heap_overview
 module Heap_pane = Jsip_tui_components.Heap_pane
 module Layout = Jsip_tui_components.Layout
 module Panel = Jsip_tui_components.Panel

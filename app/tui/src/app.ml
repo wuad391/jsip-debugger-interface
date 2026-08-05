@@ -67,6 +67,9 @@ module Model = struct
     ; typing_filter : bool
     (** the [/] prompt is open, and keystrokes edit the filter instead of
         driving the panes *)
+    ; heap_detail : int option
+    (** a structure opened full-pane from the overview grid; [esc] or the
+        transport's [esc close] chip returns to the overview *)
     }
   [@@deriving sexp_of, equal]
 
@@ -87,6 +90,7 @@ module Model = struct
     ; accordion = false
     ; heap_filter = ""
     ; typing_filter = false
+    ; heap_detail = None
     }
   ;;
 end
@@ -121,6 +125,9 @@ module Action = struct
     | Filter_backspace
     | Commit_filter (** [Enter]: close the prompt, keep the filter *)
     | Cancel_filter (** [Escape]: close the prompt, drop the filter *)
+    | Open_structure of int
+    (** a click on an overview tile: that structure alone, full-pane *)
+    | Close_detail (** [esc], or the transport chip: back to the overview *)
   [@@deriving sexp_of]
 end
 
@@ -160,6 +167,20 @@ let heap_inputs replay (model : Model.t) =
       (Replay.step_exn replay ~step:model.step).structures
       ~f:(fun structure ->
         Heap_pane.matches_filter structure ~filter:model.heap_filter)
+  in
+  (* the detail view is this same canvas holding one structure; an id the
+     registry has dropped (the GC got it) falls back to the whole canvas
+     rather than an empty pane *)
+  let structures =
+    match model.heap_detail with
+    | None -> structures
+    | Some id ->
+      (match
+         List.filter structures ~f:(fun (structure : Replay.Structure.t) ->
+           structure.id = id)
+       with
+       | [] -> structures
+       | detail -> detail)
   in
   let folds =
     match model.accordion with
@@ -408,6 +429,25 @@ let apply_action
   | Move_cursor direction -> aim model ~direction
   | Commit_cursor -> commit model
   | Jump_cursor direction -> commit (aim model ~direction)
+  (* opening rewinds the canvas offsets — the lone structure centers
+     itself — and drops the cursors, whose spots were places on the other
+     canvas. Closing is the same reset back the other way. *)
+  | Open_structure id ->
+    { model with
+      heap_detail = Some id
+    ; heap_scroll = 0
+    ; heap_pan = 0
+    ; heap_selected = None
+    ; heap_cursor = None
+    }
+  | Close_detail ->
+    { model with
+      heap_detail = None
+    ; heap_scroll = 0
+    ; heap_pan = 0
+    ; heap_selected = None
+    ; heap_cursor = None
+    }
   | Select_heap_node spot -> select_heap_node model spot
 ;;
 
@@ -528,6 +568,30 @@ let render
   let snapshot = call.info.snapshot in
   let selection = heap_selection replay model in
   let heap_structures, heap_folds = heap_inputs replay model in
+  (* [heap_inputs] fell back to the full canvas if the opened structure died *)
+  let heap_detail_active =
+    match model.heap_detail with
+    | None -> false
+    | Some id ->
+      List.exists heap_structures ~f:(fun (s : Replay.Structure.t) ->
+        s.id = id)
+  in
+  (* One tile per structure once the full canvas stops fitting the pane —
+     five structures' trees are a diagram, five hundred are a scroll hunt. A
+     single structure is never sent to the overview: a grid of one tile says
+     less than the tree itself, however big the tree. *)
+  let heap_overview_active =
+    (not heap_detail_active)
+    && List.length heap_structures > 1
+    && not
+         (Heap_pane.fits
+            ~structures:heap_structures
+            ~nodes
+            ~new_addresses
+            ~folds:heap_folds
+            ~width:layout.heap.width
+            ~height:layout.heap.height)
+  in
   (* the meta line owns up to the modes shaping the canvas: the filter as
      typed (a block cursor while the prompt is open), the accordion by name *)
   let heap_note =
@@ -632,6 +696,7 @@ let render
              ~density
              ~playing:model.playing
              ~accordion:model.accordion
+             ~detail:heap_detail_active
          ; place
              layout.stack
              (Stack_pane.view
@@ -657,18 +722,27 @@ let render
                 ~char_range:(Location.char_range location))
          ; place
              layout.heap
-             (Heap_pane.view
-                ~note:heap_note
-                ~total:(Some (List.length structures))
-                ~width:layout.heap.width
-                ~height:layout.heap.height
-                ~structures:heap_structures
-                ~nodes
-                ~new_addresses
-                ~folds:heap_folds
-                ~scroll:model.heap_scroll
-                ~pan:model.heap_pan
-                ~selection)
+             (match heap_overview_active with
+              | true ->
+                Heap_overview.view
+                  ~note:heap_note
+                  ~total:(Some (List.length structures))
+                  ~width:layout.heap.width
+                  ~height:layout.heap.height
+                  ~structures:heap_structures
+              | false ->
+                Heap_pane.view
+                  ~note:heap_note
+                  ~total:(Some (List.length structures))
+                  ~width:layout.heap.width
+                  ~height:layout.heap.height
+                  ~structures:heap_structures
+                  ~nodes
+                  ~new_addresses
+                  ~folds:heap_folds
+                  ~scroll:model.heap_scroll
+                  ~pan:model.heap_pan
+                  ~selection)
          ; (* junctions ride over the rules they interrupt *)
            View.pad
              ~l:layout.column_divider.x
@@ -737,6 +811,7 @@ let render
       Transport.control_at
         ~width:layout.controls.width
         ~playing:model.playing
+        ~detail:heap_detail_active
         ~x:position.x
       |> Option.map ~f:(fun button ->
         match (button : Transport.Button.t) with
@@ -746,6 +821,7 @@ let render
         | Fold -> act Action.Toggle_focused_fold
         | Accordion -> act Action.Toggle_accordion
         | Filter -> act Action.Begin_filter
+        | Close -> act Action.Close_detail
         | Quit -> `Quit)
     | false ->
       (match Region.contains layout.ticks position with
@@ -795,6 +871,15 @@ let render
                       { Source_fold.file = file_path; line }))
              | None ->
                (match Layout.inner_position layout.heap position with
+                | Some { x; y } when heap_overview_active ->
+                  Heap_overview.structure_at
+                    ~width:layout.heap.width
+                    ~height:layout.heap.height
+                    ~structures:heap_structures
+                    ~x
+                    ~y
+                  |> Option.map ~f:(fun id ->
+                    act (Action.Open_structure id))
                 | Some { x; y } ->
                   (* the panel pads the body one column right of the border;
                      fold glyphs win over the card under them *)
@@ -905,7 +990,7 @@ let component
   in
   let handler =
     let%arr { Computed.on_click; on_scroll; view = _ } = computed
-    and { Model.typing_filter; _ } = model
+    and { Model.typing_filter; heap_detail; _ } = model
     and inject in
     let inject_or_ignore action =
       match action with
@@ -948,8 +1033,12 @@ let component
          | ASCII 'h', [] -> inject Toggle_focused_fold
          | ASCII 'z', [] -> inject Toggle_accordion
          | ASCII '/', [] -> inject Begin_filter
-         (* clears a committed filter without reopening the prompt *)
-         | Escape, [] -> inject Cancel_filter
+         (* [esc] peels the outermost layer: the detail view first, then
+            a committed filter *)
+         | Escape, [] ->
+           (match heap_detail with
+            | Some (_ : int) -> inject Close_detail
+            | None -> inject Cancel_filter)
          | (Home | ASCII 'g'), [] -> inject (Step_to 0)
          | (End | ASCII 'G'), [] -> inject (Step_to Int.max_value)
          | Page `Up, [] -> inject (Scroll_heap (-3))

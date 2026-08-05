@@ -1,3 +1,4 @@
+module Heap_overview = Heap_overview
 module Heap_pane = Heap_pane
 module Layout = Layout
 module Panel = Panel

@@ -1383,6 +1383,25 @@ let layout
   | None -> pack sections ~body_width
 ;;
 
+(* Whether the full canvas can be shown without scrolling — the app's cue to
+   swap in the overview grid instead. Selection is not geometry (cards are
+   spaced for their address either way), so [Selection.none] measures the
+   same canvas every caller draws. *)
+let fits ~structures ~nodes ~new_addresses ~folds ~width ~height =
+  let canvas, (_ : Placed.t list), (_ : Toggle.t list) =
+    layout
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~selection:Selection.none
+      ~body_width:(Panel.inner_width ~width)
+      ~body_height:(height - Panel.header_height)
+  in
+  View.height canvas <= height - Panel.header_height
+  && View.width canvas <= Panel.inner_width ~width
+;;
+
 (* Bring one span into a window of [size], from an offset of [at].
 
    A card just past the edge takes the smallest adjustment that shows it, so

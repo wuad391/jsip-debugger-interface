@@ -401,7 +401,8 @@ let%expect_test "transport: ticks, then the clickable key legend" =
        ~total:3
        ~density:[| 0.0; 1.0; 0.2 |]
        ~playing:false
-       ~accordion:false);
+       ~accordion:false
+       ~detail:false);
   [%expect
     {|
     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
@@ -693,7 +694,7 @@ let%expect_test "control chips hit-test exactly where they render" =
   let width = 84 in
   let hits =
     List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
-      Transport.control_at ~width ~playing:false ~x
+      Transport.control_at ~width ~playing:false ~detail:false ~x
       |> Option.map ~f:(fun button -> x, button))
   in
   let groups =
@@ -2201,4 +2202,80 @@ let%expect_test "heap pane: one section too many falls back to packing" =
      └─────────┘
       ┌──────┴───────┐
     |}]
+;;
+
+let%expect_test "overview: every structure is a tile, and it never scrolls" =
+  let replay = replay_of_fixture "map_versions" in
+  let { Replay.Step.structures; _ } = Replay.step_exn replay ~step:3 in
+  print_view
+    ~width:60
+    ~height:14
+    (Heap_overview.view
+       ~note:None
+       ~total:None
+       ~width:60
+       ~height:14
+       ~structures);
+  [%expect {| |}]
+;;
+
+let%expect_test "overview: too many even for one line each ends in +n more" =
+  let replay = replay_of_fixture "map_versions" in
+  let { Replay.Step.structures; _ } = Replay.step_exn replay ~step:3 in
+  print_view
+    ~width:60
+    ~height:3
+    (Heap_overview.view
+       ~note:None
+       ~total:None
+       ~width:60
+       ~height:3
+       ~structures);
+  [%expect {| |}]
+;;
+
+let%expect_test "overview: a click opens its tile, and the gaps open nothing" =
+  let replay = replay_of_fixture "map_versions" in
+  let { Replay.Step.structures; _ } = Replay.step_exn replay ~step:3 in
+  let at ~x ~y =
+    Heap_overview.structure_at ~width:60 ~height:14 ~structures ~x ~y
+    |> Option.value_map ~default:"·" ~f:Int.to_string
+  in
+  print_endline (at ~x:8 ~y:3);
+  print_endline (at ~x:40 ~y:8);
+  print_endline (at ~x:0 ~y:0);
+  [%expect {| |}]
+;;
+
+let%expect_test "the overview trigger measures the real canvas" =
+  let replay = replay_of_fixture "map_versions" in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step:3
+  in
+  let fits height =
+    Heap_pane.fits
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~width:100
+      ~height
+  in
+  print_s [%message (fits 40 : bool) (fits 12 : bool)];
+  [%expect {| |}]
+;;
+
+let%expect_test "transport: the close chip appears only in the detail view" =
+  print_view
+    ~width:84
+    ~height:3
+    (Transport.view
+       ~width:84
+       ~step:1
+       ~total:3
+       ~density:[| 0.0; 1.0; 0.2 |]
+       ~playing:false
+       ~accordion:false
+       ~detail:true);
+  [%expect {| |}]
 ;;

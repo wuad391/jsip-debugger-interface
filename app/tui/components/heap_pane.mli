@@ -167,6 +167,18 @@ val accordion_folds
     everything. *)
 val matches_filter : Replay.Structure.t -> filter:string -> bool
 
+(** Whether every live structure's tree fits the pane without scrolling —
+    when it does not, the app shows {!Heap_overview}'s tile grid instead of
+    this canvas. *)
+val fits
+  :  structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
+  -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
+  -> width:int
+  -> height:int
+  -> bool
+
 (** [pan] is the manual horizontal offset — [\[]/[\]], or the wheel with ctrl
     or alt held — the sideways twin of [scroll]. The pane still slides on its
     own to keep the aimed card in view, adjusting from [pan] exactly the way

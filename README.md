@@ -197,8 +197,18 @@ it moves up and the space is actually freed.
 ### Hundreds of structures
 
 A real program's registry is not three maps — an exchange run carries a
-thousand live structures — so the heap pane has two ways to cut it down,
-both announced on its meta line.
+thousand live structures — so the heap pane changes shape, and has two
+ways to cut the registry down besides.
+
+When the full canvas stops fitting the pane, the pane swaps to an
+**overview**: one tile per structure — name, kind, node count — sized so
+the whole registry is on screen at once, with no scrolling. Click a tile
+and that structure opens alone on the ordinary canvas, centered in the
+whole pane; `esc` (or the transport's `esc close` chip, which exists only
+while a structure is open) goes back to the grid. When there are too many
+tiles even at one line each, the last cell says `+n more` — the filter
+below is how you reach those. The two cut-downs, both announced on the
+meta line:
 
 `z` toggles **accordion** mode: every structure collapses except the one
 the keyboard is in, so the canvas becomes a list of one-line
