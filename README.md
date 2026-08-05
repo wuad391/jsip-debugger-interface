@@ -21,27 +21,27 @@ bright blue across all panes, and one surface — no boxes, just a
 divider line along each seam:
 
 ```
-▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-       ◂ back · step ▸ · [space] play · . latest · h fold · z accordion · / filter · q quit
-─────────────────────────────┬──────────────────────────────────────────────────────────────
- CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
-      M.add "b" 2 M.empty    │ ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
- ▎▾ M.add "a" 1 (M.add "b" 2 │        ▾┌ m ──────── new ┐
- ▎    M.empty)               │         │"b" → 2         │
-      M.add k (v * 2) acc    │         └ 0x77127f3ee7e8 ┘
-      M.add k (v * 2) acc    │          ┌──────┴───────┐
-  ▾ M.fold (fun k v acc ->   │          l              r
-      M.add k (v * 2) acc) m │  ┌── new ┐            ┌┄┄┄┐
-      M.empty                │  │"a" → 1│            ┆ ∅ ┆
-─────────────────────────────┤  └───────┘            └┄┄┄┘
- SOURCE map_fold.ml · 15 line│
-         (String)            │ ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
-     6                       │  ┌ #1 ───┐
-  ▾  7 let () =              │  │"b" → 2│
- ▎   8   let m = M.add "a"   │  └───────┘
- ▎         1 (M.add "b" 2 M  │
- ▎         .empty) in        │
-─────────────────────────────┴──────────────────────────────────────────────────────────────
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+     ◂ back · step ▸ · [space] play · . latest · [ ] pan · h fold · z accordion · / filter · q quit
+────────────────────────────────┬───────────────────────────────────────────────────────────────────
+ ▾ CALL STACK  5 calls · 1 live │ HEAP                             2 live · 3 nodes · 168 B · 2 new
+      M.add "b" 2 M.empty       │ ▾ m · map ⟨string ⇒ int⟩ · 2 nodes · 112 B
+ ▎▾ M.add "a" 1 (M.add "b" 2    │        ▾┌ m ──────── new ┐
+ ▎    M.empty)                  │         │"b" → 2         │
+      M.add k (v * 2) acc       │         └ 0x77127f3ee7e8 ┘
+      M.add k (v * 2) acc       │          ┌──────┴───────┐
+  ▾ M.fold (fun k v acc ->      │          l              r
+      M.add k (v * 2) acc) m    │  ┌── new ┐            ┌┄┄┄┐
+      M.empty                   │  │"a" → 1│            ┆ ∅ ┆
+────────────────────────────────┤  └───────┘            └┄┄┄┘
+ ▾ SOURCE map_fold.ml · 15 lines│
+         String)                │ ▾ #1 · map ⟨string ⇒ int⟩ · 1 node · 56 B
+     6                          │  ┌ #1 ───┐
+  ▾  7 let () =                 │  │"b" → 2│
+ ▎   8   let m = M.add "a" 1 (  │  └───────┘
+ ▎         M.add "b" 2 M.empty  │
+ ▎         ) in                 │
+────────────────────────────────┴───────────────────────────────────────────────────────────────────
  ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay```
 
 - **Call stack** — every call in the run, indented by depth: the current

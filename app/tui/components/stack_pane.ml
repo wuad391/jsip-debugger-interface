@@ -40,7 +40,7 @@ let is_hidden ~folds ~calls index =
 (* the whole run, one row per visible call: the live chain bright, everything
    else dimmed; a call with descendants gets a fold glyph, and folding tucks
    its range away behind a [⋯ n] count *)
-let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
+let build_rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
   Array.to_list calls
   |> List.filter_mapi ~f:(fun step (call : Call.t) ->
     match is_hidden ~folds ~calls step with
@@ -174,6 +174,47 @@ let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
     ; glyph_x = (match foldable with true -> Some glyph_x | false -> None)
     ; height = List.length lines
     })
+;;
+
+(* One frame's rows, remembered under everything they read. Every heap scroll
+   tick re-renders the app, and rebuilding (and re-wrapping) a thousand-call
+   history each time is most of what made scrolling drag — the calls array
+   itself never changes, so one slot keyed by the handful of inputs that do
+   is enough. *)
+module Rows_key = struct
+  type t =
+    { width : int
+    ; calls : Call.t array
+    ; heat : float option array
+    ; live : int list
+    ; selected : int
+    ; folds : Int.Set.t
+    ; cursor : int option
+    }
+
+  let equal a b =
+    a.width = b.width
+    && phys_equal a.calls b.calls
+    && phys_equal a.heat b.heat
+    && [%equal: int list] a.live b.live
+    && a.selected = b.selected
+    && Set.equal a.folds b.folds
+    && [%equal: int option] a.cursor b.cursor
+  ;;
+end
+
+let rows_cache : (Rows_key.t * Row.t list) option ref = ref None
+
+let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor =
+  let key = { Rows_key.width; calls; heat; live; selected; folds; cursor } in
+  match !rows_cache with
+  | Some (cached, result) when Rows_key.equal cached key -> result
+  | Some _ | None ->
+    let result =
+      build_rows ~width ~calls ~heat ~live ~selected ~folds ~cursor
+    in
+    rows_cache := Some (key, result);
+    result
 ;;
 
 (* keep the row the eye is on centered among the wrapped rows: the cursor

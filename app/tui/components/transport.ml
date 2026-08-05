@@ -8,6 +8,7 @@ module Button = struct
     | Step
     | Play
     | Latest
+    | Pan
     | Fold
     | Accordion
     | Filter
@@ -91,6 +92,8 @@ let segments ~playing =
   ; None, " · "
   ; Some Button.Latest, ". latest"
   ; None, " · "
+  ; Some Button.Pan, "[ ] pan"
+  ; None, " · "
   ; Some Button.Fold, "h fold"
   ; None, " · "
   ; Some Button.Accordion, "z accordion"
@@ -128,8 +131,8 @@ let controls ~width ~playing ~accordion =
           [ Theme.fg Theme.highlight; Attr.bold ]
         | Some
             ( Button.Back | Button.Step | Button.Play | Button.Latest
-            | Button.Fold | Button.Accordion | Button.Filter | Button.Quit )
-          ->
+            | Button.Pan | Button.Fold | Button.Accordion | Button.Filter
+            | Button.Quit ) ->
           Theme.fg' Theme.secondary
       in
       View.text ~attrs text)

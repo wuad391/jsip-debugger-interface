@@ -863,6 +863,8 @@ let render
         | Step -> act (Action.Step_delta 1)
         | Play -> act Action.Toggle_play
         | Latest -> act Action.Focus_latest
+        (* a click can only nudge one way; [\[] comes back *)
+        | Pan -> act (Action.Pan_heap 8)
         | Fold -> act Action.Toggle_focused_fold
         | Accordion -> act Action.Toggle_accordion
         | Filter -> act Action.Begin_filter

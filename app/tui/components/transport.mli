@@ -17,6 +17,7 @@ module Button : sig
     | Step
     | Play
     | Latest
+    | Pan
     | Fold
     | Accordion
     | Filter

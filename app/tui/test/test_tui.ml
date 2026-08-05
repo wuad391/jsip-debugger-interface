@@ -433,18 +433,18 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
 
 let%expect_test "transport: ticks, then the clickable key legend" =
   print_view
-    ~width:84
+    ~width:96
     ~height:3
     (Transport.view
-       ~width:84
+       ~width:96
        ~step:1
        ~total:3
        ~playing:false
        ~accordion:false);
   [%expect
     {|
-    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-    ◂ back · step ▸ · [space] play · . latest · h fold · z accordion · / filter · q quit
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+     ◂ back · step ▸ · [space] play · . latest · [ ] pan · h fold · z accordion · / filter · q quit
     |}]
 ;;
 
@@ -719,7 +719,7 @@ let%expect_test "heap pane: closures stay opaque" =
 ;;
 
 let%expect_test "control chips hit-test exactly where they render" =
-  let width = 84 in
+  let width = 96 in
   let hits =
     List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
       Transport.control_at ~width ~playing:false ~x
@@ -736,14 +736,15 @@ let%expect_test "control chips hit-test exactly where they render" =
       [%sexp (button : Transport.Button.t), (first : int), (last : int)]);
   [%expect
     {|
-    (Back 0 5)
-    (Step 9 14)
-    (Play 18 29)
-    (Latest 33 40)
-    (Fold 44 49)
-    (Accordion 53 63)
-    (Filter 67 74)
-    (Quit 78 83)
+    (Back 1 6)
+    (Step 10 15)
+    (Play 19 30)
+    (Latest 34 41)
+    (Pan 45 51)
+    (Fold 55 60)
+    (Accordion 64 74)
+    (Filter 78 85)
+    (Quit 89 94)
     |}]
 ;;
 
