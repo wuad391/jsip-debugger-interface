@@ -18,8 +18,24 @@ a:hover{color:#8ec0ea}
 ::-webkit-scrollbar-thumb:hover{background:#3d4757}
 input{font:inherit;color:inherit;background:transparent;border:0;outline:0}
 </style>
+<script>
+/* a startup crash must say so — this machine's only debugger is the page */
+window.addEventListener('error', function (event) {
+  var app = document.getElementById('app');
+  if (app && !app.hasChildNodes()) {
+    var pre = document.createElement('pre');
+    pre.style.cssText =
+      'color:#e05545;background:#101216;padding:24px;white-space:pre-wrap;' +
+      "font:13px 'JetBrains Mono',monospace";
+    pre.textContent = 'jsip web debugger crashed on startup:\n\n' +
+      (event.error && event.error.stack ? event.error.stack : event.message);
+    app.appendChild(pre);
+  }
+});
+</script>
 <script defer src="main.bc.js"></script>
 </head>
 <body>
+<div id="app"></div>
 </body>
 </html>
