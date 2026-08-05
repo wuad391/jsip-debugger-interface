@@ -19,9 +19,10 @@ let color hex =
    band where two panes meet *)
 let bg = color 0x1d1b19
 
-(* one shade off [bg]: the call stack's alternating rows — visible as a band
-   only against its neighbour, never against the text *)
-let stripe_bg = color 0x24211d
+(* the call stack's alternating rows: a clearly lighter warm gray — it has
+   to read as a band at a glance, not on inspection, while staying far
+   enough under the text and the picked rows' washes *)
+let stripe_bg = color 0x312c26
 
 (* the stack's picked rows: noticeably brighter than the card washes, because
    a one-line band between zebra stripes needs more contrast than a bordered
