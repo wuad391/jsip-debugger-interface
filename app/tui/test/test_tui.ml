@@ -99,10 +99,11 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
        ~live:(live_of replay ~step:2)
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor:None);
+       ~cursor:None
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            5 calls · 2 live
+    ▾ CALL STACK                          5 calls · 2 live
          M.add "b" 2 M.empty
      ▾ M.add "a" 1 (M.add "b" 2 M.empty)
     ▎    M.add k (v * 2) acc
@@ -324,6 +325,46 @@ let%expect_test "multi-file: each live frame knows its own file" =
     |}]
 ;;
 
+let%expect_test "the left panes collapse to their title rows" =
+  (* [1] /[2] (or a click on the title) fold a pane to exactly its title —
+         the [▸] and the counts stay, and the layout hands the freed height
+         to the pane underneath (or above) *)
+  let replay = replay_of_fixture "map_fold" in
+  print_view
+    ~width:56
+    ~height:2
+    (Stack_pane.view
+       ~width:56
+       ~height:1
+       ~calls:(calls_of replay)
+       ~heat:(no_heat (calls_of replay))
+       ~live:(live_of replay ~step:2)
+       ~selected:1
+       ~folds:Int.Set.empty
+       ~cursor:None
+       ~collapsed:true);
+  let heights ?stack_collapsed ?source_collapsed () =
+    let layout =
+      Layout.compute
+        ?stack_collapsed
+        ?source_collapsed
+        { Bonsai_term.Dimensions.width = 100; height = 40 }
+    in
+    layout.stack.height, layout.source.height
+  in
+  print_s
+    [%message
+      ""
+        ~both_open:(heights () : int * int)
+        ~stack_shut:(heights ~stack_collapsed:true () : int * int)
+        ~source_shut:(heights ~source_collapsed:true () : int * int)];
+  [%expect
+    {|
+     ▸ CALL STACK                          5 calls · 2 live
+    ((both_open (19 15)) (stack_shut (1 33)) (source_shut (33 1)))
+    |}]
+;;
+
 let%expect_test "source pane: gutter, active line wash, callsite marker" =
   let source =
     Jsip_parsing.Source_reader.load "../../../testing/cases/map_basic.ml"
@@ -339,10 +380,11 @@ let%expect_test "source pane: gutter, active line wash, callsite marker" =
        ~folds:Int.Set.empty
        ~active_line:8
        ~callsite_line:(Some 7)
-       ~char_range:(10, 23));
+       ~char_range:(10, 23)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE                         map_basic.ml · 10 lines
+    ▾ SOURCE                       map_basic.ml · 10 lines
         2    [empty] (an ident), [find] (returns the
                value) and [ignore] don't. *)
      ▾  3 module M = Map.Make (String)
@@ -375,10 +417,11 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
        ~folds:Int.Set.empty
        ~active_line:1
        ~callsite_line:None
-       ~char_range:(0, 0));
+       ~char_range:(0, 0)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE           gone.ml · missing
+    ▾ SOURCE         gone.ml · missing
 
      lib/gone.ml is not at
      ./lib/gone.ml — the dump's
@@ -460,10 +503,11 @@ let%expect_test "source pane: long lines wrap under a blank gutter" =
        ~folds:Int.Set.empty
        ~active_line:9
        ~callsite_line:None
-       ~char_range:(16, 60));
+       ~char_range:(16, 60)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE              map_fold.ml · 15 lines
+    ▾ SOURCE            map_fold.ml · 15 lines
         6
      ▾  7 let () =
         8   let m = M.add "a" 1 (M.add "b" 2
@@ -955,10 +999,11 @@ let%expect_test "stack fold: a call's range tucks behind a count" =
        ~live:(live_of replay ~step:4)
        ~selected:0
        ~folds:(Int.Set.of_list [ 1 ])
-       ~cursor:None);
+       ~cursor:None
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            5 calls · 1 live
+    ▾ CALL STACK                          5 calls · 1 live
      ▸ M.add "a" 1 (M.add "b" 2 M.empty) ⋯ 1
          M.add k (v * 2) acc
          M.add k (v * 2) acc
@@ -982,10 +1027,11 @@ let%expect_test "source fold: a definition folds to its first line" =
        ~folds:(Int.Set.of_list [ 5 ])
        ~active_line:8
        ~callsite_line:None
-       ~char_range:(10, 23));
+       ~char_range:(10, 23)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE                         map_basic.ml · 10 lines
+    ▾ SOURCE                       map_basic.ml · 10 lines
      ▾  1 (* The canonical positive case: add/add/remove
             fire (3 events);
         2    [empty] (an ident), [find] (returns the
@@ -1902,11 +1948,12 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
        ~live
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor);
+       ~cursor
+       ~collapsed:false);
   [%expect
     {|
     (cursor (1))
-     CALL STACK                            5 calls · 2 live
+     ▾ CALL STACK                          5 calls · 2 live
           M.add "b" 2 M.empty
      ▎▾ M.add "a" 1 (M.add "b" 2 M.empty)
      ▎    M.add k (v * 2) acc
@@ -1943,10 +1990,11 @@ let%expect_test "stack pane: heat colors the callee names, layout untouched" =
        ~live:(live_of replay ~step:2)
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor:None);
+       ~cursor:None
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                     5 calls · 2 live · heat
+    ▾ CALL STACK                   5 calls · 2 live · heat
          M.add "b" 2 M.empty
      ▾ M.add "a" 1 (M.add "b" 2 M.empty)
     ▎    M.add k (v * 2) acc

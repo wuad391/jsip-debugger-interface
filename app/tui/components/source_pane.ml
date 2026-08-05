@@ -324,25 +324,34 @@ let view
   ~active_line
   ~callsite_line
   ~char_range
+  ~collapsed
   =
   let lines_label =
     match (source : Loaded.t Or_error.t) with
     | Ok loaded -> [%string "%{Source_file.length loaded.file#Int} lines"]
     | Error _ -> "missing"
   in
-  Panel.view
-    ~title:"source"
-    ~meta:[%string "%{file_label} · %{lines_label}"]
-    ~width
-    ~height
-    (body
-       ~width:(Panel.inner_width ~width)
-       ~height:(height - Panel.header_height)
-       ~source
-       ~folds
-       ~active_line
-       ~callsite_line
-       ~char_range)
+  (* collapsed, the pane is its title row — the [▸] is the way back in *)
+  let title =
+    match collapsed with true -> "▸ source" | false -> "▾ source"
+  in
+  let meta = [%string "%{file_label} · %{lines_label}"] in
+  match collapsed with
+  | true -> Panel.view ~title ~meta ~width ~height View.none
+  | false ->
+    Panel.view
+      ~title
+      ~meta
+      ~width
+      ~height
+      (body
+         ~width:(Panel.inner_width ~width)
+         ~height:(height - Panel.header_height)
+         ~source
+         ~folds
+         ~active_line
+         ~callsite_line
+         ~char_range)
 ;;
 
 let toggle_at

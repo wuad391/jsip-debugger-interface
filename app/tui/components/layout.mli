@@ -32,7 +32,18 @@ type t =
   ; session : Region.t
   }
 
-val compute : Dimensions.t -> t
+(** A collapsed pane keeps exactly its title row — the affordance for
+    reopening it — and the other left pane takes the height it gave up.
+    Collapsing both leaves the leftover blank. *)
+val compute
+  :  ?stack_collapsed:bool
+  -> ?source_collapsed:bool
+  -> Dimensions.t
+  -> t
+
+(** Whether a click landed on the pane's title row — the target that
+    collapses and reopens it. *)
+val on_title : Region.t -> Position.t -> bool
 
 (** A screen position translated into a pane's body coordinates (below the
     title row, inside the padding), or [None] when it falls outside. *)

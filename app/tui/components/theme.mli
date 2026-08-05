@@ -18,6 +18,12 @@ val bg : Attr.Color.t
     against its neighbour *)
 val stripe_bg : Attr.Color.t
 
+(** the stack's picked rows: brighter than the card washes — a one-line band
+    between zebra stripes needs more contrast than a bordered card *)
+val row_highlight_bg : Attr.Color.t
+
+val row_cursor_bg : Attr.Color.t
+
 (** The brand gold: the session bar's dot. *)
 val accent : Attr.Color.t
 

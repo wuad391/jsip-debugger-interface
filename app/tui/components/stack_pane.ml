@@ -213,38 +213,52 @@ let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
     (Int.max 0 (total - height))
 ;;
 
-let view ~width ~height ~calls ~heat ~live ~selected ~folds ~cursor =
-  let inner_width = Panel.inner_width ~width in
-  let inner_height = height - Panel.header_height in
-  let rows =
-    rows ~width:inner_width ~calls ~heat ~live ~selected ~folds ~cursor
-  in
-  let offset =
-    scroll_offset
-      rows
-      ~height:inner_height
-      ~calls
-      ~live
-      ~selected
-      ~folds
-      ~cursor
-  in
-  let body =
-    List.concat_map rows ~f:(fun (row : Row.t) -> row.lines)
-    |> fun lines -> List.drop lines offset
+let view
+  ~width
+  ~height
+  ~calls
+  ~heat
+  ~live
+  ~selected
+  ~folds
+  ~cursor
+  ~collapsed
+  =
+  (* collapsed, the pane is its title row — the [▸] is the way back in *)
+  let title =
+    match collapsed with true -> "▸ call stack" | false -> "▾ call stack"
   in
   let heat_meta =
     match has_heat heat with false -> "" | true -> " · heat"
   in
-  Panel.view
-    ~title:"call stack"
-    ~meta:
-      [%string
-        "%{Array.length calls#Int} calls · %{List.length live#Int} \
-         live%{heat_meta}"]
-    ~width
-    ~height
-    (View.vcat body)
+  let meta =
+    [%string
+      "%{Array.length calls#Int} calls · %{List.length live#Int} \
+       live%{heat_meta}"]
+  in
+  match collapsed with
+  | true -> Panel.view ~title ~meta ~width ~height View.none
+  | false ->
+    let inner_width = Panel.inner_width ~width in
+    let inner_height = height - Panel.header_height in
+    let rows =
+      rows ~width:inner_width ~calls ~heat ~live ~selected ~folds ~cursor
+    in
+    let offset =
+      scroll_offset
+        rows
+        ~height:inner_height
+        ~calls
+        ~live
+        ~selected
+        ~folds
+        ~cursor
+    in
+    let body =
+      List.concat_map rows ~f:(fun (row : Row.t) -> row.lines)
+      |> fun lines -> List.drop lines offset
+    in
+    Panel.view ~title ~meta ~width ~height (View.vcat body)
 ;;
 
 let target_at

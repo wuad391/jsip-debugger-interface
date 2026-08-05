@@ -22,6 +22,12 @@ let bg = color 0x1d1b19
 (* one shade off [bg]: the call stack's alternating rows — visible as a band
    only against its neighbour, never against the text *)
 let stripe_bg = color 0x24211d
+
+(* the stack's picked rows: noticeably brighter than the card washes, because
+   a one-line band between zebra stripes needs more contrast than a bordered
+   card does to read as chosen at a glance *)
+let row_highlight_bg = color 0x1f4a70
+let row_cursor_bg = color 0x6b3f14
 let accent = color 0xd4a24e
 let fresh = color 0x8fd694
 

@@ -44,6 +44,9 @@ val view
   -> selected:int
   -> folds:Int.Set.t
   -> cursor:int option
+  -> collapsed:bool
+       (** collapsed, the pane renders exactly its title row — [▸] and the
+           counts — which is also the click target that reopens it *)
   -> View.t
 
 (** Where [w]/[s] land from the cursor (or, failing that, the selected

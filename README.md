@@ -219,7 +219,10 @@ owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
 starts empty.
 
 Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
-to the ends, `PgUp`/`PgDn` scroll the heap and `[`/`]` pan it. Wherever
+to the ends, `PgUp`/`PgDn` scroll the heap and `[`/`]` pan it. `1` and
+`2` collapse the call stack and the source pane to their title rows
+(clicking a title does the same), handing the freed height to the other
+— the `▾`/`▸` on the title says which way it will go. Wherever
 browsing has taken you, `.` snaps back to the latest change — the
 structure this step walked — clearing the aim, the chosen card, and the
 scroll on the way.
