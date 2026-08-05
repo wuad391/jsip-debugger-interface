@@ -14,6 +14,10 @@ module Attr := Bonsai_term.Attr
     nothing reads as a slab edge. *)
 val bg : Attr.Color.t
 
+(** the call stack's alternating rows — one shade off {!bg}, a band only
+    against its neighbour *)
+val stripe_bg : Attr.Color.t
+
 (** The brand gold: the session bar's dot. *)
 val accent : Attr.Color.t
 

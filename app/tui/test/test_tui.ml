@@ -118,11 +118,6 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"a" → 1│
-     └───────┘
-
     ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
     ▾┌ m  new ┐
      │"a" → 1 │
@@ -132,6 +127,11 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
     ┌┄┄┄┐    ┌── new ┐
     ┆ ∅ ┆    │"b" → 2│
     └┄┄┄┘    └───────┘
+
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+     ┌ m ────┐
+     │"a" → 1│
+     └───────┘
     |}]
 ;;
 
@@ -164,20 +164,20 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
   [%expect
     {|
     HEAP                          3 live · 5 nodes · 2 new
-    ▾ m · map ⟨string ⇒ float⟩ · 1 node
-     ┌ m ────────┐
-     │"pi" → 3.14│
-     └───────────┘
+    ▾ #4 · map ⟨string ⇒ int * string⟩ · 2 nodes
+            ▾┌ #4  new ┐
+             │"pair"   │
+             └─────────┘
+      ┌──────────────┼──────────────┐
+      l              d              r
+    ┌┄┄┄┐    ┌─── new ┐           ┌┄┄┄┐
+    ┆ ∅ ┆    │1, "one"│           ┆ ∅ ┆
+    └┄┄┄┘    └────────┘           └┄┄┄┘
 
     ▾ #2 · map ⟨string ⇒ float⟩ · 2 nodes
            ▾┌ #2 ───────┐
             │"pi" → 3.14│
             └───────────┘
-             ┌──────┴───────┐
-             l              r
-     ┌──────────┐         ┌┄┄┄┐
-     │"e" → 2.71│         ┆ ∅ ┆
-     └──────────┘         └┄┄┄┘
     |}]
 ;;
 
@@ -213,17 +213,17 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
   [%expect
     {|
     HEAP                              3 live · 8 nodes · 3 new
-    ▾ m · core.map ⟨string ⇒ int⟩ · 2 nodes
-    ▾┌ m ┐
-     │·  │
-     └───┘
-             │
-           tree
-     ┌───────┐
-     │"b" → 2│
-     └───────┘
-
     ▾ m · core.map ⟨string ⇒ int⟩ · 3 nodes
+               ▾┌ m  new ┐
+                │·       │
+                └────────┘
+                        │
+                      tree
+               ▾┌── new ┐
+                │"b" → 2│
+                └───────┘
+             ┌──────────┴──────────┐
+             l                     r
     |}]
 ;;
 
@@ -269,12 +269,6 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
   [%expect
     {|
     HEAP                              3 live · 5 nodes · 1 new
-    ▾ p · user ⟨point⟩ · 1 node
-     ┌ p ┐
-     │x=3│
-     │y=4│
-     └───┘
-
     ▾ ts · user ⟨trades⟩ · 1 node
                ▾┌ ts  new ┐
                 │0        │
@@ -282,6 +276,12 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
                         │
                        hd
                ▾┌ t ┐
+                │101│
+                └───┘
+             ┌──────────┴──────────┐
+           tags                  span
+     ┌──────────────┐      ┌────┐
+     │"buy", "limit"│      │1, 9│
     |}]
 ;;
 
@@ -482,20 +482,20 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
   [%expect
     {|
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▾┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-              ┌──────┴───────┐
-              l              r
-            ┌┄┄┄┐    ┌─┐
-            ┆ ∅ ┆    │3│
-            └┄┄┄┘    └─┘
+    ▾ #6 · set ⟨int⟩ · 4 nodes
+                      ▾┌ #6  new ┐
+                       │3        │
+                       └─────────┘
+                    ┌──────────┴───────────┐
+                    l                      r
+           ▾┌ new ┐                ┌ new ┐
+            │2    │                │4    │
+            └─────┘                └─────┘
+             ┌──────┴───────┐
+             l              r
+     ┌ new ┐              ┌┄┄┄┐
+     │1    │              ┆ ∅ ┆
+     └─────┘              └┄┄┄┘
     |}]
 ;;
 
@@ -526,11 +526,10 @@ let%expect_test "heap clicks land on cards, not the space between" =
   print_endline (at ~x:10 ~y:8);
   print_endline (at ~x:30 ~y:5);
   print_endline (at ~x:40 ~y:1);
-  [%expect
-    {|
-    0x7fa801ff2348
+  [%expect {|
     0x7fa801fee750
-    0x7fa801fee750
+    0x7fa801fee780
+    ·
     ·
     |}]
 ;;
@@ -543,15 +542,15 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
   [%expect
     {|
     HEAP                          2 live · 2 nodes · 1 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"k" → 1│
-     └───────┘
-
     ▾ q · queue ⟨int M.t⟩ · 1 node
      ┌ q  new ┐
      │length 0│
      └────────┘
+
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+     ┌ m ────┐
+     │"k" → 1│
+     └───────┘
     |}]
 ;;
 
@@ -728,15 +727,15 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
-     ┌ m ────┐
-     │"a" → 1│
-     └───────┘
-
     ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
     ▸┌ m  new ┐
      │"a" → 1 │
      └────────┘
+     ⋯ 1 hidden
+
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+     ┌ m ────┐
+     │"a" → 1│
     |}]
 ;;
 
@@ -902,7 +901,7 @@ let%expect_test "collapsing a structure keeps the others in their column" =
   [%expect
     {|
     ((columns_expanded ((1 0) (4 0) (6 0))) (columns_folded ((1 0) (4 0) (6 0)))
-     (rows_expanded (0 15 25)) (rows_folded (0 2 12)))
+     (rows_expanded (25 15 0)) (rows_folded (25 15 0)))
     |}]
 ;;
 
@@ -935,9 +934,9 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
   print_endline (toggle ~x:0 ~y:7);
   print_endline (toggle ~x:3 ~y:8);
   [%expect {|
-    (Structure 1)
-    ·
+    (Structure 2)
     (Node 2())
+    ·
     ·
     ·
     |}]
@@ -1028,33 +1027,33 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
   [%expect
     {|
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▾┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-              ┌──────┴───────┐
-              l              r
-            ┌┄┄┄┐    ┌─┐
-            ┆ ∅ ┆    │3│
+    ▾ #6 · set ⟨int⟩ · 4 nodes
+                      ▾┌ #6  new ┐
+                       │3        │
+                       └─────────┘
+                    ┌──────────┴───────────┐
+                    l                      r
+           ▾┌ new ┐                ┌ new ┐
+            │2    │                │4    │
+            └─────┘                └─────┘
+             ┌──────┴───────┐
+             l              r
+     ┌ new ┐              ┌┄┄┄┐
+     │1    │              ┆ ∅ ┆
     HEAP                              3 live · 9 nodes · 4 new
-    ▾ a · set ⟨int⟩ · 3 nodes
-    ▾┌ a ┐
-     │1  │
-     └───┘
-      ┌──────┴───────┐
-      l              r
-    ┌┄┄┄┐   ▸┌─┐
-    ┆ ∅ ┆    │2│
-    └┄┄┄┘    └─┘
-             ⋯ 1 hidden
-
-    ▾ b · set ⟨int⟩ · 2 nodes
-    ▾┌ b ┐
+    ▾ #6 · set ⟨int⟩ · 4 nodes
+                      ▾┌ #6  new ┐
+                       │3        │
+                       └─────────┘
+                    ┌──────────┴───────────┐
+                    l                      r
+           ▾┌ new ┐                ┌ new ┐
+            │2    │                │4    │
+            └─────┘                └─────┘
+             ┌──────┴───────┐
+             l              r
+     ┌ new ┐              ┌┄┄┄┐
+     │1    │              ┆ ∅ ┆
     |}]
 ;;
 
@@ -1125,14 +1124,14 @@ let%expect_test "delta wire: a revisit stub replays the earlier shape" =
   [%expect
     {|
     HEAP                          2 live · 3 nodes · 2 new
-    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
-     ┌ #1 ───┐
-     │"a" → 1│
-     └───────┘
-
     ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
     ▾┌ m  new ┐
      │"a" → 1 │
+     └────────┘
+      ┌──────┴───────┐
+      l              r
+    ┌┄┄┄┐    ┌── new ┐
+    ┆ ∅ ┆    │"b" → 2│
     |}]
 ;;
 
@@ -1143,16 +1142,26 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
   [%expect
     {|
     HEAP                                  4 live · 7 nodes · 3 new
-    ▾ #2 · map ⟨string ⇒ point⟩ · 1 node
-            ▾┌ #2 ┐
-             │"p" │
-             └────┘
-      ┌──────────────┼──────────────┐
-      l              d              r
-    ┌┄┄┄┐    ┌ p ┐                ┌┄┄┄┐
-    ┆ ∅ ┆    │x=1│                ┆ ∅ ┆
-    └┄┄┄┘    │y=2│                └┄┄┄┘
-             └───┘
+    ▾ #5 · map ⟨string ⇒ point⟩ · 3 nodes
+                       ▾┌ #5  new ┐
+                        │"p"      │
+                        └─────────┘
+      ┌──────────────┬──────────┴──────────────────────────┐
+      l              d                                     r
+    ┌┄┄┄┐    ┌ p ┐                                ▾┌ new ┐
+    ┆ ∅ ┆    │x=1│                                 │"q"  │
+    └┄┄┄┘    │y=2│                                 └─────┘
+             └───┘                  ┌───────────────┬──────┴──────
+                                    l               d
+                                  ┌┄┄┄┐   ┌ ↗ ┄┄┐
+                                  ┆ ∅ ┆   ┆ x=1 ┆
+                                  └┄┄┄┘   ┆ y=2 ┆
+                                          └┄┄┄┄┄┘
+
+                                                                 ┌
+                                                                 ┆
+                                                                 └
+
 
     ▾ m · map ⟨string ⇒ point⟩ · 2 nodes
                     ▾┌ m ┐
@@ -1162,16 +1171,6 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
       l               d                             r
     ┌┄┄┄┐   ┌ ↗ ┄┄┐                        ▾┌───┐
     ┆ ∅ ┆   ┆ x=1 ┆                         │"q"│
-    └┄┄┄┘   ┆ y=2 ┆                         └───┘
-            └┄┄┄┄┄┘                  ┌──────────────┴┬────────────
-                                     l               d
-                                   ┌┄┄┄┐   ┌ ↗ ┄┄┐
-                                   ┆ ∅ ┆   ┆ x=1 ┆
-                                   └┄┄┄┘   ┆ y=2 ┆
-                                           └┄┄┄┄┄┘
-
-    ▾ #5 · map ⟨string ⇒ point⟩ · 3 nodes
-                        ▾┌ #5  new ┐
     |}]
 ;;
 
@@ -1183,35 +1182,35 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
   [%expect
     {|
     HEAP                                  2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
-     ┌───────┐            ┌┄┄┄┐   ┌┄┄┄┐    ┌────────┐
-     │"b" → 2│            ┆ ∅ ┆   ┆ ∅ ┆    │"j" → 10│
-     └───────┘            └┄┄┄┘   └┄┄┄┘    └────────┘
-
     ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger  new ┐
-                      │"f" → 6      │
-                      └─────────────┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┐                       ▾┌── new ┐
-    ┆ "d" → 4 ┆                        │"h" → 8│
-    └┄┄┄┄┄┄┄┄┄┘                        └───────┘
-                                    ┌──────────┴───────────┐
-                                    l                      r
-                            ┌── new ┐            ┌ ↗ ┄┄┄┄┄┄┄┐
-                            │"g" → 7│            ┆ "j" → 10 ┆
-                            └───────┘            └┄┄┄┄┄┄┄┄┄┄┘
+                            ▾┌ bigger  new ┐
+                             │"f" → 6      │
+                             └─────────────┘
+                    ┌────────────────┴────────────────┐
+                    l                                 r
+           ▾┌───────┐                        ▾┌── new ┐
+            │"d" → 4│                         │"h" → 8│
+            └───────┘                         └───────┘
+             ┌──────┴───────┐              ┌──────────┴──────────┐
+             l              r              l                     r
+     ┌───────┐            ┌┄┄┄┐    ┌── new ┐             ┌────────
+     │"b" → 2│            ┆ ∅ ┆    │"g" → 7│             │"j" → 10
+     └───────┘            └┄┄┄┘    └───────┘             └────────
+
+    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
+                ▾┌ m ────┐
+                 │"f" → 6│
+                 └───────┘
+              ┌──────────┴──────────┐
+              l                     r
+    ┌ ↗ ┄┄┄┄┄┄┐            ▾┌───────┐
+    ┆ "d" → 4 ┆             │"h" → 8│
+    └┄┄┄┄┄┄┄┄┄┘             └───────┘
+                             ┌──────┴───────┐
+                             l              r
+                           ┌┄┄┄┐    ┌────────┐
+                           ┆ ∅ ┆    │"j" → 10│
+                           └┄┄┄┘    └────────┘
     |}]
 ;;
 
@@ -1245,25 +1244,25 @@ let%expect_test "delta wire: version chains share their spines" =
   [%expect
     {|
     HEAP                                  2 live · 8 nodes · 4 new
-    ▾ #7 · map ⟨string ⇒ int⟩ · 4 nodes
-               ▾┌ #7 ───┐
-                │"b" → 2│
-                └───────┘
+    ▾ #11 · map ⟨string ⇒ int⟩ · 4 nodes
+               ▾┌ #11  new ┐
+                │"b" → 2   │
+                └──────────┘
              ┌──────────┴──────────┐
              l                     r
-     ┌───────┐            ▾┌───────┐
+     ┌───────┐            ▾┌── new ┐
      │"a" → 1│             │"c" → 3│
      └───────┘             └───────┘
                             ┌──────┴───────┐
                             l              r
-                          ┌┄┄┄┐    ┌───────┐
+                          ┌┄┄┄┐   ▾┌── new ┐
                           ┆ ∅ ┆    │"d" → 4│
                           └┄┄┄┘    └───────┘
-
-    ▾ #11 · map ⟨string ⇒ int⟩ · 4 nodes
-                ▾┌ #11  new ┐
-                 │"b" → 2   │
-                 └──────────┘
+                                    ┌──────┴───────┐
+                                    l              r
+                                  ┌┄┄┄┐    ┌── new ┐
+                                  ┆ ∅ ┆    │"e" → 5│
+                                  └┄┄┄┘    └───────┘
     |}]
 ;;
 
@@ -1297,31 +1296,31 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
   [%expect
     {|
     HEAP                                              2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
-     ┌───────┐            ┌┄┄┄┐   ┌┄┄┄┐    ┌────────┐
-     │"b" → 2│            ┆ ∅ ┆   ┆ ∅ ┆    │"j" → 10│
-     └───────┘            └┄┄┄┘   └┄┄┄┘    └────────┘
-
     ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger ─── new ┐
-                      │"f" → 6         │
-                      └ 0x78de5b5fff78 ┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ▾┌── new ┐
-    ┆ "d" → 4          ┆               │"h" → 8│
-    ┆  0x78de5b5e1d10  ┆               └───────┘
-    └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘            ┌──────────┴───────────┐
+                            ▾┌ bigger ─── new ┐
+                             │"f" → 6         │
+                             └ 0x78de5b5fff78 ┘
+                    ┌────────────────┴────────────────┐
+                    l                                 r
+           ▾┌────────────────┐               ▾┌── new ┐
+            │"d" → 4         │                │"h" → 8│
+            └ 0x78de5b5e1d10 ┘                └───────┘
+             ┌──────┴───────┐              ┌──────────┴──────────┐
+             l              r              l                     r
+     ┌───────┐            ┌┄┄┄┐    ┌── new ┐             ┌────────┐
+     │"b" → 2│            ┆ ∅ ┆    │"g" → 7│             │"j" → 10│
+     └───────┘            └┄┄┄┘    └───────┘             └────────┘
+
+    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
+                ▾┌ m ────┐
+                 │"f" → 6│
+                 └───────┘
+              ┌──────────┴──────────┐
+              l                     r
+    ┌ ↗ ┄┄┄┄┄┄┐            ▾┌───────┐
+    ┆ "d" → 4 ┆             │"h" → 8│
+    └┄┄┄┄┄┄┄┄┄┘             └───────┘
+                             ┌──────┴───────┐
     |}]
 ;;
 
@@ -1411,9 +1410,9 @@ let%expect_test "selection: [wasd] walks the tree, not the picture" =
     a -> (nothing that way)
     w -> bigger
     s -> "d"
-    s -> (nothing that way)
-    s -> (nothing that way)
-    d -> "h"
+    s -> "b"
+    s -> m
+    d -> (nothing that way)
     w -> bigger
     |}]
 ;;
@@ -1422,8 +1421,9 @@ let%expect_test "selection: the cursor can stand on a whole structure" =
   (* A collapsed structure is nothing but its header, so the header has to be
      somewhere the cursor can go — otherwise folding one would put it beyond
      reach. It sits one rung above the tree's root card: [w] off the root
-     lands on it, [w] again steps to the structure before, and [s] descends
-     back into the tree. *)
+     lands on it, [a]/[d] step across to the structures beside it, and [s]
+     descends back into the tree — or lands nowhere when a fold has left
+     nothing below the header. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
   let { Replay.Step.structures; nodes; new_addresses; _ } =
@@ -1467,21 +1467,21 @@ let%expect_test "selection: the cursor can stand on a whole structure" =
   print_endline "-- everything expanded";
   walk
     ~folds:(Set.empty (module Heap_pane.Fold))
-    [ Heap_pane.Direction.Up, "w"; Up, "w"; Down, "s" ];
+    [ Heap_pane.Direction.Up, "w"; Right, "d"; Down, "s" ];
   print_endline "-- with [m] collapsed, its header is all there is of it";
   walk
     ~folds:(folded "m")
-    [ Heap_pane.Direction.Up, "w"; Up, "w"; Down, "s" ];
+    [ Heap_pane.Direction.Up, "w"; Right, "d"; Down, "s" ];
   [%expect
     {|
     -- everything expanded
     (w (landed ((structure 12) (path ()) (is_header true))))
-    (w (landed ((structure 9) (path ()) (is_header true))))
+    (d (landed ((structure 9) (path ()) (is_header true))))
     (s (landed ((structure 9) (path ()) (is_header false))))
     -- with [m] collapsed, its header is all there is of it
     (w (landed ((structure 12) (path ()) (is_header true))))
-    (w (landed ((structure 9) (path ()) (is_header true))))
-    (s (landed ((structure 12) (path ()) (is_header true))))
+    (d (landed ((structure 9) (path ()) (is_header true))))
+    (s (landed "(nothing that way)"))
     |}]
 ;;
 
@@ -1613,17 +1613,17 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   [%expect
     {|
     HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▸ m · map ⟨string ⇒ int⟩ · 3 nodes
-
     ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
-                     ▾┌ bigger ─── new ┐
-                      │"f" → 6         │
-                      └ 0x78de5b5fff78 ┘
-              ┌───────────────┴────────────────┐
-              l                                r
-    ┌ ↗ ┄┄┄┄┄┄┐                       ▾┌── new ┐
-    ┆ "d" → 4 ┆                        │"h" → 8│
-    └┄┄┄┄┄┄┄┄┄┘                        └───────┘
+                            ▾┌ bigger ─── new ┐
+                             │"f" → 6         │
+                             └ 0x78de5b5fff78 ┘
+                    ┌────────────────┴────────────────┐
+                    l                                 r
+           ▾┌───────┐                        ▾┌── new ┐
+            │"d" → 4│                         │"h" → 8│
+            └───────┘                         └───────┘
+             ┌──────┴───────┐              ┌──────────┴───────
+             l              r              l
     |}];
   (* [w] to the open structure's header, [w] onto the one before it: the
      arrival opens [m], and [bigger] folds up behind us *)
@@ -1633,17 +1633,62 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   [%expect
     {|
     HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴───────────┐
-                    l                      r
-           ▾┌───────┐             ▾┌───────┐
-            │"d" → 4│              │"h" → 8│
-            └───────┘              └───────┘
-             ┌──────┴───────┐       ┌──────┴───────┐
-             l              r       l              r
+    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
+                            ▾┌ bigger ─── new ┐
+                             │"f" → 6         │
+                             └ 0x78de5b5fff78 ┘
+                    ┌────────────────┴────────────────┐
+                    l                                 r
+           ▾┌───────┐                        ▾┌── new ┐
+            │"d" → 4│                         │"h" → 8│
+            └───────┘                         └───────┘
+             ┌──────┴───────┐              ┌──────────┴───────
+             l              r              l
+    |}]
+;;
+
+let%expect_test "a step lands the heap on the structure it walked" =
+  (* stepping resets the scroll — but to the walked structure's row, not to
+     the top of the canvas: on a dump with hundreds of structures the new one
+     allocates far below the fold, and a pane that opened on the top showed
+     everything except the thing the step was about *)
+  let replay = replay_of_fixture "set_ops" in
+  let step = Replay.length replay - 1 in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let selection =
+    { Heap_pane.Selection.selected = current_spot replay ~step
+    ; cursor = None
+    }
+  in
+  let scroll =
+    Heap_pane.scroll_to_selection
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~selection
+      ~width:44
+      ~height:12
+  in
+  printf "scroll=%d\n" scroll;
+  heap_view ~width:44 ~height:12 ~scroll ~selection replay ~step;
+  [%expect
+    {|
+    scroll=0
+     HEAP             5 live · 12 nodes · 2 new
+     ▾ #11 · set ⟨int⟩ · 2 nodes
+            ▾┌ #11 ────── new ┐
+             │2               │
+             └ 0x768f6ebdd1f0 ┘
+              ┌──────┴───────┐
+              l              r
+      ┌ new ┐              ┌┄┄┄┐
+      │1    │              ┆ ∅ ┆
+      └─────┘              └┄┄┄┘
+
+     ▾ #10 · set ⟨int⟩ · 1 node
     |}]
 ;;
 
@@ -1673,37 +1718,37 @@ let%expect_test "the heap pans by hand, and the cursor still overrides" =
   [%expect
     {|
     HEAP      2 live · 6 nodes · 3 new
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
-                      ▾┌ m ────┐
-                       │"f" → 6│
-                       └───────┘
-                    ┌──────────┴──────
+    ▾ bigger · map ⟨string ⇒ int⟩ · 3
+                            ▾┌ bigger
+                             │"f" → 6
+                             └────────
+                    ┌────────────────┴
                     l
-           ▾┌───────┐             ▾┌──
-    HEAP      2 live · 6 nodes · 3 new
-    tring ⇒ int⟩ · 3 nodes
-          ▾┌ m ────┐
-           │"f" → 6│
-           └───────┘
-        ┌──────────┴───────────┐
-        l                      r
-    ────┐             ▾┌───────┐
-    HEAP      2 live · 6 nodes · 3 new
-    ⟩ · 3 nodes
-    ────┐
-     → 6│
-    ────┘
-    ────┴───────────┐
-                    r
            ▾┌───────┐
     HEAP      2 live · 6 nodes · 3 new
-
-    · map ⟨string ⇒ int⟩ · 3 nodes
+    ap ⟨string ⇒ int⟩ · 3 nodes
+                ▾┌ bigger  new ┐
+                 │"f" → 6      │
+                 └─────────────┘
+        ┌────────────────┴────────────
+        l
+    ────┐                        ▾┌──
+    HEAP      2 live · 6 nodes · 3 new
+     · 3 nodes
+    gger  new ┐
+     → 6      │
+    ──────────┘
+    ────┴────────────────┐
+                         r
+                ▾┌── new ┐
+    HEAP      2 live · 6 nodes · 3 new
+    string ⇒ int⟩ · 3 nodes
             ▾┌ bigger ─── new ┐
              │"f" → 6         │
              └ 0x78de5b5fff78 ┘
-     ┌───────────────┴────────────────
-     l
+    ┌────────────────┴────────────────
+    l
+    ┐                        ▾┌── new
     |}]
 ;;
 
@@ -1808,19 +1853,18 @@ let%expect_test "selection: committing a link follows the node to its step" =
     {|
     (birth 3)
      HEAP                                  4 live · 8 nodes · 3 new
-     ┆ "d" → 4 ┆             │"h" → 8│
-     └┄┄┄┄┄┄┄┄┄┘             └───────┘
+      │"d" → 4│             │"h" → 8│
+      └───────┘             └───────┘
 
-     ▾ #6 · map ⟨string ⇒ int⟩ · 3 nodes
-                        ▾┌ #6  new ┐
-                         │"f" → 6  │
-                         └─────────┘
-                     ┌───────────┴───────────┐
-                     l                       r
-            ▾┌─────────── new ┐    ┌ ↗ ┄┄┄┄┄┄┐
-             │"d" → 4         │    ┆ "h" → 8 ┆
-             └ 0x78de5b5e1d10 ┘    └┄┄┄┄┄┄┄┄┄┘
+     ▾ m2 · map ⟨string ⇒ int⟩ · 2 nodes
+            ▾┌ m2 ───┐
+             │"f" → 6│
+             └───────┘
               ┌──────┴───────┐
+              l              r
+      ┌───────┐            ┌┄┄┄┐
+      │"d" → 4│            ┆ ∅ ┆
+      └───────┘            └┄┄┄┘
     |}]
 ;;
 

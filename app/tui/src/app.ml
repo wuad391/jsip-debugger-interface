@@ -167,6 +167,30 @@ let heap_inputs replay (model : Model.t) =
   structures, folds
 ;;
 
+(* Where a step (or a committed jump) lands the heap pane: the selection —
+   the walked structure's root until something is chosen — brought into view.
+   Needs the terminal's dimensions, which reach [apply_action] as the state
+   machine's input; while the app is inactive there is nothing to aim, so the
+   top of the canvas does fine. *)
+let landing_scroll replay dimensions (model : Model.t) =
+  match (dimensions : Dimensions.t Bonsai.Computation_status.t) with
+  | Inactive -> 0
+  | Active dimensions ->
+    let layout = Layout.compute dimensions in
+    let { Replay.Step.nodes; new_addresses; _ } =
+      Replay.step_exn replay ~step:model.step
+    in
+    let structures, folds = heap_inputs replay model in
+    Heap_pane.scroll_to_selection
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~selection:(heap_selection replay model)
+      ~width:layout.heap.width
+      ~height:layout.heap.height
+;;
+
 (* the frame the stack pane treats as selected — the renderer's [selected],
    recomputed here because cursor movement starts from it *)
 let selected_frame replay (model : Model.t) =
@@ -186,6 +210,7 @@ let apply_action
   ~calls
   ~births
   (_ : _ Bonsai.Apply_action_context.t)
+  dimensions
   (model : Model.t)
   action
   =
@@ -205,16 +230,20 @@ let apply_action
      name nothing, so blue goes back to following the walked structure. Folds
      persist; that is the point of keying them stably. *)
   let move ~playing step =
-    { model with
-      step = clamp_step step
-    ; selected_frame = None
-    ; playing
-    ; heap_scroll = 0
-    ; heap_pan = 0
-    ; heap_selected = None
-    ; heap_cursor = None
-    ; stack_cursor = None
-    }
+    let stepped =
+      { model with
+        step = clamp_step step
+      ; selected_frame = None
+      ; playing
+      ; heap_scroll = 0
+      ; heap_pan = 0
+      ; heap_selected = None
+      ; heap_cursor = None
+      ; stack_cursor = None
+      }
+    in
+    (* land the eye on what the step walked, not on the canvas top *)
+    { stepped with heap_scroll = landing_scroll replay dimensions stepped }
   in
   (* committing a heap card is exactly what clicking it does — jump to where
      it was allocated — and additionally pins it as the selection, so the
@@ -244,7 +273,12 @@ let apply_action
         ~folds:stepped.heap_folds
         spot
     in
-    { stepped with heap_selected = selected; heap_cursor = None }
+    (* the landing scroll [move] computed aimed at the walked structure; now
+       that the selection is the committed card, land on that instead *)
+    let landed =
+      { stepped with heap_selected = selected; heap_cursor = None }
+    in
+    { landed with heap_scroll = landing_scroll replay dimensions landed }
   in
   let commit (model : Model.t) =
     match model.focus with
@@ -826,12 +860,13 @@ let component
   in
   let heat = heat_of_calls ~profile ~calls in
   let model, inject =
-    Bonsai.state_machine
+    Bonsai.state_machine_with_input
       ~sexp_of_model:Model.sexp_of_t
       ~sexp_of_action:Action.sexp_of_t
       ~equal:Model.equal
       ~default_model:Model.initial
       ~apply_action:(apply_action replay ~calls ~births)
+      dimensions
       graph
   in
   let tick =

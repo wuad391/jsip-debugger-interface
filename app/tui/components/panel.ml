@@ -2,11 +2,21 @@ open! Core
 module Attr = Bonsai_term.Attr
 module View = Bonsai_term.View
 
-let fit view ~width ~height =
+(* [size], when the caller already knows the view's dimensions, skips
+   measuring it. Measuring forces the view's image, and on the heap's canvas
+   — hundreds of structures — a forced build costs real time and thrashes the
+   view's single-slot image memo against the key the paint pass uses,
+   rebuilding the whole canvas every frame. *)
+let fit ?size view ~width ~height =
+  let view_width, view_height =
+    match size with
+    | Some size -> size
+    | None -> View.width view, View.height view
+  in
   let cropped =
     View.crop
-      ~r:(max 0 (View.width view - width))
-      ~b:(max 0 (View.height view - height))
+      ~r:(max 0 (view_width - width))
+      ~b:(max 0 (view_height - height))
       view
   in
   View.zcat [ cropped; View.transparent_rectangle ~width ~height ]
@@ -50,7 +60,7 @@ let vertical_rule ~height ~color =
 let header_height = 1
 let inner_width ~width = max 0 (width - 2)
 
-let view ~title ~meta ~width ~height body =
+let view ?body_size ~title ~meta ~width ~height body =
   let title_view =
     View.text ~attrs:[ Theme.fg Theme.secondary ] (String.uppercase title)
   in
@@ -70,14 +80,30 @@ let view ~title ~meta ~width ~height body =
   let body =
     View.pad
       ~l:1
-      (fit body ~width:(inner_width ~width) ~height:(height - header_height))
+      (fit
+         ?size:body_size
+         body
+         ~width:(inner_width ~width)
+         ~height:(height - header_height))
   in
   (* [with_colors'] *sets* the unspecified background on every cell — a
      rectangle behind the pane would only show through the gaps, leaving text
      sitting on the terminal's own background instead of the pane's *)
+  (* the assembled pane's dimensions are exact by construction whenever the
+     body's were given, so the outer fit need not measure either *)
+  let size =
+    Option.map body_size ~f:(fun ((_ : int), (_ : int)) -> width, height)
+  in
+  (* [zcat]+[pad], not [vcat]: the rows' positions are known (the header is
+     exactly one row), and [vcat] would measure every child to stack them —
+     forcing the body's image at build time, against a key the paint pass
+     does not use. On the heap's canvas that is a full rebuild per frame. *)
+  let assembled =
+    View.zcat [ fit header ~width ~height:1; View.pad ~t:header_height body ]
+  in
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
     ~bg:Theme.bg
-    (fit (View.vcat [ fit header ~width ~height:1; body ]) ~width ~height)
+    (fit ?size assembled ~width ~height)
 ;;

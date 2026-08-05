@@ -101,9 +101,12 @@ divider line along each seam:
   either one tints the other's border to match, so a shared subtree
   reads as one object drawn twice. Cards allocated *at this step* carry a green `new` tag in
   the border's top right. Structures lay side by side, up to three to a
-  row, packed bottom-left so a collapse frees real space; a structure's
+  row, in address order (low to high — locality is visible as adjacency),
+  packed bottom-left so a collapse frees real space; a structure's
   column is chosen from its expanded footprint, so collapsing one leaves
-  the others where they are. Clicking a card jumps the replay to the
+  the others where they are. Stepping lands the pane on the structure
+  the event walked, and the call stack's rows alternate a faint band for
+  readability. Clicking a card jumps the replay to the
   step that allocated it; the wheel scrolls.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —

@@ -13,9 +13,15 @@ open! Core
 
 (** Exactly [width * height] cells: the title row, then [body] in the
     remaining rows, inset one column each side ({!inner_width}) and cropped
-    if it overflows. *)
+    if it overflows.
+
+    [body_size], when the caller already knows the body's dimensions, keeps
+    the pane from measuring it — measuring forces the body's image against a
+    key the paint pass does not use, and on a canvas the size of the heap's
+    that rebuild costs more than the whole layout. *)
 val view
-  :  title:string
+  :  ?body_size:int * int
+  -> title:string
   -> meta:string
   -> width:int
   -> height:int
@@ -30,8 +36,15 @@ val header_height : int
 val inner_width : width:int -> int
 
 (** [fit view ~width ~height] pins [view] to exactly that box — cropping
-    overflow, padding shortfall with transparent cells. *)
-val fit : Bonsai_term.View.t -> width:int -> height:int -> Bonsai_term.View.t
+    overflow, padding shortfall with transparent cells. [size] is the view's
+    own dimensions if the caller already knows them; given, the view is not
+    measured (see {!view}). *)
+val fit
+  :  ?size:int * int
+  -> Bonsai_term.View.t
+  -> width:int
+  -> height:int
+  -> Bonsai_term.View.t
 
 (** Where two dividers meet — pass the box-drawing glyph. *)
 val junction : color:Bonsai_term.Attr.Color.t -> string -> Bonsai_term.View.t

@@ -1137,7 +1137,7 @@ module Section = struct
     }
 end
 
-(* Every live structure, in registry order: a header, and its tree unless the
+(* Every live structure, in address order: a header, and its tree unless the
    header's fold hides it. A structure referenced from another one is drawn
    inside its referrer's tree instead of getting a section — the registry
    still decides what is alive, only the placement moves. *)
@@ -1236,14 +1236,26 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
       in
       block :: sections
   in
+  (* sections come out in ADDRESS order, low to high — neighbours in memory
+     sit near each other on the canvas, which is the locality the pane is
+     there to show. Registry order (creation order) is still readable off the
+     [new] tags and the ids. *)
+  let by_address (a : Replay.Structure.t) (b : Replay.Structure.t) =
+    Snapshot.Address.compare a.address b.address
+  in
   let top_level =
     List.filter structures ~f:(fun (structure : Replay.Structure.t) ->
       not (Set.mem referenced structure.id))
+    |> List.sort ~compare:by_address
   in
   let acc = List.fold top_level ~init:[] ~f:section in
   (* mutually-referencing structures have no unreferenced root; anything
      still undrawn gets its own section after all *)
-  List.rev (List.fold structures ~init:acc ~f:section)
+  List.rev
+    (List.fold
+       (List.sort structures ~compare:by_address)
+       ~init:acc
+       ~f:section)
 ;;
 
 let columns = 3
@@ -1323,10 +1335,70 @@ let pack sections ~body_width =
   View.zcat views, placed, toggles
 ;;
 
+(* One render's layout, remembered under everything it reads. A wheel tick
+   changes only the crop — the canvas, the cards and the toggles come out
+   identical — and on a thousand-structure dump recomputing them for every
+   tick is what made scrolling feel like wading. One slot is enough: the app
+   draws one step at a time, and anything that really changes the picture
+   (stepping, folding, filtering, aiming) misses and recomputes.
+
+   The key leans on the replay being an array of precomputed steps:
+   [step_exn] hands out the same physical record every time, so the node
+   table and the address set compare by identity, and a filtered structure
+   list still holds physically-equal elements. *)
+module Layout_key = struct
+  type t =
+    { structures : Replay.Structure.t list
+    ; nodes : Replay.Nodes.t
+    ; new_addresses : Snapshot.Address.Set.t
+    ; folds : Set.M(Fold).t
+    ; selection : Selection.t
+    ; body_width : int
+    }
+
+  let equal a b =
+    phys_equal a.nodes b.nodes
+    && phys_equal a.new_addresses b.new_addresses
+    && List.equal phys_equal a.structures b.structures
+    && Set.equal a.folds b.folds
+    && Selection.equal a.selection b.selection
+    && a.body_width = b.body_width
+  ;;
+end
+
+let layout_cache
+  : (Layout_key.t * (View.t * (int * int) * Placed.t list * Toggle.t list))
+      option
+      ref
+  =
+  ref None
+;;
+
 let layout ~structures ~nodes ~new_addresses ~folds ~selection ~body_width =
-  pack
-    (sections ~structures ~nodes ~new_addresses ~folds ~selection)
-    ~body_width
+  let key =
+    { Layout_key.structures
+    ; nodes
+    ; new_addresses
+    ; folds
+    ; selection
+    ; body_width
+    }
+  in
+  match !layout_cache with
+  | Some (cached, result) when Layout_key.equal cached key -> result
+  | Some _ | None ->
+    let canvas, placed, toggles =
+      pack
+        (sections ~structures ~nodes ~new_addresses ~folds ~selection)
+        ~body_width
+    in
+    (* measured once here, so the per-frame paths never force the canvas's
+       image just to learn how big it is *)
+    let result =
+      canvas, (View.width canvas, View.height canvas), placed, toggles
+    in
+    layout_cache := Some (key, result);
+    result
 ;;
 
 (* Bring one span into a window of [size], from an offset of [at].
@@ -1401,34 +1473,78 @@ let follow_left
                ~length:card.width)))
 ;;
 
-let clamp_scroll canvas ~height ~scroll =
+let clamp_scroll ~canvas_height ~height ~scroll =
   Int.max
     0
     (Int.min
        scroll
-       (Int.max 0 (View.height canvas - (height - Panel.header_height))))
+       (Int.max 0 (canvas_height - (height - Panel.header_height))))
 ;;
 
 (* every entry point scrolls the same way, so hit-testing lands where the eye
    does *)
-let resolve_scroll canvas placed ~height ~scroll ~selection =
+let resolve_scroll placed ~canvas_height ~height ~scroll ~selection =
   follow_cursor
     placed
     ~body_height:(height - Panel.header_height)
     ~scroll
     ~selection
-  |> fun scroll -> clamp_scroll canvas ~height ~scroll
+  |> fun scroll -> clamp_scroll ~canvas_height ~height ~scroll
 ;;
 
-let clamp_pan canvas ~width ~pan =
+(* Where a step lands the eye: the scroll that brings the selection's drawing
+   into view — its card or, collapsed, the header wearing its address —
+   centered when it lies far down the canvas. The app calls this as it steps,
+   so the pane opens on the structure the event walked (or the card just
+   committed) instead of on whatever sat at the top; the result is ordinary
+   scroll state, so the wheel moves freely from there. *)
+let scroll_to_selection
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ~(selection : Selection.t)
+  ~width
+  ~height
+  =
+  let (_ : View.t), ((_ : int), canvas_height), placed, (_ : Toggle.t list) =
+    layout
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~selection
+      ~body_width:(Panel.inner_width ~width)
+  in
+  let target =
+    Option.first_some selection.cursor selection.selected
+    |> Option.bind ~f:(fun { Spot.address; site } ->
+      match card_at placed site with
+      | Some card -> Some card
+      | None ->
+        List.find placed ~f:(fun (card : Placed.t) ->
+          Snapshot.Address.equal card.address address))
+  in
+  match target with
+  | None -> 0
+  | Some card ->
+    bring_into_view
+      ~at:0
+      ~size:(height - Panel.header_height)
+      ~start:card.y
+      ~length:card.height
+    |> fun scroll -> clamp_scroll ~canvas_height ~height ~scroll
+;;
+
+let clamp_pan ~canvas_width ~width ~pan =
   Int.max
     0
-    (Int.min pan (Int.max 0 (View.width canvas - Panel.inner_width ~width)))
+    (Int.min pan (Int.max 0 (canvas_width - Panel.inner_width ~width)))
 ;;
 
 (* runs on the resolved scroll, so "among the rows on screen" means the rows
    the eye is actually getting *)
-let resolve_left canvas placed ~width ~height ~scroll ~pan ~selection =
+let resolve_left placed ~canvas_width ~width ~height ~scroll ~pan ~selection =
   follow_left
     placed
     ~body_width:(Panel.inner_width ~width)
@@ -1436,7 +1552,7 @@ let resolve_left canvas placed ~width ~height ~scroll ~pan ~selection =
     ~scroll
     ~pan
     ~selection
-  |> fun pan -> clamp_pan canvas ~width ~pan
+  |> fun pan -> clamp_pan ~canvas_width ~width ~pan
 ;;
 
 let view
@@ -1452,7 +1568,7 @@ let view
   ~pan
   ~selection
   =
-  let canvas, placed, (_ : Toggle.t list) =
+  let canvas, (canvas_width, canvas_height), placed, (_ : Toggle.t list) =
     layout
       ~structures
       ~nodes
@@ -1461,9 +1577,11 @@ let view
       ~selection
       ~body_width:(Panel.inner_width ~width)
   in
-  let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
+  let scroll =
+    resolve_scroll placed ~canvas_height ~height ~scroll ~selection
+  in
   let left =
-    resolve_left canvas placed ~width ~height ~scroll ~pan ~selection
+    resolve_left placed ~canvas_width ~width ~height ~scroll ~pan ~selection
   in
   let fresh = Set.length new_addresses in
   let live = List.length structures in
@@ -1486,7 +1604,12 @@ let view
     | None -> base
     | Some note -> [%string "%{note} · %{base}"]
   in
+  (* the crop's dimensions follow arithmetically from the canvas's, so the
+     panel need not measure it — measuring would force the canvas's image
+     under a key the paint pass does not use, rebuilding it every frame *)
   Panel.view
+    ~body_size:
+      (Int.max 0 (canvas_width - left), Int.max 0 (canvas_height - scroll))
     ~title:"heap"
     ~meta
     ~width
@@ -1507,7 +1630,7 @@ let toggle_at
   ~x
   ~y
   =
-  let canvas, placed, toggles =
+  let (_ : View.t), (canvas_width, canvas_height), placed, toggles =
     layout
       ~structures
       ~nodes
@@ -1516,9 +1639,11 @@ let toggle_at
       ~selection
       ~body_width:(Panel.inner_width ~width)
   in
-  let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
+  let scroll =
+    resolve_scroll placed ~canvas_height ~height ~scroll ~selection
+  in
   let left =
-    resolve_left canvas placed ~width ~height ~scroll ~pan ~selection
+    resolve_left placed ~canvas_width ~width ~height ~scroll ~pan ~selection
   in
   let x = x + left in
   let y = y + scroll in
@@ -1540,7 +1665,11 @@ let spot_at
   ~x
   ~y
   =
-  let canvas, placed, (_ : Toggle.t list) =
+  let ( (_ : View.t)
+      , (canvas_width, canvas_height)
+      , placed
+      , (_ : Toggle.t list) )
+    =
     layout
       ~structures
       ~nodes
@@ -1549,9 +1678,11 @@ let spot_at
       ~selection
       ~body_width:(Panel.inner_width ~width)
   in
-  let scroll = resolve_scroll canvas placed ~height ~scroll ~selection in
+  let scroll =
+    resolve_scroll placed ~canvas_height ~height ~scroll ~selection
+  in
   let left =
-    resolve_left canvas placed ~width ~height ~scroll ~pan ~selection
+    resolve_left placed ~canvas_width ~width ~height ~scroll ~pan ~selection
   in
   List.find placed ~f:(Placed.contains ~x:(x + left) ~y:(y + scroll))
   |> Option.map ~f:Placed.spot

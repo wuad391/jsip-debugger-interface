@@ -18,6 +18,10 @@ let color hex =
    their own slab, so a second background would only ever read as a stray
    band where two panes meet *)
 let bg = color 0x1d1b19
+
+(* one shade off [bg]: the call stack's alternating rows — visible as a band
+   only against its neighbour, never against the text *)
+let stripe_bg = color 0x24211d
 let accent = color 0xd4a24e
 let fresh = color 0x8fd694
 

@@ -14,11 +14,13 @@
     edge.
 
     Structures lay side by side rather than stacking — packed bottom-left
-    against a skyline, each taking the width it needs, floored at a third of
-    the pane so no more than three sit abreast. Two versions of a map beside
-    each other is the comparison this pane exists to make. A structure's
-    column is chosen from its EXPANDED footprint, so collapsing one moves it
-    up its own column and leaves the rest where they are.
+    against a skyline in ADDRESS order, low to high, so neighbours in memory
+    sit near each other on the canvas and locality is something you can see.
+    Each takes the width it needs, floored at a third of the pane so no more
+    than three sit abreast. Two versions of a map beside each other is the
+    comparison this pane exists to make. A structure's column is chosen from
+    its EXPANDED footprint, so collapsing one moves it up its own column and
+    leaves the rest where they are.
 
     Any node folds: a [▾]/[▸] glyph sits in the column before each card with
     something below it (and before each section header); clicking the glyph
@@ -161,6 +163,22 @@ val accordion_folds
     what you can filter by ([/map], [/order], [/#12]). The empty filter keeps
     everything. *)
 val matches_filter : Replay.Structure.t -> filter:string -> bool
+
+(** Where a step lands the eye: the scroll that brings the selection's
+    drawing into view — its card or, collapsed, the header wearing its
+    address — centered when it lies far down the canvas. The app calls this
+    as it steps, so the pane opens on the structure the event walked (or the
+    card just committed); the result is ordinary scroll state, so the wheel
+    moves freely from there. *)
+val scroll_to_selection
+  :  structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
+  -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
+  -> selection:Selection.t
+  -> width:int
+  -> height:int
+  -> int
 
 (** [pan] is the manual horizontal offset — [\[]/[\]], or the wheel with ctrl
     or alt held — the sideways twin of [scroll]. The pane still slides on its
