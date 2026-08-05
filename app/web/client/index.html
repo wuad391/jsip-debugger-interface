@@ -36,6 +36,12 @@ window.addEventListener('error', function (event) {
 <script defer src="main.bc.js"></script>
 </head>
 <body>
-<div id="app"></div>
+<div id="app">
+<!-- replaced the moment Bonsai mounts; a 20MB exchange dump parses for a
+     few seconds first, and an empty page reads as a crash -->
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#7f8899;font:13px 'JetBrains Mono',ui-monospace,monospace">
+fetching and parsing the dump…
+</div>
+</div>
 </body>
 </html>
