@@ -28,14 +28,38 @@ module Source_fold = struct
 end
 
 (* which pane the keyboard drives; [Tab] cycles. The source pane has nothing
-   to select, so it is not in the rotation. *)
+   to select, so it is not in the rotation, and a shut flame drawer is
+   skipped for the same reason — its title row has nothing to aim at. *)
 module Pane = struct
   type t =
     | Stack
     | Heap
+    | Flame
   [@@deriving sexp_of, equal]
 
-  let other t = match t with Stack -> Heap | Heap -> Stack
+  let next t ~flame_open =
+    match t, flame_open with
+    | Stack, (true | false) -> Heap
+    | Heap, true -> Flame
+    | Heap, false -> Stack
+    | Flame, (true | false) -> Stack
+  ;;
+end
+
+(* the flame drawer's own state. [open_] is the drawer; the rest outlives it,
+   because a flame path addresses the static call tree — shutting the drawer
+   and opening it again should not lose where you were. *)
+module Flame = struct
+  type t =
+    { open_ : bool
+    ; zoom : Flame_pane.Path.t
+    (** the bar the drawer is scaled to; [[]] is the whole tree *)
+    ; cursor : Flame_pane.Path.t option
+    ; depth_scroll : int
+    }
+  [@@deriving sexp_of, equal]
+
+  let initial = { open_ = false; zoom = []; cursor = None; depth_scroll = 0 }
 end
 
 module Model = struct
@@ -67,6 +91,8 @@ module Model = struct
     ; typing_filter : bool
     (** the [/] prompt is open, and keystrokes edit the filter instead of
         driving the panes *)
+    ; flame : Flame.t
+    (** [f]: the flame drawer under the heap, open or shut *)
     }
   [@@deriving sexp_of, equal]
 
@@ -87,6 +113,7 @@ module Model = struct
     ; accordion = false
     ; heap_filter = ""
     ; typing_filter = false
+    ; flame = Flame.initial
     }
   ;;
 end
@@ -121,6 +148,11 @@ module Action = struct
     | Filter_backspace
     | Commit_filter (** [Enter]: close the prompt, keep the filter *)
     | Cancel_filter (** [Escape]: close the prompt, drop the filter *)
+    | Toggle_flame (** [f]: the flame panel in, and back out *)
+    | Jump_flame of Flame_pane.Path.t (** a click on a bar *)
+    | Zoom_flame (** [z]: rescale the panel to the cursored bar *)
+    | Reset_flame_zoom (** [Z]: back to the whole tree *)
+    | Scroll_flame of int (** by depth rows *)
   [@@deriving sexp_of]
 end
 
@@ -191,10 +223,20 @@ let apply_action
   replay
   ~calls
   ~births
+  ~flame
   (_ : _ Bonsai.Apply_action_context.t)
+  (dimensions : Dimensions.t Bonsai.Computation_status.t)
   (model : Model.t)
   action
   =
+  (* the flame panel apportions its bars against the screen, so moving its
+     cursor needs the width the picture was drawn at. An inactive machine
+     cannot be driven, so its zero simply makes every move a no-op. *)
+  let flame_width =
+    match dimensions with
+    | Active { width; height = (_ : int) } -> width
+    | Inactive -> 0
+  in
   let last = Replay.length replay - 1 in
   let clamp_step step = clamp step ~max:last in
   let clamp_frame index =
@@ -209,7 +251,10 @@ let apply_action
   (* any move re-follows the innermost frame and rewinds the heap pane, and
      drops both cursors and the chosen card — at another step those addresses
      name nothing, so blue goes back to following the walked structure. Folds
-     persist; that is the point of keying them stably. *)
+     persist; that is the point of keying them stably. So does the flame
+     panel: its paths address the static call tree rather than a step's
+     addresses, and watching the lit path move as you step is the whole
+     reason the panel stays open. *)
   let move ~playing step =
     { model with
       step = clamp_step step
@@ -252,6 +297,31 @@ let apply_action
     in
     { stepped with heap_selected = selected; heap_cursor = None }
   in
+  let flame_jump (model : Model.t) path =
+    match Flame_tree.find flame ~path with
+    | None -> model
+    | Some (node : Flame_tree.Node.t) ->
+      let stepped = move ~playing:false node.first_step in
+      { stepped with flame = { model.flame with cursor = Some path } }
+  in
+  let flame_aim (model : Model.t) ~direction =
+    let moved =
+      Flame_pane.move_cursor
+        ~width:flame_width
+        ~tree:flame
+        ~zoom:model.flame.zoom
+        ~cursor:model.flame.cursor
+        ~live:
+          (Flame_pane.live_path
+             flame
+             ~frames:(Replay.step_exn replay ~step:model.step).frames)
+        ~direction
+    in
+    match moved with
+    | None -> model
+    | Some path ->
+      { model with flame = { model.flame with cursor = Some path } }
+  in
   let commit (model : Model.t) =
     match model.focus with
     | Pane.Heap ->
@@ -276,6 +346,12 @@ let apply_action
           | Stack_pane.Target.Toggle (_ : int)
           | Stack_pane.Target.Expand (_ : int) ->
             model))
+    | Pane.Flame ->
+      (* a bar stands for every call that merged into it; committing goes to
+         the first of them, which is what clicking it does *)
+      (match model.flame.cursor with
+       | None -> model
+       | Some path -> flame_jump model path)
   in
   let aim (model : Model.t) ~direction =
     match model.focus with
@@ -319,6 +395,15 @@ let apply_action
          (match moved with
           | None -> model
           | Some call -> { model with stack_cursor = Some call }))
+    | Pane.Flame ->
+      flame_aim
+        model
+        ~direction:
+          (match (direction : Heap_pane.Direction.t) with
+           | Up -> Flame_pane.Direction.Up
+           | Down -> Flame_pane.Direction.Down
+           | Left -> Flame_pane.Direction.Left
+           | Right -> Flame_pane.Direction.Right)
   in
   (* while the accordion is driving, structure folds are its to decide — a
      manual toggle would vanish under the override now and pop back as a
@@ -330,6 +415,9 @@ let apply_action
     | (true | false), Node ((_ : int), (_ : int list)) ->
       { model with heap_folds = toggle model.heap_folds fold }
   in
+  (* a bar names a whole call path, so what a click or [Enter] jumps to is
+     the first of the calls that merged into it; the cursor pins there so the
+     panel still says where you came from at the new step *)
   match (action : Action.t) with
   | Step_to step -> move ~playing:false step
   | Step_delta delta ->
@@ -392,7 +480,11 @@ let apply_action
            | Some head ->
              { model with stack_expanded = toggle model.stack_expanded head }
            | None ->
-             { model with stack_folds = toggle model.stack_folds call })))
+             { model with stack_folds = toggle model.stack_folds call }))
+     (* nothing to fold in a flame graph: a bar's children ARE the row under
+        it, so hiding them would leave a hole where its callees ran. [z]
+        zooms instead, which is the useful move here. *)
+     | Pane.Flame -> model)
   | Toggle_accordion -> { model with accordion = not model.accordion }
   (* [/] always starts from empty: the old filter was shaped around whatever
      you were hunting last time, and editing it beats out of a prompt this
@@ -404,11 +496,42 @@ let apply_action
     { model with heap_filter = String.drop_suffix model.heap_filter 1 }
   | Commit_filter -> { model with typing_filter = false }
   | Cancel_filter -> { model with typing_filter = false; heap_filter = "" }
-  | Focus_next_pane -> { model with focus = Pane.other model.focus }
+  | Focus_next_pane ->
+    { model with
+      focus = Pane.next model.focus ~flame_open:model.flame.open_
+    }
   | Move_cursor direction -> aim model ~direction
   | Commit_cursor -> commit model
   | Jump_cursor direction -> commit (aim model ~direction)
   | Select_heap_node spot -> select_heap_node model spot
+  | Toggle_flame ->
+    let open_ = not model.flame.open_ in
+    { model with
+      flame = { model.flame with open_ }
+    ; (* a shut drawer leaves [Tab]'s rotation, so the keyboard must not be
+         left standing in one *)
+      focus =
+        (match open_, model.focus with
+         | false, Pane.Flame -> Pane.Heap
+         | false, (Pane.Stack | Pane.Heap) | true, _ -> model.focus)
+    }
+  | Jump_flame path -> flame_jump model path
+  | Zoom_flame ->
+    (match model.flame.cursor with
+     | None -> model
+     | Some cursor ->
+       { model with
+         flame = { model.flame with zoom = cursor; depth_scroll = 0 }
+       })
+  | Reset_flame_zoom ->
+    { model with flame = { model.flame with zoom = []; depth_scroll = 0 } }
+  | Scroll_flame delta ->
+    { model with
+      flame =
+        { model.flame with
+          depth_scroll = Int.max 0 (model.flame.depth_scroll + delta)
+        }
+    }
 ;;
 
 (* each call's share, joined once up front — the color its name renders in.
@@ -482,15 +605,28 @@ let render
   ~heat
   ~heat_source
   ~density
+  ~flame
   ~(model : Model.t)
   ~dimensions
   =
-  let layout = Layout.compute dimensions in
+  let panel = model.flame in
+  let layout = Layout.compute dimensions ~flame_open:panel.open_ in
+  (* the chip row names the keys that actually work, and focus decides what
+     [z] is, so it needs both bits *)
+  let flame_chip : Transport.Flame_state.t =
+    match panel.open_, model.focus with
+    | false, (Pane.Stack | Pane.Heap | Pane.Flame) -> Shut
+    | true, Pane.Flame -> Focused
+    | true, (Pane.Stack | Pane.Heap) -> Open
+  in
   let { Replay.Step.call; frames; structures; nodes; new_addresses } =
     Replay.step_exn replay ~step:model.step
   in
   (* a frame's own event index closes its range — its children came first *)
   let live = List.map frames ~f:(fun (frame : Call.t) -> snd frame.range) in
+  (* the same stack, as the merged bars it runs through: the path the panel
+     lights up, and the one it starts the keyboard from *)
+  let flame_live = Flame_pane.live_path flame ~frames in
   let selected = selected_frame replay model in
   let frame = Option.value (List.nth frames selected) ~default:call in
   let location = frame.info.location in
@@ -596,17 +732,17 @@ let render
     let seam = layout.column_divider.x in
     match model.focus with
     | Pane.Heap ->
-      (* the heap runs the full height between the two full-width rules, so
-         its left seam is the column divider — and the stack/source rule dies
-         on that divider, which keeps its tee, in orange *)
+      (* the heap is the top of the right column: its bottom seam is the rule
+         it shares with the flame drawer, and the column divider carries on
+         down past both corners it makes *)
       focus_outline
         layout.heap
         ~top:layout.top_divider.y
-        ~bottom:layout.bottom_divider.y
+        ~bottom:layout.heap_divider.y
         ~joints:
           [ seam, layout.top_divider.y, "┬"
           ; seam, layout.row_divider.y, "┤"
-          ; seam, layout.bottom_divider.y, "┴"
+          ; seam, layout.heap_divider.y, "├"
           ]
     | Pane.Stack ->
       (* the stack is the top half of the left column: its bottom seam is the
@@ -620,18 +756,33 @@ let render
           [ seam, layout.top_divider.y, "┬"
           ; seam, layout.row_divider.y, "┤"
           ]
+    | Pane.Flame ->
+      (* the drawer is the bottom of the right column, so it is fenced by the
+         heap's rule above and the session bar's below *)
+      focus_outline
+        layout.flame
+        ~top:layout.heap_divider.y
+        ~bottom:layout.bottom_divider.y
+        ~joints:
+          [ seam, layout.heap_divider.y, "├"
+          ; seam, layout.bottom_divider.y, "┴"
+          ]
+  in
+  let transport_view =
+    Transport.view
+      ~width:dimensions.Dimensions.width
+      ~step:model.step
+      ~total:(Replay.length replay)
+      ~density
+      ~playing:model.playing
+      ~accordion:model.accordion
+      ~flame:flame_chip
   in
   let view =
     View.zcat
       ((* the focus seams sit on top of every rule and junction they cross *)
        focus_views
-       @ [ Transport.view
-             ~width:dimensions.Dimensions.width
-             ~step:model.step
-             ~total:(Replay.length replay)
-             ~density
-             ~playing:model.playing
-             ~accordion:model.accordion
+       @ [ transport_view
          ; place
              layout.stack
              (Stack_pane.view
@@ -669,6 +820,17 @@ let render
                 ~scroll:model.heap_scroll
                 ~pan:model.heap_pan
                 ~selection)
+         ; place
+             layout.flame
+             (Flame_pane.view
+                ~width:layout.flame.width
+                ~height:layout.flame.height
+                ~open_:panel.open_
+                ~tree:flame
+                ~live:flame_live
+                ~zoom:panel.zoom
+                ~cursor:panel.cursor
+                ~depth_scroll:panel.depth_scroll)
          ; (* junctions ride over the rules they interrupt *)
            View.pad
              ~l:layout.column_divider.x
@@ -678,6 +840,10 @@ let render
              ~l:layout.column_divider.x
              ~t:layout.row_divider.y
              (Panel.junction ~color:Theme.border "┤")
+         ; View.pad
+             ~l:layout.column_divider.x
+             ~t:layout.heap_divider.y
+             (Panel.junction ~color:Theme.border "├")
          ; View.pad
              ~l:layout.column_divider.x
              ~t:layout.bottom_divider.y
@@ -696,6 +862,12 @@ let render
              ~t:layout.row_divider.y
              (Panel.horizontal_rule
                 ~width:layout.row_divider.width
+                ~color:Theme.border)
+         ; View.pad
+             ~l:layout.heap_divider.x
+             ~t:layout.heap_divider.y
+             (Panel.horizontal_rule
+                ~width:layout.heap_divider.width
                 ~color:Theme.border)
          ; View.pad
              ~l:layout.column_divider.x
@@ -737,6 +909,7 @@ let render
       Transport.control_at
         ~width:layout.controls.width
         ~playing:model.playing
+        ~flame:flame_chip
         ~x:position.x
       |> Option.map ~f:(fun button ->
         match (button : Transport.Button.t) with
@@ -746,6 +919,9 @@ let render
         | Fold -> act Action.Toggle_focused_fold
         | Accordion -> act Action.Toggle_accordion
         | Filter -> act Action.Begin_filter
+        | Flame -> act Action.Toggle_flame
+        | Zoom -> act Action.Zoom_flame
+        | Reset_zoom -> act Action.Reset_flame_zoom
         | Quit -> `Quit)
     | false ->
       (match Region.contains layout.ticks position with
@@ -756,86 +932,116 @@ let render
            ~x:position.x
          |> Option.map ~f:(fun step -> act (Action.Step_to step))
        | false ->
-         (match Layout.inner_position layout.stack position with
-          | Some { x; y } ->
-            Stack_pane.target_at
-              ~width:layout.stack.width
-              ~height:layout.stack.height
-              ~calls
-              ~heat
-              ~live
-              ~selected
-              ~folds:model.stack_folds
-              ~cursor:model.stack_cursor
-              ~expanded:model.stack_expanded
+         (* the drawer's title row is its handle: a click anywhere on it
+            opens or shuts it, which is the only way in while it is shut *)
+         (match
+            ( Region.contains layout.flame position
+            , Layout.inner_position layout.flame position )
+          with
+          | true, None -> Some (act Action.Toggle_flame)
+          | true, Some { x; y } ->
+            Flame_pane.bar_at
+              ~width:layout.flame.width
+              ~height:layout.flame.height
+              ~tree:flame
+              ~live:flame_live
+              ~zoom:panel.zoom
+              ~cursor:panel.cursor
+              ~depth_scroll:panel.depth_scroll
               ~x
               ~row:y
-            |> Option.map ~f:(fun target ->
-              match (target : Stack_pane.Target.t) with
-              | Frame index -> act (Action.Select_frame index)
-              | Step step -> act (Action.Step_to step)
-              | Toggle call -> act (Action.Toggle_stack_fold call)
-              | Expand head -> act (Action.Toggle_stack_run head))
-          | None ->
-            (match Layout.inner_position layout.source position with
+            |> Option.map ~f:(fun path -> act (Action.Jump_flame path))
+          | false, (Some _ | None) ->
+            (match Layout.inner_position layout.stack position with
              | Some { x; y } ->
-               Source_pane.toggle_at
-                 ~width:layout.source.width
-                 ~height:layout.source.height
-                 ~source
-                 ~folds:source_folds
-                 ~active_line:(Location.line_number location)
-                 ~callsite_line
-                 ~char_range:(Location.char_range location)
+               Stack_pane.target_at
+                 ~width:layout.stack.width
+                 ~height:layout.stack.height
+                 ~calls
+                 ~heat
+                 ~live
+                 ~selected
+                 ~folds:model.stack_folds
+                 ~cursor:model.stack_cursor
+                 ~expanded:model.stack_expanded
                  ~x
-                 ~y
-               |> Option.map ~f:(fun line ->
-                 act
-                   (Action.Toggle_source_fold
-                      { Source_fold.file = file_path; line }))
+                 ~row:y
+               |> Option.map ~f:(fun target ->
+                 match (target : Stack_pane.Target.t) with
+                 | Frame index -> act (Action.Select_frame index)
+                 | Step step -> act (Action.Step_to step)
+                 | Toggle call -> act (Action.Toggle_stack_fold call)
+                 | Expand head -> act (Action.Toggle_stack_run head))
              | None ->
-               (match Layout.inner_position layout.heap position with
+               (match Layout.inner_position layout.source position with
                 | Some { x; y } ->
-                  (* the panel pads the body one column right of the border;
-                     fold glyphs win over the card under them *)
-                  let x = max 0 (x - 1) in
-                  (match
-                     Heap_pane.toggle_at
-                       ~structures:heap_structures
-                       ~nodes
-                       ~new_addresses
-                       ~folds:heap_folds
-                       ~scroll:model.heap_scroll
-                       ~pan:model.heap_pan
-                       ~selection
-                       ~width:layout.heap.width
-                       ~height:layout.heap.height
-                       ~x
-                       ~y
-                   with
-                   | Some fold -> Some (act (Action.Toggle_heap_fold fold))
-                   | None ->
-                     Heap_pane.spot_at
-                       ~structures:heap_structures
-                       ~nodes
-                       ~new_addresses
-                       ~folds:heap_folds
-                       ~scroll:model.heap_scroll
-                       ~pan:model.heap_pan
-                       ~selection
-                       ~width:layout.heap.width
-                       ~height:layout.heap.height
-                       ~x
-                       ~y
-                     |> Option.map ~f:(fun spot ->
-                       act (Action.Select_heap_node spot)))
-                | None -> None))))
+                  Source_pane.toggle_at
+                    ~width:layout.source.width
+                    ~height:layout.source.height
+                    ~source
+                    ~folds:source_folds
+                    ~active_line:(Location.line_number location)
+                    ~callsite_line
+                    ~char_range:(Location.char_range location)
+                    ~x
+                    ~y
+                  |> Option.map ~f:(fun line ->
+                    act
+                      (Action.Toggle_source_fold
+                         { Source_fold.file = file_path; line }))
+                | None ->
+                  (match Layout.inner_position layout.heap position with
+                   | Some { x; y } ->
+                     (* the panel pads the body one column right of the
+                        border; fold glyphs win over the card under them *)
+                     let x = max 0 (x - 1) in
+                     (match
+                        Heap_pane.toggle_at
+                          ~structures:heap_structures
+                          ~nodes
+                          ~new_addresses
+                          ~folds:heap_folds
+                          ~scroll:model.heap_scroll
+                          ~pan:model.heap_pan
+                          ~selection
+                          ~width:layout.heap.width
+                          ~height:layout.heap.height
+                          ~x
+                          ~y
+                      with
+                      | Some fold ->
+                        Some (act (Action.Toggle_heap_fold fold))
+                      | None ->
+                        Heap_pane.spot_at
+                          ~structures:heap_structures
+                          ~nodes
+                          ~new_addresses
+                          ~folds:heap_folds
+                          ~scroll:model.heap_scroll
+                          ~pan:model.heap_pan
+                          ~selection
+                          ~width:layout.heap.width
+                          ~height:layout.heap.height
+                          ~x
+                          ~y
+                        |> Option.map ~f:(fun spot ->
+                          act (Action.Select_heap_node spot)))
+                   | None -> None)))))
   in
   let on_scroll (position : Position.t) direction ~sideways : Action.t option
     =
-    match Region.contains layout.heap position with
-    | false -> None
-    | true ->
+    (* the drawer has no sideways axis: a bar is already scaled to the width
+       it is given, so the wheel only walks depth there *)
+    match
+      ( Region.contains layout.flame position
+      , Region.contains layout.heap position )
+    with
+    | true, (true | false) ->
+      (match direction with
+       | `Up -> Some (Action.Scroll_flame (-1))
+       | `Down -> Some (Action.Scroll_flame 1))
+    | false, false -> None
+    | false, true ->
       (* the wheel only goes up and down, so sideways rides on a held
          modifier — two columns a tick, roughly the vertical tick's share of
          a card. Ctrl or alt, not shift: the terminal wire has a shift bit
@@ -865,14 +1071,21 @@ let component
       (Replay.step_exn replay ~step).call)
   in
   let heat, heat_source = heat_of_calls ~profile ~calls in
+  (* the whole run folded into bars, once: the tree is over the trace, not
+     over a step, so it never changes while the replay runs *)
+  let flame = Flame_tree.create ~calls ~profile in
   let density = density_of_steps replay in
   let model, inject =
-    Bonsai.state_machine
+    (* [with_input] only for [dimensions]: the flame panel's cursor walks the
+       bars the picture actually drew, and how many that is depends on how
+       wide the screen was *)
+    Bonsai.state_machine_with_input
       ~sexp_of_model:Model.sexp_of_t
       ~sexp_of_action:Action.sexp_of_t
       ~equal:Model.equal
       ~default_model:Model.initial
-      ~apply_action:(apply_action replay ~calls ~births)
+      ~apply_action:(apply_action replay ~calls ~births ~flame)
+      dimensions
       graph
   in
   let tick =
@@ -896,6 +1109,7 @@ let component
       ~heat
       ~heat_source
       ~density
+      ~flame
       ~model
       ~dimensions
   in
@@ -905,13 +1119,16 @@ let component
   in
   let handler =
     let%arr { Computed.on_click; on_scroll; view = _ } = computed
-    and { Model.typing_filter; _ } = model
+    and { Model.typing_filter; flame = panel; focus; _ } = model
     and inject in
     let inject_or_ignore action =
       match action with
       | Some action -> inject action
       | None -> Effect.Ignore
     in
+    (* the drawer only takes the keyboard when [Tab] has actually put it
+       there: it shares the screen with the heap, so both must stay drivable *)
+    let flame_focused = panel.Flame.open_ && Pane.equal focus Pane.Flame in
     let click_or_ignore click =
       match click with
       | Some (`Act action) -> inject action
@@ -939,6 +1156,18 @@ let component
       | Key_press { key; mods } ->
         (* the key map the footer advertises; anything else is ignored *)
         (match key, mods with
+         (* [f] opens and shuts the drawer from anywhere. The rest only bite
+            while [Tab] has left the keyboard in it, because the heap is
+            still on screen beside it and has to stay drivable — [wasd] and
+            [Enter] already work that way, and [z] joins them, accordion in
+            the heap and zoom here. *)
+         | ASCII 'f', [] -> inject Toggle_flame
+         | ASCII 'z', [] when flame_focused -> inject Zoom_flame
+         | ASCII 'Z', [] when flame_focused -> inject Reset_flame_zoom
+         | Arrow `Up, [] when flame_focused -> inject (Move_cursor Up)
+         | Arrow `Down, [] when flame_focused -> inject (Move_cursor Down)
+         | Page `Up, [] when flame_focused -> inject (Scroll_flame (-1))
+         | Page `Down, [] when flame_focused -> inject (Scroll_flame 1)
          | ASCII 'q', [] -> exit ()
          | (Arrow `Right | ASCII ('l' | 'n')), [] -> inject (Step_delta 1)
          | (Arrow `Left | ASCII 'p'), [] -> inject (Step_delta (-1))

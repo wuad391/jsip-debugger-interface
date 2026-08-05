@@ -8,3 +8,4 @@ module Source_file = Source_file
 module Call = Call
 module Call_stack = Call_stack
 module Heat_profile = Heat_profile
+module Flame_tree = Flame_tree

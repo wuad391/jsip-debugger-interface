@@ -4,13 +4,19 @@
     one state machine; every pane draws from that model. The design mockup's
     interactions map onto:
 
-    - [◂ ▸] / [h l] / [n p] — step the replay; [space] plays it at the
-      mockup's cadence, stopping on the last step
-    - [↑ ↓] — walk the live frames; the source pane follows the selected
-      frame and marks its caller's line
+    - [◂ ▸] / [l n] / [p] — step the replay; [space] plays it at the mockup's
+      cadence, stopping on the last step
+    - [Tab] — move focus between the call stack and the heap; [wasd] aims
+      inside the focused pane and [Enter] commits, [h] folds what it points
+      at, [z] is accordion mode and [/] filters the heap
+    - [f] — open and shut the flame drawer ({!Flame_pane}) under the heap.
+      Open, it is a pane like any other: [Tab] reaches it, [wasd] aims and
+      [Enter] commits, and [z] means zoom there rather than accordion.
+      Stepping and playing carry on either way, so the lit path walks the
+      profile as the replay runs
     - clicks — stack rows select, footer ticks and heap nodes jump the replay
-      (a node jumps to the step that allocated it), the wheel scrolls the
-      heap tree
+      (a node jumps to the step that allocated it), a flame bar jumps to the
+      first call that merged into it, the wheel scrolls the heap tree
     - [q] / [Ctrl-C] — leave, restoring the terminal *)
 
 open! Core

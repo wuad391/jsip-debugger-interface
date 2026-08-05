@@ -399,11 +399,12 @@ let%expect_test "transport: ticks, then the clickable key legend" =
        ~total:3
        ~density:[| 0.0; 1.0; 0.2 |]
        ~playing:false
-       ~accordion:false);
+       ~accordion:false
+       ~flame:Shut);
   [%expect
     {|
     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-              ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · q quit
+    ◂ back · step ▸ · [space] play · h fold · z accordion · / filter · f flame · q quit
     |}]
 ;;
 
@@ -679,28 +680,42 @@ let%expect_test "heap pane: closures stay opaque" =
 
 let%expect_test "control chips hit-test exactly where they render" =
   let width = 84 in
-  let hits =
-    List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
-      Transport.control_at ~width ~playing:false ~x
-      |> Option.map ~f:(fun button -> x, button))
+  let show (flame : Transport.Flame_state.t) =
+    let hits =
+      List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
+        Transport.control_at ~width ~playing:false ~flame ~x
+        |> Option.map ~f:(fun button -> x, button))
+    in
+    let groups =
+      List.group hits ~break:(fun ((_ : int), a) ((_ : int), b) ->
+        not (Transport.Button.equal a b))
+    in
+    List.iter groups ~f:(fun group ->
+      let first, button = List.hd_exn group in
+      let last, (_ : Transport.Button.t) = List.last_exn group in
+      print_s
+        [%sexp (button : Transport.Button.t), (first : int), (last : int)])
   in
-  let groups =
-    List.group hits ~break:(fun ((_ : int), a) ((_ : int), b) ->
-      not (Transport.Button.equal a b))
-  in
-  List.iter groups ~f:(fun group ->
-    let first, button = List.hd_exn group in
-    let last, (_ : Transport.Button.t) = List.last_exn group in
-    print_s
-      [%sexp (button : Transport.Button.t), (first : int), (last : int)]);
+  show Shut;
+  (* focusing the drawer swaps the middle of the row, so extents move *)
+  show Focused;
   [%expect
     {|
-    (Back 10 15)
-    (Step 19 24)
-    (Play 28 39)
-    (Fold 43 48)
-    (Accordion 52 62)
-    (Filter 66 73)
+    (Back 0 5)
+    (Step 9 14)
+    (Play 18 29)
+    (Fold 33 38)
+    (Accordion 42 52)
+    (Filter 56 63)
+    (Flame 67 73)
+    (Quit 77 82)
+    (Back 4 9)
+    (Step 13 18)
+    (Play 22 33)
+    (Zoom 37 42)
+    (Reset_zoom 46 52)
+    (Filter 56 63)
+    (Flame 67 73)
     (Quit 77 82)
     |}]
 ;;
@@ -2072,5 +2087,485 @@ let%expect_test "timeline density brightens within each state's hue" =
     0. -> past 0, future 0
     0.2 -> past 1, future 1
     0.7 -> past 2, future 2
+    |}]
+;;
+
+(* ── the flame panel ────────────────────────────────────────────────── *)
+
+(* golden dumps top out at eight calls and three deep, which cannot exercise
+   pooling or depth scrolling, so shapes here are built the way
+   [run_heavy_stack] builds its run: [Call.Info.t] records straight into a
+   queue, in the order the wire writes them — children before parents *)
+let flame_info ~depth ~name : Call.Info.t =
+  { depth
+  ; id = depth
+  ; function_info = Function_info.Function_name name
+  ; location =
+      Location.create ~file_path:"t.ml" ~line_number:depth ~char_range:(0, 1)
+  ; arguments = []
+  ; registry = []
+  ; ty = None
+  ; snapshot = Snapshot.empty
+  }
+;;
+
+let flame_stack frames =
+  let parsed_info =
+    Queue.of_list
+      (List.map frames ~f:(fun (name, depth) -> flame_info ~depth ~name))
+  in
+  Call_stack.create ~parsed_info
+;;
+
+let flame_of ?profile frames =
+  Flame_tree.create ~calls:(flame_stack frames).call_order ~profile
+;;
+
+(* main over three callees, one of them called twice and calling twice
+   itself: enough shape for tiling, a self run, and a path to light *)
+let sample_frames =
+  [ "read", 3
+  ; "read", 3
+  ; "lex", 2
+  ; "lex", 2
+  ; "parse", 2
+  ; "emit", 2
+  ; "main", 1
+  ]
+;;
+
+let flame_view
+  ?(width = 60)
+  ?(height = 8)
+  ?(zoom = [])
+  ?cursor
+  ?(depth_scroll = 0)
+  ?(live = [])
+  tree
+  =
+  Flame_pane.view
+    ~width
+    ~height
+    ~open_:true
+    ~tree
+    ~live
+    ~zoom
+    ~cursor
+    ~depth_scroll
+;;
+
+let%expect_test "flame: a row's columns sum to its width exactly" =
+  let show ~width ~self ~children =
+    let cells = Flame_pane.columns ~width ~self ~children in
+    let total =
+      List.sum (module Int) cells.children ~f:Fn.id + cells.pool + cells.self
+    in
+    print_s
+      [%message
+        (width : int) (cells : Flame_pane.Columns.t) ~sums_to:(total : int)]
+  in
+  (* the worked example from the mli, so the documented arithmetic is
+     executable rather than aspirational *)
+  show ~width:40 ~self:4 ~children:[ 7; 5; 3; 1 ];
+  show ~width:3 ~self:1 ~children:[ 7; 5; 3; 1 ];
+  (* every child keeps a column while there is room for one *)
+  show ~width:4 ~self:1 ~children:[ 7; 5; 3; 1 ];
+  (* degenerate widths must not over- or under-fill the row *)
+  show ~width:1 ~self:1 ~children:[ 7; 5 ];
+  show ~width:2 ~self:0 ~children:[ 1 ];
+  show ~width:0 ~self:1 ~children:[ 1 ];
+  show ~width:10 ~self:0 ~children:[];
+  [%expect
+    {|
+    ((width 40) (cells ((children (14 10 6 3)) (pool 0) (pooled 0) (self 7)))
+     (sums_to 40))
+    ((width 3) (cells ((children (1 1)) (pool 1) (pooled 2) (self 0)))
+     (sums_to 3))
+    ((width 4) (cells ((children (1 1 1 1)) (pool 0) (pooled 0) (self 0)))
+     (sums_to 4))
+    ((width 1) (cells ((children ()) (pool 1) (pooled 2) (self 0))) (sums_to 1))
+    ((width 2) (cells ((children (2)) (pool 0) (pooled 0) (self 0))) (sums_to 2))
+    ((width 0) (cells ((children ()) (pool 0) (pooled 0) (self 0))) (sums_to 0))
+    ((width 10) (cells ((children ()) (pool 0) (pooled 0) (self 0))) (sums_to 0))
+    |}]
+;;
+
+let%expect_test "flame: the flames rise, roots on the bottom row" =
+  print_view ~width:60 ~height:8 (flame_view (flame_of sample_frames));
+  [%expect
+    {|
+    ▾ FLAME           7 events · width = calls · color = calls
+
+
+
+
+     read
+     emit     lex                             parse
+     main
+    |}]
+;;
+
+let%expect_test "flame: every row tiles the pane exactly" =
+  (* boxes are FILLED now, so a colourless render cannot see where one ends
+     and the next begins — the tiling has to be asserted where it is decided
+     instead. [columns] is checked directly above; here every row of a real
+     tree goes through the same apportionment, and the widths are summed. *)
+  let tree = flame_of sample_frames in
+  let width = 58 in
+  let rec walk (node : Flame_tree.Node.t) =
+    match node.children with
+    | [] -> ()
+    | children ->
+      let cells =
+        Flame_pane.columns
+          ~width
+          ~self:node.calls
+          ~children:
+            (List.map children ~f:(fun (child : Flame_tree.Node.t) ->
+               child.inclusive))
+      in
+      let total =
+        List.sum (module Int) cells.children ~f:Fn.id
+        + cells.pool
+        + cells.self
+      in
+      let name = Flame_tree.Key.display node.key in
+      print_s [%message name (total : int) ~of_:(width : int)];
+      List.iter children ~f:walk
+  in
+  List.iter tree.roots ~f:walk;
+  [%expect
+    {|
+    (main (total 58) (of_ 58))
+    (lex (total 58) (of_ 58))
+    |}]
+;;
+
+let%expect_test "flame: a click lands on the box the eye is over" =
+  (* and the boundaries the hit-test reports ARE the drawn boundaries, since
+     [bar_at] and [view] share one apportionment — so walking a row column by
+     column is the picture's tiling, read back out *)
+  let tree = flame_of sample_frames in
+  let at ~x ~row =
+    Flame_pane.bar_at
+      ~width:60
+      ~height:8
+      ~tree
+      ~live:[]
+      ~zoom:[]
+      ~cursor:None
+      ~depth_scroll:0
+      ~x
+      ~row
+  in
+  (* the body is 7 rows and the tree is 3 deep, so bottom-alignment puts the
+     roots on row 6 and their callees on row 5 — the row with several boxes
+     on it, and the one worth walking column by column *)
+  List.init 58 ~f:(fun x -> x, at ~x ~row:5)
+  |> List.group ~break:(fun ((_ : int), a) ((_ : int), b) ->
+    not ([%equal: Flame_pane.Path.t option] a b))
+  |> List.iter ~f:(fun group ->
+    let first, path = List.hd_exn group in
+    let last, (_ : Flame_pane.Path.t option) = List.last_exn group in
+    let name =
+      match path with
+      | None -> "-"
+      | Some path ->
+        List.map path ~f:Flame_tree.Key.display |> String.concat ~sep:">"
+    in
+    print_s [%message name (first : int) (last : int)]);
+  [%expect
+    {|
+    (main>emit (first 0) (last 8))
+    (main>lex (first 9) (last 40))
+    (main>parse (first 41) (last 49))
+    (- (first 50) (last 57))
+    |}]
+;;
+
+let%expect_test "flame: children too narrow to draw pool behind +N" =
+  let wide =
+    List.init 8 ~f:(fun index -> [%string "f%{index#Int}"], 2)
+    @ [ "main", 1 ]
+  in
+  print_view
+    ~width:8
+    ~height:5
+    (flame_view ~width:8 ~height:5 (flame_of wide));
+  (* wider, where the [+N] has room to say how many it stands for *)
+  print_view
+    ~width:16
+    ~height:5
+    (flame_view ~width:16 ~height:5 (flame_of wide));
+  let cells =
+    Flame_pane.columns
+      ~width:6
+      ~self:1
+      ~children:(List.init 8 ~f:(fun (_ : int) -> 1))
+  in
+  print_s [%sexp (cells : Flame_pane.Columns.t)];
+  [%expect
+    {|
+     ▾ FLAME
+
+
+     fff+5
+      main
+     ▾ FLAME 9 event
+
+
+     f0f1f2f3f4f5ff
+      main
+    ((children (1 1 1)) (pool 3) (pooled 5) (self 0))
+    |}]
+;;
+
+let%expect_test "flame: the lit path tracks the step" =
+  let stack = flame_stack sample_frames in
+  let tree = Flame_tree.create ~calls:stack.call_order ~profile:None in
+  List.iter [ 0; 4; 6 ] ~f:(fun step ->
+    let live =
+      Flame_pane.live_path tree ~frames:(Call_stack.frames_at stack ~step)
+    in
+    print_endline [%string "step %{step#Int}:"];
+    print_view ~width:60 ~height:5 (flame_view ~height:5 ~live tree));
+  [%expect
+    {|
+    step 0:
+     ▾ FLAME           7 events · width = calls · color = calls
+
+     ▏ read
+      emit    ▏ lex                            parse
+     ▏ main
+    step 4:
+     ▾ FLAME           7 events · width = calls · color = calls
+
+      read
+      emit     lex                            ▏ parse
+     ▏ main
+    step 6:
+     ▾ FLAME           7 events · width = calls · color = calls
+
+      read
+      emit     lex                             parse
+     ▏ main
+    |}]
+;;
+
+let%expect_test "flame: a narrow bar keeps what fits of its name" =
+  List.iter [ 2; 3; 4; 6; 12 ] ~f:(fun width ->
+    print_view
+      ~width
+      ~height:3
+      (flame_view ~width ~height:3 (flame_of [ "tokenize", 2; "main", 1 ])));
+  [%expect
+    {|
+    ▾
+    ▾
+    t
+    m
+    ▾ F
+    to
+    ma
+    ▾ FLA
+    to
+    main
+    ▾ FLAME 2 e
+    toke⋯
+     main
+    |}]
+;;
+
+let%expect_test "flame: zoom rescales the subtree to the whole pane" =
+  let tree = flame_of sample_frames in
+  print_view
+    ~width:60
+    ~height:5
+    (flame_view ~height:5 ~zoom:[ Named "main"; Named "lex" ] tree);
+  [%expect
+    {|
+    ▾ FLAME   ⌖ lex · 7 events · width = calls · color = calls
+
+
+     read
+     lex
+    |}]
+;;
+
+let%expect_test "flame: the cursor walks the tree, up into the callees" =
+  let tree = flame_of sample_frames in
+  let step cursor direction =
+    Flame_pane.move_cursor
+      ~width:60
+      ~tree
+      ~zoom:[]
+      ~cursor
+      ~live:[]
+      ~direction
+  in
+  let show cursor =
+    print_s
+      [%sexp
+        (Option.map cursor ~f:(List.map ~f:Flame_tree.Key.display)
+         : string list option)]
+  in
+  (* nothing aimed at yet: the first press lands somewhere sensible *)
+  let start = step None Up in
+  show start;
+  (* [Down] from a root goes nowhere: it IS the bottom row *)
+  show (step start Down);
+  (* [Up] climbs into the widest callee, which under name ordering is not the
+     first one drawn *)
+  let deeper = step start Up in
+  show deeper;
+  (* and [Down] from there comes back to the caller *)
+  show (step deeper Down);
+  (* [Right] runs along the callees; off the end the cursor stays put *)
+  let right = step deeper Right in
+  show right;
+  show (step right Right);
+  [%expect
+    {|
+    ((main))
+    ()
+    ((main lex))
+    ((main))
+    ((main parse))
+    ()
+    |}]
+;;
+
+let%expect_test "flame: a deep tree scrolls by depth" =
+  let deep =
+    List.init 20 ~f:(fun index -> [%string "d%{index#Int}"], 20 - index)
+  in
+  let tree = flame_of deep in
+  print_view ~width:40 ~height:6 (flame_view ~width:40 ~height:6 tree);
+  print_view
+    ~width:40
+    ~height:6
+    (flame_view ~width:40 ~height:6 ~depth_scroll:8 tree);
+  [%expect
+    {|
+    ▾ FLAME depth 0-4 of 20 · 20 events · w
+     d15
+     d16
+     d17
+     d18
+     d19
+    ▾ FLAME depth 8-12 of 20 · 20 events ·
+     d7
+     d8
+     d9
+     d10
+     d11
+    |}]
+;;
+
+let%expect_test "flame: a profile changes the colors, not the layout" =
+  let profile =
+    Heat_profile.t_of_sexp
+      (Sexp.of_string
+         {|
+((version 1) (root_module Main)
+ (entries
+  (((module_path (Main)) (kind (Named lex)) (samples 900))
+   ((module_path (Main)) (kind (Named parse)) (samples 100)))))
+|})
+  in
+  (* the picture is identical either way — only the meta line and the colors
+     change, and color is stripped here *)
+  print_view
+    ~width:60
+    ~height:5
+    (flame_view ~height:5 (flame_of sample_frames));
+  print_view
+    ~width:60
+    ~height:5
+    (flame_view ~height:5 (flame_of ~profile sample_frames));
+  [%expect
+    {|
+    ▾ FLAME           7 events · width = calls · color = calls
+
+     read
+     emit     lex                             parse
+     main
+    ▾ FLAME         7 events · width = calls · color = compute
+
+     read
+     emit     lex                             parse
+     main
+    |}]
+;;
+
+let%expect_test "flame: shut, the drawer is its title row and nothing else" =
+  let tree = flame_of sample_frames in
+  (* [Layout] gives a shut drawer exactly [collapsed_flame_height] rows, so
+     the body falls away on its own — the [▸] is the only thing that has to
+     change, and the meta keeps saying what is behind it *)
+  print_view
+    ~width:60
+    ~height:Layout.collapsed_flame_height
+    (Flame_pane.view
+       ~width:60
+       ~height:Layout.collapsed_flame_height
+       ~open_:false
+       ~tree
+       ~live:[]
+       ~zoom:[]
+       ~cursor:None
+       ~depth_scroll:0);
+  (* and nothing in it can be clicked: the app reads a click on the title row
+     as "open me" precisely because [bar_at] declines it *)
+  print_s
+    [%sexp
+      (Flame_pane.bar_at
+         ~width:60
+         ~height:Layout.collapsed_flame_height
+         ~tree
+         ~live:[]
+         ~zoom:[]
+         ~cursor:None
+         ~depth_scroll:0
+         ~x:4
+         ~row:0
+       : Flame_pane.Path.t option)];
+  [%expect
+    {|
+     ▸ FLAME           7 events · width = calls · color = calls
+    ()
+    |}]
+;;
+
+let%expect_test "layout: opening the drawer takes rows from the heap" =
+  let dimensions = { Bonsai_term.Dimensions.width = 80; height = 24 } in
+  List.iter [ false; true ] ~f:(fun flame_open ->
+    print_s [%sexp (Layout.compute dimensions ~flame_open : Layout.t)]);
+  [%expect
+    {|
+    ((ticks ((x 0) (y 0) (width 80) (height 1)))
+     (controls ((x 0) (y 1) (width 80) (height 1)))
+     (top_divider ((x 0) (y 2) (width 80) (height 1)))
+     (stack ((x 0) (y 3) (width 29) (height 10)))
+     (source ((x 0) (y 14) (width 29) (height 8)))
+     (heap ((x 30) (y 3) (width 50) (height 17)))
+     (flame ((x 30) (y 21) (width 50) (height 1)))
+     (column_divider ((x 29) (y 3) (width 1) (height 19)))
+     (row_divider ((x 0) (y 13) (width 29) (height 1)))
+     (heap_divider ((x 30) (y 20) (width 50) (height 1)))
+     (bottom_divider ((x 0) (y 22) (width 80) (height 1)))
+     (session ((x 0) (y 23) (width 80) (height 1))))
+    ((ticks ((x 0) (y 0) (width 80) (height 1)))
+     (controls ((x 0) (y 1) (width 80) (height 1)))
+     (top_divider ((x 0) (y 2) (width 80) (height 1)))
+     (stack ((x 0) (y 3) (width 29) (height 10)))
+     (source ((x 0) (y 14) (width 29) (height 8)))
+     (heap ((x 30) (y 3) (width 50) (height 11)))
+     (flame ((x 30) (y 15) (width 50) (height 7)))
+     (column_divider ((x 29) (y 3) (width 1) (height 19)))
+     (row_divider ((x 0) (y 13) (width 29) (height 1)))
+     (heap_divider ((x 30) (y 14) (width 50) (height 1)))
+     (bottom_divider ((x 0) (y 22) (width 80) (height 1)))
+     (session ((x 0) (y 23) (width 80) (height 1))))
     |}]
 ;;

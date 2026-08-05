@@ -6,7 +6,7 @@ module T = struct
     ; line_number : int
     ; char_range : int * int
     }
-  [@@deriving sexp, bin_io]
+  [@@deriving sexp, bin_io, compare, equal]
 end
 
 include T
