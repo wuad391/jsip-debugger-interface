@@ -6,7 +6,11 @@
 
 open! Core
 
-type t [@@deriving sexp]
+(** [compare] and [equal] are structural, over all three fields: two calls
+    written at the same spot in the same file are the same location.
+    {!
+    Flame_tree} keys anonymous functions on one. *)
+type t [@@deriving sexp, compare, equal]
 
 (* getters *)
 val file_path : t -> string

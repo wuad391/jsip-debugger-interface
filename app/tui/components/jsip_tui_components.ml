@@ -1,3 +1,4 @@
+module Flame_pane = Flame_pane
 module Heap_pane = Heap_pane
 module Layout = Layout
 module Panel = Panel
