@@ -124,6 +124,41 @@ let heat ~share =
   |> Option.value ~default:heat_ramp.(0)
 ;;
 
+(* the flame drawer's boxes are filled, not outlined, so its ramp is a
+   BACKGROUND ramp and has to stay light enough all the way along for dark
+   text to sit on it. Brendan Gregg's flame graphs pick random warm colors
+   purely to tell neighbouring boxes apart; ours carry the compute share
+   instead, and it does that in blue: a muted slate through sky and azure to
+   a bright electric cyan. Intensity still climbs with the share, so the
+   hottest box is the most saturated and the brightest, and it is the one the
+   eye lands on. *)
+let flame_ramp =
+  [| color 0x7d8f9c
+   ; color 0x5f9fc4
+   ; color 0x3fb0e0
+   ; color 0x2ec5f5
+   ; color 0x5fe0ff
+  |]
+;;
+
+(* a box the profile matched nothing for: off the ramp entirely, so "no data"
+   cannot be read as "cold" *)
+let flame_neutral = color 0x454b50
+
+(* labels sit ON the boxes, so they take the surface color rather than a text
+   gray — near-black reads on every stop of the ramp, and on the neutral it
+   is the one thing that must not vanish *)
+let flame_label = color 0x0f1416
+let flame_label_neutral = color 0xb6bcc0
+
+let flame ~share =
+  List.find_map heat_thresholds ~f:(fun (threshold, index) ->
+    match Float.( >= ) share threshold with
+    | true -> Some flame_ramp.(index)
+    | false -> None)
+  |> Option.value ~default:flame_ramp.(0)
+;;
+
 let fg c = Attr.fg c
 let fg' c = [ Attr.fg c ]
 

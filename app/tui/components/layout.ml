@@ -10,11 +10,14 @@ type t =
   ; stack : Region.t
   ; source : Region.t
   ; heap : Region.t
+  ; flame : Region.t
   ; column_divider : Region.t
   ; row_divider : Region.t
+  ; heap_divider : Region.t
   ; bottom_divider : Region.t
   ; session : Region.t
   }
+[@@deriving sexp_of]
 
 let tick_height = 1
 
@@ -24,10 +27,15 @@ let tick_height = 1
    underneath without a whole row spent on it. *)
 let strip_height = tick_height + 1
 
+(* collapsed, the flame drawer is its title row and nothing else — enough to
+   say it is there and to click on, and the heap keeps every other row *)
+let collapsed_flame_height = Panel.header_height
+
 let compute
   ?(stack_collapsed = false)
   ?(source_collapsed = false)
   ({ height; width } : Dimensions.t)
+  ~flame_open
   =
   let controls_y = tick_height in
   let top_divider_y = strip_height in
@@ -59,6 +67,17 @@ let compute
     | true -> Panel.header_height
     | false -> max 3 (main_y + main_height - source_y)
   in
+  (* the right column splits like the left one: the heap keeps the top, the
+     flame drawer takes the bottom, and a rule runs along the seam whether
+     the drawer is open or shut *)
+  let flame_height =
+    match flame_open with
+    | false -> collapsed_flame_height
+    | true -> max 5 (main_height * 40 / 100)
+  in
+  let heap_height = max 4 (main_height - flame_height - 1) in
+  let heap_divider_y = main_y + heap_height in
+  let flame_y = heap_divider_y + 1 in
   { ticks = { x = 0; y = 0; width; height = tick_height }
   ; controls = { x = 0; y = controls_y; width; height = 1 }
   ; top_divider = { x = 0; y = top_divider_y; width; height = 1 }
@@ -69,12 +88,20 @@ let compute
       { x = left_width
       ; y = main_y
       ; width = heap_width
-      ; height = main_height
+      ; height = heap_height
+      }
+  ; flame =
+      { x = left_width
+      ; y = flame_y
+      ; width = heap_width
+      ; height = max 1 (main_y + main_height - flame_y)
       }
   ; column_divider =
       { x = pane_width; y = main_y; width = 1; height = main_height }
   ; row_divider =
       { x = 0; y = row_divider_y; width = pane_width; height = 1 }
+  ; heap_divider =
+      { x = left_width; y = heap_divider_y; width = heap_width; height = 1 }
   ; bottom_divider = { x = 0; y = height - 2; width; height = 1 }
   ; session = { x = 0; y = height - 1; width; height = 1 }
   }

@@ -25,7 +25,7 @@ divider line along each seam:
 
 ```
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-     ◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · q quit
+◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · f flame · q quit
 ─────────────────────────────┬──────────────────────────────────────────────────────────────
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
       M.add "b" 2 M.empty    │ ▾ #1  int M.t  1 binding
@@ -42,10 +42,16 @@ divider line along each seam:
      6                       │
   ▾  7 let () =              │
  ▎   8   let m = M.add "a"   │
- ▎         1 (M.add "b" 2 M  │
- ▎         .empty) in        │
+ ▎         1 (M.add "b" 2 M  ├──────────────────────────────────────────────────────────────
+ ▎         .empty) in        │ ▾ FLAME       5 events · width = calls · color = compute
+     9   let doubled =       │
+     10    M.fold (fun k v   │   ▏M.add            M.add
+     11      acc -> M.add k  │   ▏M.add     M.fold
 ─────────────────────────────┴──────────────────────────────────────────────────────────────
- ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay```
+ ● ocaml-debug │ map_fold.dump │ map ⟨string ⇒ int⟩ · replay          heat █████ compute```
+
+(In the drawer each label sits on a filled, colored box running the width
+its subtree earned; the gaps are exposed self time.)
 
 - **Call stack** — every call in the run, indented by depth: the current
   step's live chain renders bright, everything already returned or not yet
@@ -207,16 +213,56 @@ divider line along each seam:
   That is the same `bigger` the outline above reads as five bindings and two
   `↗` rows. In here there is only one structure, so there is nothing to
   point at: every node it reaches is drawn, and the count is what was drawn.
+- **Flame** — a drawer under the heap, in the right-hand column; `f`
+  opens and shuts it. Shut, it keeps only its title row (`▸ FLAME`) and
+  gives every other row back to the heap; open (`▾ FLAME`) it is a pane
+  like any other and `Tab` reaches it. The whole run's call tree as
+  filled boxes, one row per call depth, [the way Brendan Gregg's flame
+  graphs are drawn](https://www.brendangregg.com/flamegraphs.html): the
+  roots along the **bottom** and their callees stacked above them, so
+  the flames rise. Siblings run left to right in **name order**, not by
+  size — that is what makes the x-axis alphabetical, so the same program
+  always draws the same picture and two captures of it can be read side
+  by side.
+
+  A box's **width** is how many calls ran inside it (call *volume*, from
+  the trace); its **color** is that function's share of sampled compute
+  (from `-perf-file`). Gregg colors boxes at random, from a warm palette,
+  purely to separate neighbours; this spends the channel on the profile
+  instead, and does it in blue — muted slate, sky, azure, vivid blue,
+  bright cyan — so intensity climbs with the share and the hottest box is
+  the one your eye lands on. The two channels are different measurements
+  on purpose — a wide pale box is a function called too often, a narrow hot
+  one is a function that is slow, and those have opposite fixes.
+  Identical call paths pool into one box, so "called four hundred times"
+  is visible at a glance.
+
+  Children tile their parent exactly, and the gap at a row's right end
+  is the parent's own calls — a flame graph's exposed top edge, which is
+  where self time lives, so it is drawn as nothing rather than as a box.
+  A leaf simply ends. Children too narrow to draw pool behind a `+N`
+  rather than vanishing. The path the replay is standing in carries a
+  `▏` inside each of its boxes and its deepest box is bold — stepping
+  moves the mark, so you can play the run and watch it walk its own
+  profile. A box the profile has nothing to say about draws neutral
+  gray, off the ramp, so "no data" never reads as "cold". Without
+  `-perf-file` there is no compute to show, so the color falls back to
+  call volume and the meta line says `color = calls` instead of
+  `color = compute`.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump), past ticks in the position blue and future ones idle gray,
   each cell brightening within its own hue with the allocation it covers
   — so the run's busy phases read straight off the bar — over the
   controls, right-aligned chips that double as the key legend —
   `◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram ·
-  h fold · z accordion · / filter · q quit` — every chip clickable, and
-  the mode chips (play, accordion, diagram) light up while theirs is on.
-  The row wants 107 columns; narrower than that and the right-hand chips
-  crop. The session bar (dump name, structure) sits along the bottom.
+  h fold · z accordion · / filter · f flame · q quit` — every chip
+  clickable, and the mode chips (play, accordion, diagram, flame) light
+  up while theirs is on. The middle of the row swaps while the flame
+  drawer holds the keyboard (`↑↓ bar · z zoom · Z reset`), because focus
+  rebinds those keys and a legend naming keys that no longer work is
+  worse than no legend. The row wants 117 columns; narrower than that
+  and the right-hand chips crop. The session bar (dump name, structure)
+  sits along the bottom.
 
 ## Run it
 
@@ -253,18 +299,20 @@ from the repo root).
 
 ### Selecting
 
-`Tab` moves focus between the call stack and the heap; the focused
-pane's seams turn orange. Inside it, `↑`/`↓` (or `wasd`) aim — the row
-you are aiming at goes orange while the one you chose stays blue, so both
-"where I am" and "where I would land" are on screen at once.
+`Tab` moves focus between the call stack, the heap, and — while it is
+open — the flame drawer; the focused pane's seams turn orange. Inside
+it, `↑`/`↓` (or `wasd`) aim — the row you are aiming at goes orange
+while the one you chose stays blue, so both "where I am" and "where I
+would land" are on screen at once.
 
 What `Enter` then does depends on which pane has the keyboard. In the
 **heap** it pops the diagram out (`Escape` back, `Enter` again to go
 through to the allocation step) — the outline is the everyday reading and
 the tree is one keystroke away. In the **call stack** it commits: a live
-row selects that frame, a dimmed one jumps to its call. Clicking a heap
-row commits it either way, and `WASD` aims and commits in one keystroke
-in both panes.
+row selects that frame, a dimmed one jumps to its call. In the **flame
+drawer** it jumps to the first call that merged into the aimed bar.
+Clicking a heap row commits it either way, and `WASD` aims and commits
+in one keystroke in every pane.
 
 In the heap the cursor walks the outline the way a file tree walks.
 `↑`/`↓` (`w`/`s`) step to the line above and below, crossing from one
@@ -329,10 +377,44 @@ counts), handing the freed height to the other left pane; the same key or
 click reopens them. Collapsing the stack while it has the keyboard hands
 focus to the heap.
 
+### The flame drawer
+
+`f` opens and shuts the drawer under the heap; clicking its title row
+does the same, which is the only way in with the mouse while it is shut.
+Opening it takes rows from the heap and gives them straight back on
+close — nothing else on screen moves. It stays open while you step and
+play, which is the point: press `space` and watch the `▏` mark walk the
+run's own profile with the heap still beside it.
+
+`Tab` reaches it once it is open (and skips it while it is shut, since a
+title row has nothing to aim at). The keys are **spatial**, because the
+flames rise: `w`/`↑` climbs *up* the picture, which is deeper into the
+run — into the widest callee, which under name ordering is not the
+leftmost one — and `s`/`↓` comes back down toward the root. `a`/`d` run
+along the callees one caller has, and `Enter`, or a click, jumps the
+replay to the first call that merged into the box you are on. (The heap
+pane's `w` climbs to a *parent* for the same reason: its tree is drawn
+root-first, this one root-last. And `Enter` there pops the diagram out
+instead — the jump lives on the bars, the diagram on the outline.)
+
+`z` means zoom here rather than accordion: the box under the cursor is
+rescaled to the full width, so children pooled behind a `+N` widen back
+into view. `Z` resets it, and the meta line names what you are zoomed to
+(`⌖ Map.add`). `PgUp`/`PgDn` and the wheel walk depth when the tree is
+taller than the drawer; a tree shorter than it sits on the bottom row
+with the spare space above the flames.
+
+Pass `-perf-file heat.sexp` — the profile the pipeline's perf stage
+writes — to color the bars by sampled compute. Without it the bars still
+draw, colored by call volume from the trace alone, and the meta line
+says `color = calls`; a box the *profile* had nothing to say about draws
+neutral gray, off the ramp, so "no data" never reads as "cold".
+
 Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
-to the ends, and `PgUp`/`PgDn` scroll the heap. `Escape` also clears a
-committed filter, and — like every other key but its own few — it is the
-diagram pop-out's while that is up.
+to the ends, and `PgUp`/`PgDn` scroll the heap (they walk the drawer's
+depth while it holds the keyboard). `Escape` also clears a committed
+filter, and — like every other key but its own few — it is the diagram
+pop-out's while that is up.
 
 ## Toolchain
 

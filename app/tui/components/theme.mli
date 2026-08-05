@@ -104,6 +104,29 @@ val heat_ramp : Attr.Color.t array
     (≥20%, ≥8%, ≥3%, ≥1%, below) because shares are heavy-tailed. *)
 val heat : share:float -> Attr.Color.t
 
+(** The flame drawer's ramp, in blue. Its boxes are FILLED, so these are
+    background colors and every stop stays light enough for {!flame_label} to
+    sit on it. Brendan Gregg's flame graphs colour boxes at random, from a
+    warm palette, purely to tell neighbours apart; this carries each
+    function's share of sampled compute instead, running cold-to-hot — muted
+    slate, sky, azure, vivid blue, bright cyan — so intensity climbs with the
+    share and the hottest box is the one the eye lands on. *)
+val flame_ramp : Attr.Color.t array
+
+(** The ramp stop for a compute share in [0, 1] — the same log-spaced buckets
+    {!heat} uses, so a function reads at the same intensity in the stack pane
+    and in the flame drawer. *)
+val flame : share:float -> Attr.Color.t
+
+(** A box the profile matched nothing for: deliberately off {!flame_ramp}, so
+    "no data" cannot be misread as "cold". *)
+val flame_neutral : Attr.Color.t
+
+(** Label ink for a box on the ramp, and for one on {!flame_neutral}. *)
+val flame_label : Attr.Color.t
+
+val flame_label_neutral : Attr.Color.t
+
 (** [fg c] and [fg' c] shorthand [Attr.fg c] and [[ Attr.fg c ]]. *)
 val fg : Attr.Color.t -> Attr.t
 

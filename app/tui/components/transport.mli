@@ -4,13 +4,29 @@
     the same hue, current in the highlight blue, future hairline; clickable
     to jump) over the controls: right-aligned chips, each naming its key
     ([◂ back], [step ▸], [[space] play], [. latest], [↑↓ node], [⏎ diagram],
-    [h fold], [z accordion], [/ filter], [q quit]) — the row is
+    [h fold], [z accordion], [/ filter], [f flame], [q quit]) — the row is
     simultaneously the buttons and the key legend, and every chip is
-    clickable. The chips that name a mode (play, accordion, diagram) light up
-    while it is on. *)
+    clickable. The chips that name a mode (play, accordion, diagram, flame)
+    light up while it is on.
+
+    The middle of the row swaps with focus: the flame drawer rebinds [z] from
+    accordion to zoom, [↑↓] aim its bars, and [⏎] jumps rather than popping
+    the diagram, so while it holds the keyboard the chips become [↑↓ bar],
+    [z zoom], [Z reset]. A legend that names keys which no longer work is
+    worse than no legend. *)
 
 open! Core
 module View := Bonsai_term.View
+
+(** What the flame drawer is doing, as far as the chip row cares. *)
+module Flame_state : sig
+  type t =
+    | Shut
+    | Open (** on screen, but the keyboard is elsewhere *)
+    | Focused
+    (** holding the keyboard, so [z] zooms rather than toggling accordion *)
+  [@@deriving sexp_of, equal]
+end
 
 module Button : sig
   type t =
@@ -19,13 +35,18 @@ module Button : sig
     | Play
     | Latest
     (** re-lands the heap pane on the structure the current step walked *)
-    | Node (** aims the heap outline's cursor at the next row *)
+    | Node
+    (** aims the focused pane's cursor at the next row — a heap outline row,
+        or a flame bar while the drawer holds the keyboard *)
     | Diagram
     (** pops the row's structure out as the diagram it physically is, and
         dismisses it again *)
     | Fold
     | Accordion
     | Filter
+    | Flame (** [f]: open and shut the flame drawer *)
+    | Zoom (** [z] while the drawer holds the keyboard *)
+    | Reset_zoom (** [Z] while the drawer holds the keyboard *)
     | Quit
   [@@deriving sexp_of, equal]
 end
@@ -44,12 +65,19 @@ val view
   -> playing:bool
   -> accordion:bool
   -> diagram:bool
+  -> flame:Flame_state.t
   -> View.t
 
 (** Which step a click at column [x] of the tick row jumps to. *)
 val step_at : width:int -> total:int -> x:int -> int option
 
 (** Which chip a click at column [x] of the controls row hits — the same
-    layout math [view] draws with. [playing] matters: the play chip's label
-    (and so every extent) changes with it. *)
-val control_at : width:int -> playing:bool -> x:int -> Button.t option
+    layout math [view] draws with. [playing] and [flame] matter: the play
+    chip's label and the whole middle of the row (and so every extent) change
+    with them. *)
+val control_at
+  :  width:int
+  -> playing:bool
+  -> flame:Flame_state.t
+  -> x:int
+  -> Button.t option
