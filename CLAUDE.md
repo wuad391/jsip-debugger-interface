@@ -128,10 +128,18 @@ Rules that keep it working:
   tracked structure shows up here as a new constructor, and a dump naming
   one this repo doesn't have **fails to parse**. This side lags on purpose
   — the compiler lands a structure first — so expect to add constructors
-  before you can read a freshly vendored dump. As of 2026-08-03 `main` has
-  `Map`/`Set`/`Queue` while the compiler also emits `Hashtbl` and `User`
-  (values of the program's own declared types, which are event roots in
-  their own right now).
+  before you can read a freshly vendored dump. As of 2026-08-05 this repo
+  reads the seventeen constructors of compiler PR #15, while the compiler
+  emits twenty — `Core_union_find`, `Core_map_tree` and `Core_set_tree` are
+  the three it cannot parse, and the five cases naming them are the ones
+  `testing/` deliberately does not carry.
+- **`binder` and `scope` say what a name MEANS** where an event fired,
+  beside the registry saying what a structure is CALLED — see
+  `lib/types/src/scope.mli`. Both are optional on the way in: a dump from a
+  compiler predating them leaves every structure's visibility `Unknown`,
+  which draws exactly as it did before. Don't turn a missing scope into an
+  empty one; the whole point of the option is that they are different
+  claims.
 - After any deliberate format change, re-vendor `testing/` from the
   compiler repo rather than hand-editing fixtures.
 

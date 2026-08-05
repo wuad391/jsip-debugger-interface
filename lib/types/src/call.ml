@@ -9,6 +9,8 @@ module Info = struct
     ; arguments : Argument.t list
     ; registry : Registry_entry.t list
     ; ty : Type_info.t option [@sexp.option]
+    ; binder : Scope.Binder.t option [@sexp.option]
+    ; scope : Scope.t option [@sexp.option]
     ; snapshot : Snapshot.t
     }
   [@@deriving sexp_of]

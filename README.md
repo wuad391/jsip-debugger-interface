@@ -12,7 +12,10 @@ Pass `-perf-file heat.sexp` (the per-function compute profile the
 visual-debugger pipeline's perf stage writes) and the call stack renders
 each callee's name in its function's share of the sampled compute — cold
 slate through gold to red; a call the profile has no data on keeps its
-ordinary color. The session bar carries the legend.
+ordinary color. Without a profile the same ramp falls back to the trace
+itself — each function's share of the dump's events — so a replay still
+reads hot-to-cold at a glance. The session bar's legend names which of
+the two the colors mean (`compute` or `calls`).
 
 Built with [bonsai_term](https://github.com/janestreet/bonsai_term) — the
 interface is the design mockup's layout in terminal cells, its warm-gray
@@ -27,7 +30,7 @@ divider line along each seam:
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
       M.add "b" 2 M.empty    │ ▾ #1  int M.t  1 binding
  ▎▾ M.add "a" 1 (M.add "b" 2 │ └─   "b" → 2
- ▎    M.empty)               │ ▾ m  int M.t  2 bindings  new                 0x77127f3ee7e8
+ ▎    M.empty)               │ ▾ m  int M.t  2 bindings  new                 0x73137dfeaa48
       M.add k (v * 2) acc    │ ├─   "b" → 2  new
       M.add k (v * 2) acc    │ └─   "a" → 1  new
   ▾ M.fold (fun k v acc ->   │
@@ -54,7 +57,11 @@ divider line along each seam:
   forty reads as rows rather than as a texture; the gaps are nobody's — no
   stripe, no wash, and a click on one lands nowhere. Long argument lists
   wrap, and a call's `▾`/`▸` glyph folds its whole range behind a `⋯ n`
-  count without touching any other pane.
+  count without touching any other pane. Exchange-scale dumps repeat
+  themselves — thousands of identical leaf calls while a book fills — so
+  a run of four or more collapses to one `fn args ⋯ ×N` row whose glyph
+  expands it; a run holding the selection or a live frame never
+  collapses.
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
   blank gutter, and top-level definitions fold to their first line plus
@@ -111,6 +118,23 @@ divider line along each seam:
   container's one entry, a revisit stub the registry could not resolve —
   reads `null`, spelled out so it cannot be mistaken for a value. A row
   allocated *at this step* carries a green `new` tag.
+
+  A structure the program can no longer name **fades** — guides, glyph,
+  name (which loses its bold), type, values and stats, every row of its
+  subtree: after `let m = M.add "a" 1 m` both versions are alive and both
+  are called `m`, so the older one greys out and its row says `shadowed`
+  (`out of scope` for one whose binding has been left behind, like a
+  queue built inside a function that has returned). The note is part of
+  what the structure says about itself, so `/shadowed` filters the faded
+  ones out — and aiming at a faded row still lights it orange, which is
+  the one thing you can still do with a structure out of reach. Fading is
+  per drawing, not per block, which is how sharing keeps reading
+  correctly: after `M.remove` the surviving subtree shows faded among the
+  old version's rows and lit as the whole of the new one, because those
+  are two things to say about one object. A structure nested under
+  another keeps its own verdict, so a live map hanging off a shadowed
+  queue cell stays lit — and the diagram pop-out draws whatever verdict
+  the popped structure carries, saying why in its meta line.
 
   Nothing is cropped. A row too wide for the pane wraps onto continuation
   lines, hanging under its own first column so the guides still read down
@@ -172,7 +196,10 @@ divider line along each seam:
   `↗` rows. In here there is only one structure, so there is nothing to
   point at: every node it reaches is drawn, and the count is what was drawn.
 - **Transport** — across the top: a bar with one tick per event (click
-  to jump) over the controls, right-aligned chips that double as the key legend —
+  to jump), past ticks in the position blue and future ones idle gray,
+  each cell brightening within its own hue with the allocation it covers
+  — so the run's busy phases read straight off the bar — over the
+  controls, right-aligned chips that double as the key legend —
   `◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram ·
   h fold · z accordion · / filter · q quit` — every chip clickable, and
   the mode chips (play, accordion, diagram) light up while theirs is on.

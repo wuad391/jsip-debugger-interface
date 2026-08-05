@@ -32,11 +32,15 @@ end
 
 (** [Layout.strip_height] rows tall — the bar and the controls, back to back,
     on the pane surface so the strip reads as one piece with them. [step] is
-    0-based. *)
+    0-based. [density] is per-step activity in [0, 1] (the app derives it
+    from each step's fresh allocations against the run's busiest step); past
+    and future cells brighten with the activity they cover, so busy phases
+    read straight off the bar. *)
 val view
   :  width:int
   -> step:int
   -> total:int
+  -> density:float array
   -> playing:bool
   -> accordion:bool
   -> diagram:bool

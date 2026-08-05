@@ -8,6 +8,7 @@ module Snapshot = Snapshot
 module Argument = Argument
 module Location = Location
 module Registry_entry = Registry_entry
+module Scope = Scope
 module Type_info = Type_info
 module Source_file = Source_file
 module Call = Call

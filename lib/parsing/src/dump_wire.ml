@@ -8,6 +8,8 @@ type t =
   ; args : Argument.t list
   ; registry : Registry_entry.t list
   ; ty : Type_info.t option [@sexp.option]
+  ; binder : Scope.Binder.t option [@sexp.option]
+  ; scope : Scope.t option [@sexp.option]
   ; snapshot : Snapshot.t
   }
 [@@deriving sexp] [@@sexp.allow_extra_fields]
@@ -40,6 +42,8 @@ let to_call_info t ~depth : Call.Info.t =
   ; arguments = t.args
   ; registry = t.registry
   ; ty = t.ty
+  ; binder = t.binder
+  ; scope = t.scope
   ; snapshot = t.snapshot
   }
 ;;

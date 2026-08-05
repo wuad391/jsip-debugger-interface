@@ -54,19 +54,41 @@ let bar ~cell_width ~is_last =
        match gap && i = cell_width - 1 with true -> " " | false -> "▀"))
 ;;
 
+(* the busiest step a cell covers — a cell spans from its own step to the
+   next cell's; a burst inside the span should light the whole cell, so max,
+   not mean *)
+let cell_density ~density ~lo ~hi =
+  let hi = min hi (Array.length density) in
+  let rec go i acc =
+    match i < hi with
+    | false -> acc
+    | true -> go (i + 1) (Float.max acc density.(i))
+  in
+  match lo < hi with true -> go lo 0.0 | false -> 0.0
+;;
+
 (* a half-height bar hugging the top edge: heavier than a hairline, and it
-   leaves the bottom of its row clear *)
-let ticks ~width ~step ~total =
+   leaves the bottom of its row clear. Past and future cells brighten with
+   the activity they cover, so the run's busy phases read straight off the
+   bar; the current cell keeps the flat highlight. *)
+let ticks ~width ~step ~total ~density =
   let row =
     let cells = tick_cells ~width ~total in
     let last = List.length cells - 1 in
+    let starts = Array.of_list (List.map cells ~f:fst) in
     let views =
       List.mapi cells ~f:(fun index (cell_step, cell_width) ->
+        let cell_stop =
+          match index < Array.length starts - 1 with
+          | true -> starts.(index + 1)
+          | false -> total
+        in
+        let density = cell_density ~density ~lo:cell_step ~hi:cell_stop in
         let color =
           match Ordering.of_int (Int.compare cell_step step) with
           | Equal -> Theme.highlight
-          | Less -> Theme.tick_past
-          | Greater -> Theme.hairline
+          | Less -> Theme.tick_density Theme.tick_past_ramp ~density
+          | Greater -> Theme.tick_density Theme.tick_future_ramp ~density
         in
         View.text
           ~attrs:(Theme.fg' color)
@@ -169,14 +191,14 @@ let control_at ~width ~playing ~x =
   hit
 ;;
 
-let view ~width ~step ~total ~playing ~accordion ~diagram =
+let view ~width ~step ~total ~density ~playing ~accordion ~diagram =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
     ~bg:Theme.bg
     (Panel.fit
        (View.vcat
-          [ ticks ~width ~step ~total
+          [ ticks ~width ~step ~total ~density
           ; controls ~width ~playing ~accordion ~diagram
           ])
        ~width

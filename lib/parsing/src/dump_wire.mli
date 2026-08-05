@@ -44,6 +44,13 @@ type t =
   ; ty : Type_info.t option [@sexp.option]
   (** the static type of this event's walked root; [None] on dumps from a
       compiler predating the field *)
+  ; binder : Scope.Binder.t option [@sexp.option]
+  (** which [let] the walked root is bound by, when it is bound at all — what
+      [scope] has to agree with for the structure to still answer to its name *)
+  ; scope : Scope.t option [@sexp.option]
+  (** what every tracked name means at the point this event fired; [None] on
+      dumps from a compiler predating the field, which is not the same as
+      "nothing is in scope" and is why this is an option *)
   ; snapshot : Snapshot.t
   }
 [@@deriving sexp]

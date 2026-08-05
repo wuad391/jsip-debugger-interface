@@ -60,6 +60,23 @@ let hairline = color 0x4a4640
 let tick_past = color 0x2e5578
 let app_purple = color 0xc39ae2
 
+(* the timeline's activity shading: a cell containing allocation bursts
+   brightens within its own hue — past stays in the position blue's register,
+   future in the idle gray warming toward the accent — so density reads as
+   intensity while past/current/future keep their meaning. Index by rising
+   density, [0] = quiet. *)
+let tick_past_ramp = [| tick_past; color 0x3f78ab; color 0x5b9bd6 |]
+let tick_future_ramp = [| hairline; color 0x6b6255; color 0x93825f |]
+
+(* most steps allocate a little and a few allocate a lot; the buckets are
+   spaced so only genuine bursts reach the bright stop *)
+let tick_density ramp ~density =
+  match Float.( >= ) density 0.5, Float.( >= ) density 0.15 with
+  | true, _ -> ramp.(2)
+  | false, true -> ramp.(1)
+  | false, false -> ramp.(0)
+;;
+
 (* the diagram pop-out's two strokes: a node's box, and the rails between
    boxes. The rails are the diagram's edges — the actual pointers — so they
    read a shade ahead of the boxes that hang off them. *)
@@ -104,3 +121,57 @@ let heat ~share =
 
 let fg c = Attr.fg c
 let fg' c = [ Attr.fg c ]
+
+module For_testing = struct
+  (* every role by name, so a test can say which gray a cell is wearing
+     rather than matching hex — and so the answer lives beside the
+     definitions rather than in a copy that goes stale *)
+  let roles =
+    [ "bg", bg
+    ; "raised", raised
+    ; "stripe_bg", stripe_bg
+    ; "accent", accent
+    ; "fresh", fresh
+    ; "highlight", highlight
+    ; "highlight_bg", highlight_bg
+    ; "highlight_deep", highlight_deep
+    ; "cursor", cursor
+    ; "cursor_bg", cursor_bg
+    ; "cursor_deep", cursor_deep
+    ; "cursor_echo", cursor_echo
+    ; "highlight_echo", highlight_echo
+    ; "card_border", card_border
+    ; "rail", rail
+    ; "type_name", type_name
+    ; "text", text
+    ; "secondary", secondary
+    ; "muted", muted
+    ; "faint", faint
+    ; "ghost", ghost
+    ; "border", border
+    ; "hairline", hairline
+    ; "tick_past", tick_past
+    ; "app_purple", app_purple
+    ; "ident", ident
+    ; "string_lit", string_lit
+    ; "number", number
+    ]
+    (* the timeline ramps' own stops, by index; stop 0 of each is the flat
+       color named above, which wins by listing first *)
+    @ List.concat_map
+        [ "tick_past_ramp", tick_past_ramp
+        ; "tick_future_ramp", tick_future_ramp
+        ]
+        ~f:(fun (name, ramp) ->
+          List.mapi (Array.to_list ramp) ~f:(fun index color ->
+            [%string "%{name}%{index#Int}"], color))
+  ;;
+
+  let color_name color =
+    List.find_map roles ~f:(fun (name, role) ->
+      match Attr.Color.equal color role with
+      | true -> Some name
+      | false -> None)
+    |> Option.value ~default:(Sexp.to_string [%sexp (color : Attr.Color.t)])
+  ;;
+end

@@ -318,6 +318,84 @@ let printable_leaves leaves =
     | (true | false), _ -> true)
 ;;
 
+(* Every color one structure's drawing takes, in one place, so that fading a
+   structure is a change of palette rather than a condition at each of a
+   dozen drawing sites.
+
+   A structure the program can no longer name is drawn in [faded]: the same
+   outline a step further back — guides, glyph, name (no longer bold), type,
+   values and stats all dropped to the dimmer counterpart of their usual
+   gray, and the diagram pop-out's strokes likewise. Selection wins over
+   both, so aiming at a faded row still lights it orange; that is the one
+   thing you can do to a structure that is out of reach. *)
+module Palette = struct
+  type t =
+    { border : Attr.Color.t (** the pop-out's card outlines *)
+    ; dashed : Attr.Color.t (** the [↗] pointer box, the [∅] slot, [null] *)
+    ; text : Attr.Color.t (** names and binding keys *)
+    ; value : Attr.Color.t (** plain values — the outline's ident blue *)
+    ; label : Attr.Color.t (** field labels, counters, and the [#id] *)
+    ; arrow : Attr.Color.t (** the [→] of a binding, and [↗] *)
+    ; rail : Attr.Color.t
+    ; glyph : Attr.Color.t (** the fold [▾]/[▸] *)
+    ; address : Attr.Color.t
+    ; guide : Attr.Color.t (** the outline's [├─]/[└─] runs *)
+    ; field : Attr.Color.t (** the record-field column *)
+    ; type_name : Attr.Color.t
+    ; stats : Attr.Color.t (** sizes, the [⋯ n], the visibility word *)
+    ; key_bold : bool
+    }
+
+  let lit =
+    { border = Theme.card_border
+    ; dashed = Theme.ghost
+    ; text = Theme.text
+    ; value = Theme.ident
+    ; label = Theme.muted
+    ; arrow = Theme.ghost
+    ; rail = Theme.rail
+    ; glyph = Theme.faint
+    ; address = Theme.secondary
+    ; guide = Theme.border
+    ; field = Theme.app_purple
+    ; type_name = Theme.type_name
+    ; stats = Theme.faint
+    ; key_bold = true
+    }
+  ;;
+
+  let faded =
+    { border = Theme.border
+    ; dashed = Theme.hairline
+    ; text = Theme.ghost
+    ; value = Theme.ghost
+    ; label = Theme.border
+    ; arrow = Theme.hairline
+    ; rail = Theme.border
+    ; glyph = Theme.border
+    ; address = Theme.border
+    ; guide = Theme.hairline
+    ; field = Theme.ghost
+    ; type_name = Theme.border
+    ; stats = Theme.border
+    ; key_bold = false
+    }
+  ;;
+
+  let of_visibility visibility =
+    match Replay.Visibility.is_reachable visibility with
+    | true -> lit
+    | false -> faded
+  ;;
+
+  (* a referenced structure is drawn inside its referrer's tree but is not
+     part of it: it keeps its own verdict, so a live map hanging off a
+     shadowed queue cell stays lit *)
+  let of_structure (structure : Replay.Structure.t) =
+    of_visibility structure.visibility
+  ;;
+end
+
 (* the pieces a row's value is made of, so the colors are decided once *)
 module Span = struct
   type kind =
@@ -330,36 +408,39 @@ module Span = struct
 
   type t = kind * string
 
-  let attrs kind ~accent =
+  let attrs kind ~accent ~(palette : Palette.t) =
     match kind with
-    | Key -> [ Theme.fg Theme.text; Attr.bold ]
+    | Key ->
+      (match palette.key_bold with
+       | true -> [ Theme.fg palette.text; Attr.bold ]
+       | false -> Theme.fg' palette.text)
     | Value -> Theme.fg' accent
-    | Arrow -> Theme.fg' Theme.ghost
-    | Label -> Theme.fg' Theme.muted
+    | Arrow -> Theme.fg' palette.arrow
+    | Label -> Theme.fg' palette.label
     (* italic, because it is the pane talking and not the program: the one
        word on a row that was never in the heap *)
-    | Null -> [ Theme.fg Theme.ghost; Attr.italic ]
+    | Null -> [ Theme.fg palette.dashed; Attr.italic ]
     | Gap -> []
   ;;
 
   (* Attributed pieces, ready to wrap. [Arrow], [Null] and [Gap] are the
      pane's own punctuation and mean their spacing; everything else came off
      the wire, and gets flattened onto one line. *)
-  let pieces ~accent spans =
+  let pieces ~accent ~palette spans =
     List.map spans ~f:(fun (kind, text) ->
       let text =
         match kind with
         | Key | Value | Label -> one_line text
         | Arrow | Null | Gap -> text
       in
-      attrs kind ~accent, text)
+      attrs kind ~accent ~palette, text)
   ;;
 
   (* the same pieces as one drawn line, for the diagram, whose boxes are laid
      out from their own measured widths rather than wrapped to a pane *)
-  let view ~accent spans =
+  let view ~accent ~palette spans =
     View.hcat
-      (List.map (pieces ~accent spans) ~f:(fun (attrs, text) ->
+      (List.map (pieces ~accent ~palette spans) ~f:(fun (attrs, text) ->
          View.text ~attrs text))
   ;;
 end
@@ -559,6 +640,9 @@ module Entry = struct
     ; is_current : bool (** the structure this step's event walked *)
     ; is_binding : bool
     ; is_pointer : bool
+    ; palette : Palette.t
+    (** the owning structure's verdict, decided once at its entry — which is
+        what lets a nested [Ref] structure switch palettes mid-tree *)
     ; site : Site.t
     ; fold : Fold.t
     ; folded : bool
@@ -569,6 +653,16 @@ module Entry = struct
     List.sum (module Int) t.children ~f:(fun child -> 1 + size child)
   ;;
 end
+
+(* why a structure's row is drawn faded — said in words as well as in color,
+   since "which of these three [m]s is the live one" is the question the
+   fading exists to answer *)
+let visibility_note (visibility : Replay.Visibility.t) =
+  match visibility with
+  | In_scope | Unknown -> None
+  | Shadowed -> Some "shadowed"
+  | Out_of_scope -> Some "out of scope"
+;;
 
 (* how a container's row counts what is under it: bindings where its entries
    are pairs, elements otherwise *)
@@ -621,6 +715,7 @@ let rec entries_of
   ~field
   ~ds_type
   ~(context : Context.t)
+  ~(palette : Palette.t)
   ~folds
   ~structure_id
   ~path
@@ -663,10 +758,14 @@ let rec entries_of
         ~field:(shown label)
         ~ds_type
         ~context
+        ~palette
         ~folds
         ~structure_id
         ~path
     | Ref structure ->
+      (* another structure, listed here rather than in a section of its own —
+         so it brings its own verdict with it, and a live map hanging off a
+         faded queue cell stays lit *)
       [ structure_entry structure ~field:(shown label) ~context ~folds ]
     | Shared { id; node = target } ->
       [ pointer_entry
@@ -674,6 +773,7 @@ let rec entries_of
           ~target
           ~field:(shown label)
           ~ds_type
+          ~palette
           ~structure_id
           ~path
       ]
@@ -701,6 +801,7 @@ let rec entries_of
     ; is_current = false
     ; is_binding
     ; is_pointer = false
+    ; palette
     ; site = { Site.structure = structure_id; path; is_header = false }
     ; fold
     ; folded = Set.mem folds fold
@@ -745,12 +846,17 @@ and structure_entry (structure : Replay.Structure.t) ~field ~context ~folds =
   let ds_type = structure.snapshot.ds_type in
   let root = Replay.Structure.current_root structure in
   let fold = Fold.Structure structure.id in
+  (* the structure's own verdict, worn by its whole subtree — every row under
+     this entry inherits the palette, until a nested [Ref] structure brings
+     its own *)
+  let palette = Palette.of_structure structure in
   let rows =
     entries_of
       root
       ~field:""
       ~ds_type
       ~context
+      ~palette
       ~folds
       ~structure_id:structure.id
       ~path:[]
@@ -775,6 +881,13 @@ and structure_entry (structure : Replay.Structure.t) ~field ~context ~folds =
       "%{node_count_label (count_nodes [ structure ])} · %{bytes_label \
        (structure_words structure)}"]
   in
+  (* the verdict rides the stats column, so the row says in words what the
+     fading says in color *)
+  let stats =
+    match visibility_note structure.visibility with
+    | None -> stats
+    | Some note -> [%string "%{stats} · %{note}"]
+  in
   { Entry.field
   ; name = structure_name structure
   ; ty = structure_type structure
@@ -785,6 +898,7 @@ and structure_entry (structure : Replay.Structure.t) ~field ~context ~folds =
   ; is_current = structure.is_current
   ; is_binding = false
   ; is_pointer = false
+  ; palette
   ; site = { Site.structure = structure.id; path = []; is_header = true }
   ; fold
   ; folded = Set.mem folds fold
@@ -800,7 +914,7 @@ and structure_entry (structure : Replay.Structure.t) ~field ~context ~folds =
    [↗ "b" → 2] names something on screen, [↗ #11] names nothing. It answers
    to the target's address, so aiming at either the pointer or the row lights
    up both. *)
-and pointer_entry ~id ~target ~field ~ds_type ~structure_id ~path =
+and pointer_entry ~id ~target ~field ~ds_type ~palette ~structure_id ~path =
   let value =
     match target with
     | Some node -> (Span.Arrow, "↗ ") :: shared_spans node ~ds_type
@@ -819,6 +933,7 @@ and pointer_entry ~id ~target ~field ~ds_type ~structure_id ~path =
   ; is_current = false
   ; is_binding = false
   ; is_pointer = true
+  ; palette
   ; site = { Site.structure = structure_id; path; is_header = false }
   ; fold = Fold.Node (structure_id, path)
   ; folded = false
@@ -964,16 +1079,23 @@ let rows ~structures ~nodes ~new_addresses ~folds =
 ;;
 
 (* the name · kind · type line — everything a structure says about itself,
-   and so also what [/] lets you filter by *)
+   and so also what [/] lets you filter by, which is why the visibility note
+   lives in the text and not beside it: [/shadowed] then picks out the faded
+   ones *)
 let header_text (structure : Replay.Structure.t) =
   let label =
     [%string
       "%{Replay.Structure.display structure} · %{Snapshot.Ds_type.display \
        structure.snapshot.ds_type}"]
   in
-  match structure.ty with
+  let label =
+    match structure.ty with
+    | None -> label
+    | Some ty -> [%string "%{label} %{Type_info.display ty}"]
+  in
+  match visibility_note structure.visibility with
   | None -> label
-  | Some ty -> [%string "%{label} %{Type_info.display ty}"]
+  | Some note -> [%string "%{label} · %{note}"]
 ;;
 
 let matches_filter structure ~filter =
@@ -1053,25 +1175,31 @@ end
    to a string that is usually not there. *)
 let row_lines (row : Row.t) ~width ~selection =
   let entry = row.entry in
+  let palette = entry.palette in
   let mark =
     Selection.mark selection ~address:entry.address ~site:entry.site
   in
-  let accent = Selection.Mark.accent mark ~plain:Theme.ident in
+  let accent = Selection.Mark.accent mark ~plain:palette.value in
   let piece ~attrs text =
     match String.is_empty text with true -> [] | false -> [ attrs, text ]
   in
+  (* the walked structure keeps its highlight even faded — where the step
+     happened outranks how reachable it left things — and a faded name loses
+     its bold along with its white *)
   let name_attrs =
     Selection.Mark.name_attrs
       mark
       ~plain:
-        (match entry.is_current with
-         | true -> [ Theme.fg Theme.highlight_deep; Attr.bold ]
-         | false -> [ Theme.fg Theme.text; Attr.bold ])
+        (match entry.is_current, palette.key_bold with
+         | true, (true | false) ->
+           [ Theme.fg Theme.highlight_deep; Attr.bold ]
+         | false, true -> [ Theme.fg palette.text; Attr.bold ]
+         | false, false -> Theme.fg' palette.text)
   in
   let hidden =
     match entry.folded && row.hidden > 0 with
     | false -> []
-    | true -> [ Theme.fg' Theme.faint, [%string "⋯ %{row.hidden#Int}"] ]
+    | true -> [ Theme.fg' palette.stats, [%string "⋯ %{row.hidden#Int}"] ]
   in
   let tag =
     match entry.is_new with
@@ -1082,11 +1210,11 @@ let row_lines (row : Row.t) ~width ~selection =
      one *)
   let columns =
     List.filter
-      [ piece ~attrs:(Theme.fg' Theme.app_purple) entry.field
+      [ piece ~attrs:(Theme.fg' palette.field) entry.field
       ; piece ~attrs:name_attrs entry.name
-      ; piece ~attrs:(Theme.fg' Theme.type_name) entry.ty
-      ; Span.pieces ~accent entry.value
-      ; piece ~attrs:(Theme.fg' Theme.faint) entry.stats
+      ; piece ~attrs:(Theme.fg' palette.type_name) entry.ty
+      ; Span.pieces ~accent ~palette entry.value
+      ; piece ~attrs:(Theme.fg' palette.stats) entry.stats
       ; hidden
       ; tag
       ]
@@ -1108,16 +1236,16 @@ let row_lines (row : Row.t) ~width ~selection =
     | true ->
       View.hcat
         [ View.text
-            ~attrs:(Theme.fg' Theme.faint)
+            ~attrs:(Theme.fg' palette.glyph)
             (glyph_of ~folded:entry.folded)
         ; View.text " "
         ]
   in
   let lead index =
     match index with
-    | 0 -> [ View.text ~attrs:(Theme.fg' Theme.border) row.guide; glyph ]
+    | 0 -> [ View.text ~attrs:(Theme.fg' palette.guide) row.guide; glyph ]
     | _ ->
-      [ View.text ~attrs:(Theme.fg' Theme.border) row.continuation
+      [ View.text ~attrs:(Theme.fg' palette.guide) row.continuation
       ; View.text "    "
       ]
   in
@@ -1133,7 +1261,7 @@ let row_lines (row : Row.t) ~width ~selection =
     | true ->
       let chip =
         View.text
-          ~attrs:(Theme.fg' Theme.secondary)
+          ~attrs:(Theme.fg' palette.address)
           (Snapshot.Address.display entry.address)
       in
       let right_align line =
@@ -1604,25 +1732,34 @@ module Diagram = struct
 
   (* a node's box: what it holds, a field to a line, with the structure's
      name riding the top-left border where this node is one's root and a
-     green [new] tag riding the top right where this step allocated it *)
+     green [new] tag riding the top right where this step allocated it. The
+     palette is the owning structure's verdict; the [new] tag keeps its green
+     either way — that this step allocated it is true regardless of what the
+     name now reaches. *)
   let node_box
     (node : Snapshot.Node.t)
     ~leaves
     ~arity
     ~(context : Context.t)
+    ~(palette : Palette.t)
     ~name
     =
-    let border = Theme.fg' Theme.card_border in
+    let border = Theme.fg' palette.border in
     let lines =
-      List.map (field_lines leaves ~arity) ~f:(Span.view ~accent:Theme.ident)
+      List.map
+        (field_lines leaves ~arity)
+        ~f:(Span.view ~accent:palette.value ~palette)
     in
     let name_tag =
       match name with
       | None -> View.none
       | Some name ->
-        View.text
-          ~attrs:[ Theme.fg Theme.text; Attr.bold ]
-          [%string " %{name} "]
+        let attrs =
+          match palette.key_bold with
+          | true -> [ Theme.fg palette.text; Attr.bold ]
+          | false -> Theme.fg' palette.text
+        in
+        View.text ~attrs [%string " %{name} "]
     in
     let new_tag =
       match Set.mem context.new_addresses node.virtual_address with
@@ -1659,8 +1796,8 @@ module Diagram = struct
   (* An empty slot is still a slot, so it gets a box too — dotted and grayed.
      A bare [∅] hanging off a rail read as an annotation on the edge; a box
      reads as what it is, the thing the pointer does not point at. *)
-  let nil_box =
-    let attrs = Theme.fg' Theme.ghost in
+  let nil_box ~(palette : Palette.t) =
+    let attrs = Theme.fg' palette.dashed in
     View.vcat
       [ View.text ~attrs "┌┄┄┄┐"
       ; View.text ~attrs "┆ ∅ ┆"
@@ -1674,8 +1811,8 @@ module Diagram = struct
      that differs. Dashed, to say it is not the original, and named by what
      its target holds rather than by the wire's node number: [↗ "b" → 2]
      names something on screen, [↗ #11] names nothing. *)
-  let shared_box target ~id ~ds_type =
-    let border = Theme.fg' Theme.ghost in
+  let shared_box target ~id ~ds_type ~(palette : Palette.t) =
+    let border = Theme.fg' palette.dashed in
     let lines =
       match target with
       | Some (node : Snapshot.Node.t) ->
@@ -1683,11 +1820,11 @@ module Diagram = struct
           (field_lines
              (shared_leaves node ~ds_type)
              ~arity:(List.length node.block))
-          ~f:(Span.view ~accent:Theme.ident)
+          ~f:(Span.view ~accent:palette.value ~palette)
       | None ->
-        [ View.text ~attrs:(Theme.fg' Theme.muted) [%string "#%{id#Int}"] ]
+        [ View.text ~attrs:(Theme.fg' palette.label) [%string "#%{id#Int}"] ]
     in
-    let arrow = View.text ~attrs:(Theme.fg' Theme.muted) " ↗ " in
+    let arrow = View.text ~attrs:(Theme.fg' palette.label) " ↗ " in
     let inner =
       List.fold
         lines
@@ -1720,7 +1857,7 @@ module Diagram = struct
   (* the [┌──┴──┐] rail between a parent and its children, hooked at each
      child's center. These lines are the diagram's pointers, so they read a
      shade ahead of the boxes rather than behind them. *)
-  let rail ~parent_center ~centers =
+  let rail ~(palette : Palette.t) ~parent_center ~centers =
     let leftmost =
       List.min_elt centers ~compare:Int.compare |> Option.value ~default:0
     in
@@ -1752,11 +1889,11 @@ module Diagram = struct
     for x = 0 to rightmost do
       Buffer.add_string buffer (glyph x)
     done;
-    View.text ~attrs:(Theme.fg' Theme.rail) (Buffer.contents buffer)
+    View.text ~attrs:(Theme.fg' palette.rail) (Buffer.contents buffer)
   ;;
 
   (* edge labels sitting under their hooks *)
-  let rail_labels ~labeled_centers =
+  let rail_labels ~(palette : Palette.t) ~labeled_centers =
     let width =
       List.fold labeled_centers ~init:0 ~f:(fun width (center, label) ->
         Int.max
@@ -1772,7 +1909,7 @@ module Diagram = struct
         | true -> Bytes.set buffer at char
         | false -> ()));
     View.text
-      ~attrs:(Theme.fg' Theme.muted)
+      ~attrs:(Theme.fg' palette.label)
       (Bytes.to_string buffer |> String.rstrip)
   ;;
 
@@ -1784,7 +1921,12 @@ module Diagram = struct
 
      Returns the canvas, the column the node's own box is centered on, and
      how wide the subtree came out. *)
-  let rec tree (node : Snapshot.Node.t) ~ds_type ~(context : Context.t) ~name
+  let rec tree
+    (node : Snapshot.Node.t)
+    ~ds_type
+    ~(context : Context.t)
+    ~(palette : Palette.t)
+    ~name
     =
     let edges, leaves = node_edges node ~ds_type ~context in
     (* a leaf keeps its empty slots to itself *)
@@ -1798,7 +1940,13 @@ module Diagram = struct
     in
     Hash_set.add context.drawn_nodes node.id;
     let box =
-      node_box node ~leaves ~arity:(List.length node.block) ~context ~name
+      node_box
+        node
+        ~leaves
+        ~arity:(List.length node.block)
+        ~context
+        ~palette
+        ~name
     in
     let box_width = View.width box in
     match edges with
@@ -1808,17 +1956,23 @@ module Diagram = struct
         List.map edges ~f:(fun (label, (edge : Edge.t)) ->
           match edge with
           | Nil ->
+            let nil_box = nil_box ~palette in
             label, (nil_box, View.width nil_box / 2, View.width nil_box)
           | Shared { id; node = target } ->
-            let stub = shared_box target ~id ~ds_type in
+            let stub = shared_box target ~id ~ds_type ~palette in
             label, (stub, View.width stub / 2, View.width stub)
-          | Child child -> label, tree child ~ds_type ~context ~name:None
+          | Child child ->
+            label, tree child ~ds_type ~context ~palette ~name:None
           | Ref (structure : Replay.Structure.t) ->
+            (* another structure, drawn here rather than in a slab of its own
+               — so it brings its own verdict with it, and a live map hanging
+               off a faded queue cell stays lit *)
             ( label
             , tree
                 (Replay.Structure.current_root structure)
                 ~ds_type:structure.snapshot.ds_type
                 ~context
+                ~palette:(Palette.of_structure structure)
                 ~name:(Some (structure_name structure)) ))
       in
       (* siblings in field order, each one [sibling_gap] past the last *)
@@ -1862,11 +2016,11 @@ module Diagram = struct
           | false -> Some (center, label))
       in
       let rail_rows =
-        rail ~parent_center ~centers
+        rail ~palette ~parent_center ~centers
         ::
         (match List.is_empty labeled_centers with
          | true -> []
-         | false -> [ rail_labels ~labeled_centers ])
+         | false -> [ rail_labels ~palette ~labeled_centers ])
       in
       let box_height = View.height box in
       let children_y = box_height + List.length rail_rows in
@@ -1918,6 +2072,9 @@ module Diagram = struct
         (Replay.Structure.current_root structure)
         ~ds_type:structure.snapshot.ds_type
         ~context
+          (* the popped structure's own verdict picks lit or faded for its
+             whole drawing; nested [Ref] structures switch on the way down *)
+        ~palette:(Palette.of_structure structure)
         ~name:(Some (structure_name structure))
     in
     view, Hash_set.length context.drawn_nodes
@@ -1957,11 +2114,17 @@ module Diagram = struct
     let pan = clamp pan ~max:(View.width canvas - body_width) in
     (* the name goes in the meta rather than in the title: a title names a
        pane and reads uppercased, and [bigger] is the program's word, not
-       ours *)
+       ours. The visibility verdict rides here too, so the pop-out says in
+       words why its drawing is faded. *)
     let meta =
       let memory = bytes_label (structure_words structure) in
+      let note =
+        match visibility_note structure.visibility with
+        | None -> ""
+        | Some note -> [%string " · %{note}"]
+      in
       [%string
-        "%{structure_name structure} · %{structure_type structure} · \
+        "%{structure_name structure} · %{structure_type structure}%{note} · \
          %{node_count_label drawn} · %{memory} · esc back"]
     in
     let body =

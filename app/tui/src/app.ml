@@ -46,6 +46,9 @@ module Model = struct
     ; heap_scroll : int (** in canvas lines: heap rows wrap *)
     ; heap_folds : Set.M(Heap_pane.Fold).t
     ; stack_folds : Int.Set.t
+    ; stack_expanded : Int.Set.t
+    (** repeat runs (keyed by head index) opened back up out of their
+        collapsed [⋯ ×N] row *)
     ; source_folds : Set.M(Source_fold).t
     ; focus : Pane.t
     ; heap_selected : Heap_pane.Spot.t option
@@ -85,6 +88,7 @@ module Model = struct
     ; heap_scroll = 0
     ; heap_folds = Set.empty (module Heap_pane.Fold)
     ; stack_folds = Int.Set.empty
+    ; stack_expanded = Int.Set.empty
     ; source_folds = Set.empty (module Source_fold)
     ; focus = Pane.Heap
     ; heap_selected = None
@@ -113,6 +117,8 @@ module Action = struct
     | Scroll_heap of int
     | Toggle_heap_fold of Heap_pane.Fold.t
     | Toggle_stack_fold of int
+    | Toggle_stack_run of int
+    (** open/close the repeat run headed at this call *)
     | Toggle_source_fold of Source_fold.t
     | Focus_next_pane
     | Move_cursor of Heap_pane.Direction.t
@@ -346,7 +352,9 @@ let apply_action
             ; stack_cursor = None
             }
           | Stack_pane.Target.Step step -> move ~playing:false step
-          | Stack_pane.Target.Toggle (_ : int) -> model))
+          | Stack_pane.Target.Toggle (_ : int)
+          | Stack_pane.Target.Expand (_ : int) ->
+            model))
   in
   let aim (model : Model.t) ~direction =
     match model.focus with
@@ -384,6 +392,7 @@ let apply_action
              ~selected:(selected_frame replay model)
              ~folds:model.stack_folds
              ~cursor:model.stack_cursor
+             ~expanded:model.stack_expanded
              ~direction
          in
          (match moved with
@@ -419,6 +428,8 @@ let apply_action
   | Toggle_heap_fold fold -> toggle_heap_fold model fold
   | Toggle_stack_fold call ->
     { model with stack_folds = toggle model.stack_folds call }
+  | Toggle_stack_run head ->
+    { model with stack_expanded = toggle model.stack_expanded head }
   | Toggle_source_fold fold ->
     { model with source_folds = toggle model.source_folds fold }
   (* [h] folds what you are pointing at: in the heap, the node under the
@@ -466,7 +477,20 @@ let apply_action
         with
         | None -> model
         | Some call ->
-          { model with stack_folds = toggle model.stack_folds call }))
+          (* a call inside a repeat run has no descendants to fold — for it,
+             [h] opens and closes the run instead *)
+          (match
+             Stack_pane.run_head
+               ~calls
+               ~folds:model.stack_folds
+               ~live
+               ~selected:(selected_frame replay model)
+               call
+           with
+           | Some head ->
+             { model with stack_expanded = toggle model.stack_expanded head }
+           | None ->
+             { model with stack_folds = toggle model.stack_folds call })))
   | Toggle_accordion -> { model with accordion = not model.accordion }
   | Toggle_stack_pane ->
     let stack_collapsed = not model.stack_collapsed in
@@ -526,18 +550,46 @@ let apply_action
     { model with pop_pan = Int.max 0 (model.pop_pan + delta) }
 ;;
 
-(* each call's share of the profile's sampled compute, joined once up front —
-   the color its name renders in. No profile: every entry [None], and the
-   stack draws exactly as it does without heat. *)
+(* each call's share, joined once up front — the color its name renders in.
+   With a perf profile the share is sampled compute; without one it falls
+   back to the trace itself — each function's share of the dump's events — so
+   a replay with no [-perf-file] (a project-mode capture, say) still reads
+   hot-to-cold at a glance. The session bar's legend names which of the two
+   the colors mean. *)
 let heat_of_calls ~profile ~(calls : Call.t array) =
-  Array.map calls ~f:(fun (call : Call.t) ->
-    Option.bind
-      (profile : Heat_profile.t option)
-      ~f:(fun profile ->
+  match (profile : Heat_profile.t option) with
+  | Some profile ->
+    ( Array.map calls ~f:(fun (call : Call.t) ->
         Heat_profile.share
           profile
           ~function_info:call.info.function_info
-          ~location:call.info.location))
+          ~location:call.info.location)
+    , `Compute )
+  | None ->
+    let counts =
+      Array.fold calls ~init:String.Map.empty ~f:(fun counts call ->
+        Map.update
+          counts
+          (Function_info.display call.info.function_info)
+          ~f:(fun count -> 1 + Option.value count ~default:0))
+    in
+    let total = Float.of_int (Array.length calls) in
+    ( Array.map calls ~f:(fun (call : Call.t) ->
+        Map.find counts (Function_info.display call.info.function_info)
+        |> Option.map ~f:(fun count -> Float.of_int count /. total))
+    , `Calls )
+;;
+
+(* how much allocated at each step — the timeline's density shading — as each
+   step's share of the run's busiest step *)
+let density_of_steps replay =
+  let counts =
+    Array.init (Replay.length replay) ~f:(fun step ->
+      Set.length (Replay.step_exn replay ~step).new_addresses)
+  in
+  let busiest = Array.fold counts ~init:1 ~f:Int.max in
+  Array.map counts ~f:(fun count ->
+    Float.of_int count /. Float.of_int busiest)
 ;;
 
 (* where each address was first seen — what a click on a heap node jumps to *)
@@ -567,6 +619,8 @@ let render
   ~dump_name
   ~calls
   ~heat
+  ~heat_source
+  ~density
   ~(model : Model.t)
   ~dimensions
   =
@@ -763,6 +817,7 @@ let render
              ~width:dimensions.Dimensions.width
              ~step:model.step
              ~total:(Replay.length replay)
+             ~density
              ~playing:model.playing
              ~accordion:model.accordion
              ~diagram:(Option.is_some model.popped_out)
@@ -777,6 +832,7 @@ let render
                 ~selected
                 ~folds:model.stack_folds
                 ~cursor:model.stack_cursor
+                ~expanded:model.stack_expanded
                 ~collapsed:model.stack_collapsed)
          ; place
              layout.source
@@ -842,7 +898,10 @@ let render
              (Session_bar.view
                 ~width:dimensions.width
                 ~dump_name
-                ~heat:(Array.exists heat ~f:Option.is_some)
+                ~heat:
+                  (match Array.exists heat ~f:Option.is_some with
+                   | false -> None
+                   | true -> Some heat_source)
                 ~structure:
                   ((* the walked structure's kind, typed when the wire says *)
                    let kind = Snapshot.Ds_type.display snapshot.ds_type in
@@ -885,13 +944,15 @@ let render
              ~selected
              ~folds:model.stack_folds
              ~cursor:model.stack_cursor
+             ~expanded:model.stack_expanded
              ~x
              ~row:y
            |> Option.map ~f:(fun target ->
              match (target : Stack_pane.Target.t) with
              | Frame index -> act (Action.Select_frame index)
              | Step step -> act (Action.Step_to step)
-             | Toggle call -> act (Action.Toggle_stack_fold call))
+             | Toggle call -> act (Action.Toggle_stack_fold call)
+             | Expand head -> act (Action.Toggle_stack_run head))
          | None ->
            (match Layout.inner_position layout.source position with
             | Some { x; y } ->
@@ -1018,7 +1079,8 @@ let component
     Array.init (Replay.length replay) ~f:(fun step ->
       (Replay.step_exn replay ~step).call)
   in
-  let heat = heat_of_calls ~profile ~calls in
+  let heat, heat_source = heat_of_calls ~profile ~calls in
+  let density = density_of_steps replay in
   let model, inject =
     Bonsai.state_machine_with_input
       ~sexp_of_model:Model.sexp_of_t
@@ -1042,7 +1104,16 @@ let component
     graph;
   let computed =
     let%arr model and dimensions in
-    render ~replay ~sources ~dump_name ~calls ~heat ~model ~dimensions
+    render
+      ~replay
+      ~sources
+      ~dump_name
+      ~calls
+      ~heat
+      ~heat_source
+      ~density
+      ~model
+      ~dimensions
   in
   let view =
     let%arr { Computed.view; _ } = computed in

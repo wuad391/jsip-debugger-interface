@@ -16,6 +16,35 @@
 open! Core
 open Jsip_types
 
+(** Whether a live structure can still be reached by the name it goes under.
+
+    Alive and reachable are different questions: [let m = M.add "a" 1 m]
+    leaves both versions in the registry, both called [m], but only the new
+    one answers to that name — and a structure bound inside a call that has
+    returned is alive until the GC takes it while being nameable nowhere. The
+    heap pane greys out everything but {!In_scope}, so an old copy fades
+    while the live one stays lit.
+
+    Computed from the wire's {!Jsip_types.Scope}: [In_scope] when the name
+    the registry knows the structure by still resolves to the binding it was
+    observed under, [Shadowed] when that name now means a different binding,
+    [Out_of_scope] when nothing on the stack binds it any more.
+
+    [Unknown] is the honest gap — a structure never observed under a name, or
+    a dump from a compiler that emits no scope. Neither is evidence of being
+    unreachable, so both render as though in scope. *)
+module Visibility : sig
+  type t =
+    | In_scope
+    | Shadowed
+    | Out_of_scope
+    | Unknown
+  [@@deriving sexp_of, equal]
+
+  (** [In_scope] and [Unknown]. What the pane draws at full strength. *)
+  val is_reachable : t -> bool
+end
+
 (** One tracked structure alive at a step: a registry entry joined with the
     shape of that structure's most recent walk. A structure stays here, at
     its latest shape, until the registry drops it (the GC collected it);
@@ -31,6 +60,8 @@ module Structure : sig
     ; address : Snapshot.Address.t
     ; snapshot : Snapshot.t
     ; is_current : bool
+    ; visibility : Visibility.t
+    (** whether that name still reaches this structure, here *)
     }
 
   (** [name], or [#id] for a structure never observed under one. *)

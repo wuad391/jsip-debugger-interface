@@ -11,6 +11,27 @@
     runs, the map hangs off the queue element it became. Each structure is
     listed once: a second reference, or a cycle, stays a [↗] row.
 
+    A structure whose name no longer reaches it is drawn faded throughout —
+    guides, fold glyph, name (which loses its bold), type, values and stats,
+    every row of its subtree a shade further back, and the same in the
+    diagram pop-out's boxes and rails. The row says which of the two
+    happened, in its stats column: [· shadowed] when a later [let] took the
+    name over, [· out of scope] when nothing on the stack binds it any more
+    (see {!Jsip_replay.Replay.Visibility}). The note is part of what the
+    structure says about itself, so [/shadowed] filters on it (see
+    {!matches_filter}).
+
+    Fading is per DRAWING, not per block, and the difference shows: after
+    [let m = M.remove "a" m] the surviving subtree is one heap block that
+    appears twice — faded among the old version's rows, lit as the whole of
+    the new version — because those are two things to say about one object,
+    not a contradiction. A structure referenced from another is drawn inside
+    its referrer but keeps its own verdict for the same reason, so a live map
+    hanging off a faded queue cell stays lit.
+
+    Selection outranks fading: aiming at a faded row still lights it orange,
+    which is the one thing you can still do with a structure out of reach.
+
     {v
     ▾ q   queue      length 2    3 nodes · 96 B            0x796745dee5f8
       ├─ ▾ first  m   int M.t     2 bindings
@@ -169,9 +190,9 @@ val accordion_folds
   -> Set.M(Fold).t
 
 (** Whether the [/] filter keeps a structure: a case-insensitive substring of
-    everything the structure says about itself — name, kind, type — so what
-    you can see is what you can filter by ([/map], [/order], [/#12]). The
-    empty filter keeps everything. *)
+    everything the structure says about itself — name, kind, type, and the
+    visibility note — so what you can see is what you can filter by ([/map],
+    [/order], [/#12], [/shadowed]). The empty filter keeps everything. *)
 val matches_filter : Replay.Structure.t -> filter:string -> bool
 
 (** The [o] ordering: the same structures in ascending address order, so
@@ -319,7 +340,12 @@ val spot_at
     contents. A field reaching another live structure draws that structure's
     whole tree in place, named on its top box; a second reference to a node
     already drawn stays a dashed [↗] pointer, which is also what terminates a
-    cycle. *)
+    cycle.
+
+    The popped structure's visibility carries over: one the program can no
+    longer name draws its boxes and rails faded, its meta line says why
+    ([· shadowed] or [· out of scope]), and a referenced structure inside it
+    still wears its own verdict — the same rules as the outline. *)
 module Diagram : sig
   (** [scroll] and [pan] are the whole interaction — the diagram is as wide
       as the tree makes it, and both clamp to it. [width] and [height] are
