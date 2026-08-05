@@ -32,13 +32,7 @@ let step_of_fraction ~total ~fraction =
     Int.max 0 (Int.min (total - 1) step)
 ;;
 
-let fraction_of_step ~total ~step =
-  match total <= 1 with
-  | true -> 0.
-  | false -> Float.of_int step /. Float.of_int (total - 1)
-;;
-
-(* which segment the playhead has reached — segments at or before it draw
+(* which segment the position has reached — segments at or before it draw
    full strength, the future dims *)
 let played ~total ~step ~segments:count =
   match total <= 0 || count = 0 with

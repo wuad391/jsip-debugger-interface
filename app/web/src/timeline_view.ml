@@ -23,26 +23,21 @@ let fraction_of_click (event : Dom_html.mouseEvent Js.t) =
           | true -> Some ((Js.to_float event##.clientX -. left) /. width)))
 ;;
 
+(* position is the bright/dim boundary itself: played segments at full
+   strength, the future sunk toward the surface — a separate needle on top
+   of that read as a second, disagreeing cursor *)
 let ticks ~theme ~segments ~step ~total ~inject =
   let count = Array.length segments in
   let played = Timeline_model.played ~total ~step ~segments:count in
   let cells =
     List.init count ~f:(fun index ->
       let value = segments.(index) in
-      (* the future keeps its shape but sinks toward the surface — the
-         mockup's reading of past vs. not-yet *)
       let color =
         match index < played with
         | true -> Theme.heat_color theme value
         | false -> Theme.heat_color theme (value *. 0.32)
       in
       {%html|<div %{Styles.tick color}></div>|})
-  in
-  let playhead =
-    let left =
-      sprintf "%.2f%%" (100. *. Timeline_model.fraction_of_step ~total ~step)
-    in
-    {%html|<div %{Styles.playhead theme left}></div>|}
   in
   let on_click event =
     match fraction_of_click event with
@@ -54,7 +49,6 @@ let ticks ~theme ~segments ~step ~total ~inject =
   {%html|
     <div %{Styles.ticks theme} on_click=%{on_click}>
       *{cells}
-      %{playhead}
     </div>
   |}
 ;;

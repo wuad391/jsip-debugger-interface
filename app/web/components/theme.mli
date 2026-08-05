@@ -22,7 +22,6 @@ type t =
   ; panel_border : Color.t
   ; text : Color.t
   ; bright : Color.t
-  ; playhead : Color.t (** the timeline's position needle *)
   ; heading : Color.t
   ; dim : Color.t (** the text grays, lightest role to darkest *)
   ; faint : Color.t

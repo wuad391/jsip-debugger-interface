@@ -39,13 +39,6 @@ let ticks (theme : Theme.t) =
 
 let tick cell_color = style [%string "flex:1;background:%{cell_color}"]
 
-let playhead (theme : Theme.t) left =
-  style
-    [%string
-      "position:absolute;top:-1px;bottom:-1px;width:2px;background:%{theme.playhead};box-shadow:0 \
-       0 6px rgba(128,132,140,.7);pointer-events:none;left:%{left}"]
-;;
-
 let hints (theme : Theme.t) =
   style
     [%string

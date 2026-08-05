@@ -13,7 +13,6 @@ type t =
   ; panel_border : Color.t
   ; text : Color.t
   ; bright : Color.t
-  ; playhead : Color.t
   ; heading : Color.t
   ; dim : Color.t
   ; faint : Color.t
@@ -70,7 +69,6 @@ let dark =
   ; panel_border = "#2b303a"
   ; text = "#c3c9d4"
   ; bright = "#e2e6ec"
-  ; playhead = "#f0f2f6"
   ; heading = "#aeb6c2"
   ; dim = "#7f8899"
   ; faint = "#6a7382"
@@ -134,7 +132,6 @@ let light =
   ; panel_border = "#c9cfd8"
   ; text = "#333a46"
   ; bright = "#1c2129"
-  ; playhead = "#10151c"
   ; heading = "#4c5665"
   ; dim = "#6b7482"
   ; faint = "#8a93a1"

@@ -82,7 +82,7 @@ let%expect_test "a parent's box is centered over the spread of its children" =
 ;;
 
 let%expect_test "zoom stops and tiers round-trip through each other" =
-  List.iter [ 0.3; 0.62; 1.; 1.35; 2.; 2.9; 4. ] ~f:(fun k ->
+  List.iter [ 0.2; 0.45; 0.85; 1.; 1.38; 1.5; 2. ] ~f:(fun k ->
     let tier = Heap_layout.tier_for ~k in
     let back = Heap_layout.k_for_tier tier in
     print_endline
@@ -91,13 +91,13 @@ let%expect_test "zoom stops and tiers round-trip through each other" =
          k=%{sprintf \"%.2f\" back}"]);
   [%expect
     {|
-    k=0.30 → tier 0.16 → k=0.30
-    k=0.62 → tier 1.00 → k=0.62
-    k=1.00 → tier 1.61 → k=1.00
-    k=1.35 → tier 2.00 → k=1.35
-    k=2.00 → tier 2.51 → k=2.00
-    k=2.90 → tier 3.00 → k=2.90
-    k=4.00 → tier 3.00 → k=2.90
+    k=0.20 → tier 0.00 → k=0.20
+    k=0.45 → tier 1.00 → k=0.45
+    k=0.85 → tier 2.00 → k=0.85
+    k=1.00 → tier 2.29 → k=1.00
+    k=1.38 → tier 2.85 → k=1.38
+    k=1.50 → tier 3.00 → k=1.50
+    k=2.00 → tier 3.00 → k=1.50
     |}]
 ;;
 
