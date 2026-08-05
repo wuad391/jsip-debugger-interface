@@ -100,7 +100,15 @@ divider line along each seam:
   map's `tree` and a user record's fields without a layout of its own; a
   binding whose data is a block of its own reads `"k" →` with the block
   on the line below. Closures and other undecoded blocks print as
-  `⟨0x…⟩`. A row allocated *at this step* carries a green `new` tag.
+  `⟨0x…⟩`, and a row the wire left with nothing at all to say — an empty
+  container's one entry, a revisit stub the registry could not resolve —
+  reads `null`, spelled out so it cannot be mistaken for a value. A row
+  allocated *at this step* carries a green `new` tag.
+
+  Nothing is cropped. A row too wide for the pane wraps onto continuation
+  lines, hanging under its own first column so the guides still read down
+  the page — a wide record or an inlined float array costs height rather
+  than going unread, and there is nothing to pan.
 
   Anything with something under it folds: the `▾`/`▸` glyph before a row
   tucks its children away behind a `⋯ n` count while the row itself
@@ -128,7 +136,7 @@ replays. For **structure sharing**, replay `map_spine_sharing` and step
 to the end: a five-binding map sits above the version one more `add`
 returned, and the two `↗` rows among that version's bindings are the
 subtrees `add` did not rebuild. Aim at one with `↓` and the row it names,
-up in `m`, takes the orange accent — the same allocation, listed twice.
+up in `m`, lights in a muted orange — the same allocation, listed twice.
 
 ```sh
 dune exec app/bin/main.exe -- -dump-file testing/expected/map_spine_sharing.dump
@@ -167,20 +175,17 @@ pane top to bottom — including a collapsed structure, which is nothing
 but its own line, so `h` there opens it again. `a`/`d` climb to the line
 this one hangs under and drop into the first line under it; a folded row
 has nothing under it to drop into, which is the point — fold what you are
-done with and `↓` steps past it. Standing on an `↗` row tints the value of
-the row it names without moving you there — you stay in the structure you
-are reading.
+done with and `↓` steps past it.
+
+Standing on an `↗` row lights the row it names in a muted wash of the
+same color, without moving you there — a shared subtree is the one thing
+on the pane you go looking for from across it. The row you are actually
+on keeps the full wash and the address, so the pair never reads as two
+cursors.
 
 The chosen and aimed rows are the only ones that spell out an address,
-and it rides the right margin. Nothing to its left depends on it, so
-revealing one moves nothing else on the pane — a view that reshuffled
-under every keypress would be unreadable.
-
-Rows are left-anchored, so most of the time there is nothing to pan: the
-outline's whole point is that it fits. When a value does run past the
-edge — a wide record, a float array — `[`/`]` slide the window sideways
-(the wheel does it too with `ctrl` or `alt` held), clamped to the longest
-line there is.
+and it rides the right margin of the row's last line — placed once the
+wrapping is settled, so a row never reflows around its own address.
 
 `h` collapses whatever the focused pane is pointing at — in the heap the
 row the cursor is on, or the whole structure from its top line; in the
@@ -213,7 +218,7 @@ owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
 starts empty.
 
 Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
-to the ends, `PgUp`/`PgDn` scroll the heap and `[`/`]` pan it.
+to the ends, and `PgUp`/`PgDn` scroll the heap.
 
 ## Toolchain
 

@@ -35,7 +35,6 @@ let heap_view
   ?(width = 56)
   ?(height = 15)
   ?(scroll = 0)
-  ?(pan = 0)
   ?(selection = Heap_pane.Selection.none)
   ?folds
   replay
@@ -58,7 +57,6 @@ let heap_view
        ~folds:
          (Option.value folds ~default:(Set.empty (module Heap_pane.Fold)))
        ~scroll
-       ~pan
        ~selection)
 ;;
 
@@ -208,7 +206,7 @@ let%expect_test "heap pane: a Core hash queue chains through its elements" =
     ├─   v  "a" → 1
     ├─   v  "b" → 2
     ├─   v  "c" → 3  new
-    └─   ↗ ·
+    └─   ↗ null
     |}]
 ;;
 
@@ -325,8 +323,8 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
     SOURCE           gone.ml · missing
 
      lib/gone.ml is not at
-     ./lib/gone.ml — the dump's
-     paths resolve from the replayed
+     ./lib/gone.ml — the dump's paths
+     resolve from the replayed
      program's root, so run there or
      pass -source-root DIR
     |}]
@@ -455,7 +453,6 @@ let%expect_test "heap clicks land on a row edge to edge, and nowhere past it"
       ~new_addresses
       ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
-      ~pan:0
       ~selection:Heap_pane.Selection.none
       ~height:15
       ~x
@@ -620,7 +617,6 @@ let%expect_test "heap fold: a row keeps itself, hides its kids" =
        ~folds:
          (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 1 ])
        ~scroll:0
-       ~pan:0
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
@@ -650,7 +646,6 @@ let%expect_test "heap fold: a structure collapses to its header" =
        ~folds:
          (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 2 ])
        ~scroll:0
-       ~pan:0
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
@@ -685,7 +680,6 @@ let heap_lines
        ~new_addresses
        ~folds
        ~scroll:0
-       ~pan:0
        ~selection)
   |> fun image ->
   let buffer = Buffer.create 1024 in
@@ -758,7 +752,6 @@ let%expect_test "collapsing a structure moves the rows below it up, only up" =
           ~new_addresses
           ~folds
           ~scroll:0
-          ~pan:0
           ~selection:Heap_pane.Selection.none
           ~width:60
           ~height:40
@@ -806,7 +799,6 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
       ~new_addresses
       ~folds:(Set.empty (module Heap_pane.Fold))
       ~scroll:0
-      ~pan:0
       ~selection:Heap_pane.Selection.none
       ~height:12
       ~x
@@ -905,7 +897,6 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
          ~new_addresses
          ~folds
          ~scroll:0
-         ~pan:0
          ~selection:Heap_pane.Selection.none)
   in
   render (Set.empty (module Heap_pane.Fold));
@@ -1371,7 +1362,6 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
          ~new_addresses
          ~folds:(effective selection)
          ~scroll:0
-         ~pan:0
          ~selection)
   in
   let selection =
@@ -1423,24 +1413,20 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
     |}]
 ;;
 
-let%expect_test "the heap pans by hand, and clamps to the longest line" =
-  (* [\[]/[\]] slide the window sideways when a line runs past the pane. The
-     offset is exactly where the hand left it, clamped to the longest line
-     there is — an outline is left-anchored, so unlike the diagram it grew
-     out of there is nothing for aiming to drag the window back to. *)
+let%expect_test "a row wider than the pane wraps, and is still one row" =
+  (* Nothing runs off the edge and nothing pans: a row too wide breaks onto
+     continuation lines, hanging under its own first column so the guides
+     still read down the page.
+
+     The address is placed after the wrapping is settled — the last line of
+     the row if it has room, a line of its own if it does not — so revealing
+     one cannot reflow the row it belongs to. *)
   let replay = replay_of_fixture "map_spine_sharing" in
   let step = Replay.length replay - 1 in
-  heap_view ~width:36 ~height:8 replay ~step;
-  heap_view ~width:36 ~height:8 ~pan:12 replay ~step;
-  (* far past the longest line: clamps to its right edge, not to nowhere *)
-  heap_view ~width:36 ~height:8 ~pan:1000 replay ~step;
-  (* aiming does not fight the hand — but the aimed row is a line longer than
-     the rest, since it is the only one spelling out an address, so the clamp
-     lets the pan run further and that address is what it reaches *)
+  heap_view ~width:34 ~height:12 replay ~step;
   heap_view
-    ~width:36
-    ~height:8
-    ~pan:1000
+    ~width:34
+    ~height:12
     ~selection:
       { Heap_pane.Selection.selected = None
       ; cursor = current_spot replay ~step
@@ -1449,38 +1435,30 @@ let%expect_test "the heap pans by hand, and clamps to the longest line" =
     ~step;
   [%expect
     {|
-    HEAP      2 live · 6 nodes · 3 new
+    HEAP    2 live · 6 nodes · 3 new
     ▾ m  int M.t  5 bindings
     ├─   "f" → 6
     ├─   "d" → 4
     ├─   "b" → 2
     ├─   "h" → 8
     └─   "j" → 10
-    ▾ bigger  int M.t  5 bindings  new
-    HEAP      2 live · 6 nodes · 3 new
-    m  int M.t  5 bindings
-       "f" → 6
-       "d" → 4
-       "b" → 2
-       "h" → 8
-       "j" → 10
-    bigger  int M.t  5 bindings  new
-    HEAP      2 live · 6 nodes · 3 new
-    m  int M.t  5 bindings
-       "f" → 6
-       "d" → 4
-       "b" → 2
-       "h" → 8
-       "j" → 10
-    bigger  int M.t  5 bindings  new
-    HEAP      2 live · 6 nodes · 3 new
-    bindings
-
-
-
-
-
-    t  5 bindings  new  0x78de5b5fff78
+    ▾ bigger  int M.t  5 bindings
+        new
+    ├─   "f" → 6  new
+    ├─   ↗ "d" → 4
+    ├─   "h" → 8  new
+    HEAP    2 live · 6 nodes · 3 new
+    ▾ m  int M.t  5 bindings
+    ├─   "f" → 6
+    ├─   "d" → 4
+    ├─   "b" → 2
+    ├─   "h" → 8
+    └─   "j" → 10
+    ▾ bigger  int M.t  5 bindings
+        new           0x78de5b5fff78
+    ├─   "f" → 6  new
+    ├─   ↗ "d" → 4
+    ├─   "h" → 8  new
     |}]
 ;;
 
@@ -1508,7 +1486,6 @@ let%expect_test "filter: only matching structures stay on the canvas" =
          ~new_addresses
          ~folds:(Set.empty (module Heap_pane.Fold))
          ~scroll:0
-         ~pan:0
          ~selection:Heap_pane.Selection.none)
   in
   show "queue";

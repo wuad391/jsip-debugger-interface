@@ -35,6 +35,14 @@ val cursor : Attr.Color.t
 
 val cursor_bg : Attr.Color.t
 val cursor_deep : Attr.Color.t
+
+(** The muted halves of the two washes above, for the OTHER drawing of the
+    row being pointed at — a [↗] pointer and the row it names are one node,
+    so both light up. Dimmer than the real thing, so the row you are actually
+    on still wins. *)
+val cursor_echo : Attr.Color.t
+
+val highlight_echo : Attr.Color.t
 val text : Attr.Color.t
 val secondary : Attr.Color.t
 val muted : Attr.Color.t
@@ -44,6 +52,10 @@ val border : Attr.Color.t
 val hairline : Attr.Color.t
 val tick_past : Attr.Color.t
 val app_purple : Attr.Color.t
+
+(** A printed type, in the heap pane's type column: a crimson-leaning red, so
+    a column of them never reads as a column of highlights. *)
+val type_name : Attr.Color.t
 
 (* syntax colors for the source pane *)
 val keyword : Attr.Color.t

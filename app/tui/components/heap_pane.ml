@@ -45,8 +45,10 @@ module Selection = struct
 
   (* How a row is picked out. The one the keyboard is standing on wears the
      full treatment — wash, address, bright name. Any other drawing of the
-     same node wears the accent on its value alone: enough to find it further
-     down the outline, without a second row shouting from wherever it is. *)
+     same node wears a muted wash of the same hue and the accent on its
+     value: a sharing pointer is the one thing on the pane you are looking
+     for from across it, so it has to be findable at a glance, while still
+     losing to the row you are actually standing on. *)
   module Mark = struct
     type t =
       | Plain
@@ -64,12 +66,15 @@ module Selection = struct
 
     (* The wash under a picked row — the same one every pane uses for the
        line it is pointing at, so the outline cannot disagree with the stack
-       about what "selected" looks like. *)
+       about what "selected" looks like — and its muted half under the other
+       drawing of that same node. *)
     let wash t =
       match t with
       | Cursor -> Some Theme.cursor_bg
       | Selected -> Some Theme.highlight_bg
-      | Linked_to_selected | Linked_to_cursor | Plain -> None
+      | Linked_to_cursor -> Some Theme.cursor_echo
+      | Linked_to_selected -> Some Theme.highlight_echo
+      | Plain -> None
     ;;
 
     (* A picked row and anything linked to it share an accent — that is how
@@ -320,6 +325,7 @@ module Span = struct
     | Value
     | Arrow
     | Label
+    | Null (** there is nothing here — a word, not a mark, so it reads *)
     | Gap
 
   type t = kind * string
@@ -330,22 +336,31 @@ module Span = struct
     | Value -> Theme.fg' accent
     | Arrow -> Theme.fg' Theme.ghost
     | Label -> Theme.fg' Theme.muted
+    (* italic, because it is the pane talking and not the program: the one
+       word on a row that was never in the heap *)
+    | Null -> [ Theme.fg Theme.ghost; Attr.italic ]
     | Gap -> []
   ;;
 
-  (* [Arrow] and [Gap] are the pane's own punctuation and mean their spacing;
-     everything else is a label or a walked value, and gets flattened *)
-  let view ~accent spans =
-    View.hcat
-      (List.map spans ~f:(fun (kind, text) ->
-         let text =
-           match kind with
-           | Key | Value | Label -> one_line text
-           | Arrow | Gap -> text
-         in
-         View.text ~attrs:(attrs kind ~accent) text))
+  (* Attributed pieces, ready to wrap. [Arrow], [Null] and [Gap] are the
+     pane's own punctuation and mean their spacing; everything else came off
+     the wire, and gets flattened onto one line. *)
+  let pieces ~accent spans =
+    List.map spans ~f:(fun (kind, text) ->
+      let text =
+        match kind with
+        | Key | Value | Label -> one_line text
+        | Arrow | Null | Gap -> text
+      in
+      attrs kind ~accent, text)
   ;;
 end
+
+(* What a row says where the wire gave it nothing to say: an unresolved
+   revisit stub, a container whose entries are all empty slots. Spelled out
+   rather than dotted — a reader has to be able to tell "nothing is here"
+   from a bullet in a list. *)
+let null_span = Span.Null, "null"
 
 (* What a row says about the node it stands for. [key → data] where the node
    holds one of the known binding pairs, [length n] for a counter, the bare
@@ -371,7 +386,7 @@ let summary_spans leaves ~arity =
   match fields with
   | [] when positional ->
     [ Span.Label, "slots "; Value, Int.to_string arity ]
-  | [] -> [ Span.Arrow, "·" ]
+  | [] -> [ null_span ]
   | fields when positional ->
     [ Span.Value, String.concat (List.map fields ~f:snd) ~sep:", " ]
   | [ (key_label, key); (data_label, data) ]
@@ -646,9 +661,8 @@ let rec entries_of
   (* plumbing with somewhere to send its contents *)
   | [], _ :: _ -> of_kind false @ of_kind true
   (* nothing to say and nothing to splice into — a revisit stub the registry
-     did not resolve. A row saying [·] beats a node quietly disappearing. *)
-  | [], [] ->
-    [ row ~value:[ Span.Arrow, "·" ] ~is_binding:false ~children:[] ]
+     did not resolve. A row saying [null] beats a node quietly disappearing. *)
+  | [], [] -> [ row ~value:[ null_span ] ~is_binding:false ~children:[] ]
   | printable, (_ : (string * Edge.t) list) ->
     let children = of_kind false in
     (* A binding whose data is a block of its own keeps the key here and the
@@ -786,12 +800,16 @@ let structure_entries ~structures ~nodes ~new_addresses ~folds =
   List.rev (List.fold structures ~init:acc ~f:entry)
 ;;
 
-(* One drawn line: an entry plus where it sits in the outline. [guide] is the
+(* One row of the outline: an entry plus where it sits. [guide] is the
    assembled [├─ ]/[└─ ] run, ancestors' bars and all, so drawing and
-   hit-testing read the same string. *)
+   hit-testing read the same string. A row is not a line — a wide one wraps —
+   so [continuation] is the guide with this row's own elbow turned back into
+   a bar, which is both what a wrapped line hangs under and what this row's
+   children hang under. *)
 module Row = struct
   type t =
     { guide : string
+    ; continuation : string
     ; depth : int
     ; parent : Site.t option
     ; entry : Entry.t
@@ -807,33 +825,36 @@ module Row = struct
   let can_fold t = t.hidden > 0
 end
 
-(* The outline, one row per visible line. Guides are built on the way down: a
-   run of [│  ]/[   ] for the ancestors, then this row's own elbow. A
-   structure's row is the outline's top level and carries no guide. *)
+(* The outline, one row per entry the folds leave visible. Guides are built
+   on the way down: a run of [│  ]/[   ] for the ancestors, then this row's
+   own elbow. A structure's row is the outline's top level and carries no
+   guide.
+
+   A row's [continuation] and its children's [prefix] are the same string,
+   and for the same reason — both are what still hangs off this row once its
+   elbow has been drawn. *)
 let rows ~structures ~nodes ~new_addresses ~folds =
   let rec walk (entries : Entry.t list) ~prefix ~depth ~parent acc =
     let last = List.length entries - 1 in
     List.foldi entries ~init:acc ~f:(fun index acc (entry : Entry.t) ->
       let is_last = index = last in
-      let guide =
+      let guide, continuation =
         match depth with
-        | 0 -> ""
-        | _ -> prefix ^ (match is_last with true -> "└─ " | false -> "├─ ")
+        | 0 -> "", ""
+        | _ ->
+          ( (prefix ^ match is_last with true -> "└─ " | false -> "├─ ")
+          , prefix ^ (match is_last with true -> "   " | false -> "│  ") )
       in
       let hidden = Entry.size entry in
-      let acc = { Row.guide; depth; parent; entry; hidden } :: acc in
+      let acc =
+        { Row.guide; continuation; depth; parent; entry; hidden } :: acc
+      in
       match entry.folded with
       | true -> acc
       | false ->
-        let prefix =
-          match depth with
-          | 0 -> ""
-          | _ ->
-            prefix ^ (match is_last with true -> "   " | false -> "│  ")
-        in
         walk
           entry.children
-          ~prefix
+          ~prefix:continuation
           ~depth:(depth + 1)
           ~parent:(Some entry.site)
           acc)
@@ -881,40 +902,61 @@ let matches_filter structure ~filter =
 
 let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
 
-(* One line of the outline, column by column: the guides, the fold glyph, the
-   field that reached this row, the structure's name and type where it has
-   them, what it holds, a [⋯ n] where it is hiding rows, a green [new] where
-   this step allocated it — and, on the row the keyboard is standing on and
-   only there, its address, pushed out to the right margin.
+(* A row as it ends up on the canvas: the lines it occupies and the wash
+   under them. A row is not a line — a wide one wraps rather than running off
+   the edge — so everything that counts lines (scrolling, hit-testing) counts
+   them here rather than counting rows. *)
+module Drawn = struct
+  type t =
+    { row : Row.t
+    ; lines : View.t list
+    ; bg : Attr.Color.t option
+    }
 
-   The address costs nothing to reveal: nothing to its left moves, because
-   nothing to its left depends on it. That is the whole reason to spell one
-   out only where it is being read.
+  let height t = List.length t.lines
+  let total_lines drawn = List.sum (module Int) drawn ~f:height
 
-   Returns the line unpadded — {!val:canvas} pads every line to the widest of
-   them so the selection wash runs the full width and [pan] has something to
-   reveal. *)
-let row_line (row : Row.t) ~width ~selection =
+  (* the row a canvas line belongs to, and how far into that row it is: line
+     0 is the one carrying the glyph, the rest are its wrapped tail *)
+  let at_line drawn ~line =
+    let rec go drawn line =
+      match drawn with
+      | [] -> None
+      | (t : t) :: rest ->
+        (match line < height t with
+         | true -> Some (t, line)
+         | false -> go rest (line - height t))
+    in
+    match line < 0 with true -> None | false -> go drawn line
+  ;;
+
+  (* the canvas line a row starts on *)
+  let line_of drawn ~index = total_lines (List.take drawn index)
+end
+
+(* One row of the outline, drawn: the guides, the fold glyph, the field that
+   reached this row, the structure's name and type where it has them, what it
+   holds, a [⋯ n] where it is hiding rows, a green [new] where this step
+   allocated it — and, at the right margin, on the row the keyboard is
+   standing on and only there, its address.
+
+   Nothing is cropped. A row too wide for the pane wraps onto continuation
+   lines, indented past its guide and under its own first column, so the
+   outline's shape survives the break the way the stack pane's does.
+
+   The address is placed after the wrapping is settled — on the last line if
+   that line has room, on one of its own if it does not — so a row never
+   reflows around its own address. The reverse, reserving the margin on every
+   row whether or not it is being read, would cost a sixth of a narrow pane
+   to a string that is usually not there. *)
+let row_lines (row : Row.t) ~width ~selection =
   let entry = row.entry in
   let mark =
     Selection.mark selection ~address:entry.address ~site:entry.site
   in
   let accent = Selection.Mark.accent mark ~plain:Theme.ident in
   let piece ~attrs text =
-    match String.is_empty text with
-    | true -> []
-    | false -> [ View.text ~attrs text ]
-  in
-  let glyph =
-    match Row.can_fold row with
-    | false -> View.text "  "
-    | true ->
-      View.hcat
-        [ View.text
-            ~attrs:(Theme.fg' Theme.faint)
-            (glyph_of ~folded:entry.folded)
-        ; View.text " "
-        ]
+    match String.is_empty text with true -> [] | false -> [ attrs, text ]
   in
   let name_attrs =
     Selection.Mark.name_attrs
@@ -927,70 +969,93 @@ let row_line (row : Row.t) ~width ~selection =
   let hidden =
     match entry.folded && row.hidden > 0 with
     | false -> []
-    | true ->
-      [ View.text
-          ~attrs:(Theme.fg' Theme.faint)
-          [%string "⋯ %{row.hidden#Int}"]
-      ]
+    | true -> [ Theme.fg' Theme.faint, [%string "⋯ %{row.hidden#Int}"] ]
   in
   let tag =
     match entry.is_new with
     | false -> []
-    | true -> [ View.text ~attrs:(Theme.fg' Theme.fresh) "new" ]
+    | true -> [ Theme.fg' Theme.fresh, "new" ]
   in
   (* two cells between the columns that are there, and none trailing the last
-     one — a line's width is exactly what [pan] has to reveal *)
+     one *)
   let columns =
-    List.concat
+    List.filter
       [ piece ~attrs:(Theme.fg' Theme.app_purple) entry.field
       ; piece ~attrs:name_attrs entry.name
-      ; piece ~attrs:(Theme.fg' Theme.ghost) entry.ty
-      ; [ Span.view ~accent entry.value ]
+      ; piece ~attrs:(Theme.fg' Theme.type_name) entry.ty
+      ; Span.pieces ~accent entry.value
       ; hidden
       ; tag
       ]
+      ~f:(fun column -> not (List.is_empty column))
   in
-  let body =
-    View.hcat
-      (View.text ~attrs:(Theme.fg' Theme.border) row.guide
-       :: glyph
-       :: List.intersperse columns ~sep:(View.text "  "))
+  let body = List.concat (List.intersperse columns ~sep:[ [], "  " ]) in
+  (* the glyph column is two cells whether or not this row has a glyph, and a
+     wrapped line hangs two further in, under the row's own first column *)
+  let indent = Row.glyph_column row in
+  let wrapped =
+    Wrap.spans
+      body
+      ~first_width:(Int.max 8 (width - indent - 2))
+      ~width:(Int.max 8 (width - indent - 4))
   in
-  (* the address rides the right margin, and only where it is being read *)
-  let address =
-    match Selection.Mark.is_picked mark with
-    | false -> View.text ""
+  let glyph =
+    match Row.can_fold row with
+    | false -> View.text "  "
     | true ->
-      View.text
-        ~attrs:(Theme.fg' Theme.secondary)
-        (Snapshot.Address.display entry.address)
+      View.hcat
+        [ View.text
+            ~attrs:(Theme.fg' Theme.faint)
+            (glyph_of ~folded:entry.folded)
+        ; View.text " "
+        ]
   in
-  (* the address wants the pane's right edge; a line already wider than the
-     pane just takes it two cells along, where [pan] can reach it *)
-  let gap = max 2 (width - View.width body - View.width address) in
-  let line =
-    View.hcat
-      [ body; View.transparent_rectangle ~width:gap ~height:1; address ]
+  let lead index =
+    match index with
+    | 0 -> [ View.text ~attrs:(Theme.fg' Theme.border) row.guide; glyph ]
+    | _ ->
+      [ View.text ~attrs:(Theme.fg' Theme.border) row.continuation
+      ; View.text "    "
+      ]
   in
-  line, Selection.Mark.wash mark
+  let lines =
+    List.mapi wrapped ~f:(fun index pieces ->
+      View.hcat
+        (lead index
+         @ List.map pieces ~f:(fun (attrs, text) -> View.text ~attrs text)))
+  in
+  let lines =
+    match Selection.Mark.is_picked mark with
+    | false -> lines
+    | true ->
+      let chip =
+        View.text
+          ~attrs:(Theme.fg' Theme.secondary)
+          (Snapshot.Address.display entry.address)
+      in
+      let right_align line =
+        let gap = Int.max 0 (width - View.width line - View.width chip) in
+        View.hcat
+          [ line; View.transparent_rectangle ~width:gap ~height:1; chip ]
+      in
+      let fits line = View.width line + View.width chip + 2 <= width in
+      (match List.rev lines with
+       | [] -> lines
+       | last :: earlier ->
+         let leading = List.rev earlier in
+         (match fits last with
+          | true -> leading @ [ right_align last ]
+          | false -> leading @ [ last; right_align (View.text "") ]))
+  in
+  { Drawn.row; lines; bg = Selection.Mark.wash mark }
 ;;
 
-(* The whole outline, drawn. Lines are measured before they are washed, so
-   every row is padded to the same width: the selection wash runs the full
-   line, and [pan] has exactly the overhang to reveal. *)
-let canvas rows ~width ~selection =
-  let lines = List.map rows ~f:(row_line ~width ~selection) in
-  let drawn_width =
-    List.fold
-      lines
-      ~init:width
-      ~f:(fun widest (line, (_ : Attr.Color.t option)) ->
-        Int.max widest (View.width line))
-  in
-  ( View.vcat
-      (List.map lines ~f:(fun (line, bg) ->
-         Panel.row ?bg line ~width:drawn_width))
-  , drawn_width )
+(* The whole outline, drawn and washed. Every line is padded to the pane's
+   width, so a picked row's wash runs the full width of each of its lines. *)
+let canvas drawn ~width =
+  View.vcat
+    (List.concat_map drawn ~f:(fun (t : Drawn.t) ->
+       List.map t.lines ~f:(fun line -> Panel.row ?bg:t.bg line ~width)))
 ;;
 
 let bring_into_view ~at ~start ~length =
@@ -1022,24 +1087,27 @@ let aimed_index rows ~(selection : Selection.t) =
   |> Option.bind ~f:(row_index rows)
 ;;
 
-(* The outline scrolls to keep the aimed row on screen, adjusting from
-   wherever the reader had left it. *)
-let resolve_scroll rows ~height ~scroll ~selection =
-  let length = body_height ~height in
-  let scroll = clamp scroll ~max:(List.length rows - length) in
-  match aimed_index rows ~selection with
-  | None -> scroll
-  | Some at -> bring_into_view ~at ~start:scroll ~length
-;;
-
-(* the outline as drawn, and how far right it runs: [pan] can only reveal
-   what a line actually has past the pane's edge *)
+(* every row wrapped and washed, ready to be counted in lines *)
 let drawn rows ~width ~selection =
-  canvas rows ~width:(Panel.inner_width ~width) ~selection
+  List.map rows ~f:(row_lines ~width:(Panel.inner_width ~width) ~selection)
 ;;
 
-let resolve_pan ~drawn_width ~width ~pan =
-  clamp pan ~max:(drawn_width - Panel.inner_width ~width)
+(* The outline scrolls to keep the aimed row on screen, adjusting from
+   wherever the reader had left it. [scroll] counts canvas lines rather than
+   rows, because that is what a wrapped outline can be scrolled to; a row
+   taller than the pane shows its head, which is where its name is. *)
+let resolve_scroll drawn ~height ~scroll ~selection =
+  let length = body_height ~height in
+  let scroll = clamp scroll ~max:(Drawn.total_lines drawn - length) in
+  match
+    aimed_index (List.map drawn ~f:(fun (t : Drawn.t) -> t.row)) ~selection
+  with
+  | None -> scroll
+  | Some index ->
+    let first = Drawn.line_of drawn ~index in
+    let last = first + Drawn.height (List.nth_exn drawn index) - 1 in
+    let scroll = bring_into_view ~at:last ~start:scroll ~length in
+    bring_into_view ~at:first ~start:scroll ~length
 ;;
 
 let view
@@ -1052,13 +1120,11 @@ let view
   ~new_addresses
   ~folds
   ~scroll
-  ~pan
   ~selection
   =
   let rows = rows ~structures ~nodes ~new_addresses ~folds in
-  let scroll = resolve_scroll rows ~height ~scroll ~selection in
-  let canvas, drawn_width = drawn rows ~width ~selection in
-  let pan = resolve_pan ~drawn_width ~width ~pan in
+  let drawn = drawn rows ~width ~selection in
+  let scroll = resolve_scroll drawn ~height ~scroll ~selection in
   let fresh = Set.length new_addresses in
   let live = List.length structures in
   let node_count = count_nodes structures in
@@ -1085,12 +1151,27 @@ let view
     ~meta
     ~width
     ~height
-    (View.crop ~t:scroll ~l:pan canvas)
+    (View.crop ~t:scroll (canvas drawn ~width:(Panel.inner_width ~width)))
 ;;
 
-(* the row a click at pane-body position [(x, y)] is on. A row spans the
-   pane, so only the line matters. *)
-let row_at rows ~scroll ~y = List.nth rows (y + scroll)
+(* the row a click at pane-body position [(x, y)] is on, and how far into
+   that row's own lines it landed *)
+let hit
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ~scroll
+  ~selection
+  ~width
+  ~height
+  ~y
+  =
+  let rows = rows ~structures ~nodes ~new_addresses ~folds in
+  let drawn = drawn rows ~width ~selection in
+  let scroll = resolve_scroll drawn ~height ~scroll ~selection in
+  Drawn.at_line drawn ~line:(y + scroll)
+;;
 
 let toggle_at
   ~structures
@@ -1098,23 +1179,30 @@ let toggle_at
   ~new_addresses
   ~folds
   ~scroll
-  ~pan
   ~selection
   ~width
   ~height
   ~x
   ~y
   =
-  let rows = rows ~structures ~nodes ~new_addresses ~folds in
-  let scroll = resolve_scroll rows ~height ~scroll ~selection in
-  let (_ : View.t), drawn_width = drawn rows ~width ~selection in
-  let pan = resolve_pan ~drawn_width ~width ~pan in
-  match row_at rows ~scroll ~y with
-  | None -> None
-  | Some (row : Row.t) ->
-    (match Row.can_fold row && x + pan = Row.glyph_column row with
+  match
+    hit
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~scroll
+      ~selection
+      ~width
+      ~height
+      ~y
+  with
+  (* the glyph is on the row's first line; a wrapped tail has no glyph to hit *)
+  | Some (({ row; _ } : Drawn.t), 0) ->
+    (match Row.can_fold row && x = Row.glyph_column row with
      | false -> None
      | true -> Some row.entry.fold)
+  | Some ((_ : Drawn.t), (_ : int)) | None -> None
 ;;
 
 let spot_at
@@ -1123,16 +1211,23 @@ let spot_at
   ~new_addresses
   ~folds
   ~scroll
-  ~pan:(_ : int)
   ~selection
-  ~width:(_ : int)
+  ~width
   ~height
   ~x:(_ : int)
   ~y
   =
-  let rows = rows ~structures ~nodes ~new_addresses ~folds in
-  let scroll = resolve_scroll rows ~height ~scroll ~selection in
-  row_at rows ~scroll ~y |> Option.map ~f:Row.spot
+  hit
+    ~structures
+    ~nodes
+    ~new_addresses
+    ~folds
+    ~scroll
+    ~selection
+    ~width
+    ~height
+    ~y
+  |> Option.map ~f:(fun (({ row; _ } : Drawn.t), (_ : int)) -> Row.spot row)
 ;;
 
 (* What [h] folds is what the cursor is on — which is exactly what the glyph

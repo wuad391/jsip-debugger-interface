@@ -43,10 +43,7 @@ module Model = struct
     { step : int
     ; selected_frame : int option (** [None] = innermost frame *)
     ; playing : bool
-    ; heap_scroll : int
-    ; heap_pan : int
-    (** manual sideways offset — [\[]/[\]], or the wheel with ctrl or alt
-        held *)
+    ; heap_scroll : int (** in canvas lines: heap rows wrap *)
     ; heap_folds : Set.M(Heap_pane.Fold).t
     ; stack_folds : Int.Set.t
     ; source_folds : Set.M(Source_fold).t
@@ -72,7 +69,6 @@ module Model = struct
     ; selected_frame = None
     ; playing = false
     ; heap_scroll = 0
-    ; heap_pan = 0
     ; heap_folds = Set.empty (module Heap_pane.Fold)
     ; stack_folds = Int.Set.empty
     ; source_folds = Set.empty (module Source_fold)
@@ -95,7 +91,6 @@ module Action = struct
     | Toggle_play
     | Select_frame of int
     | Scroll_heap of int
-    | Pan_heap of int
     | Toggle_heap_fold of Heap_pane.Fold.t
     | Toggle_stack_fold of int
     | Toggle_source_fold of Source_fold.t
@@ -210,7 +205,6 @@ let apply_action
     ; selected_frame = None
     ; playing
     ; heap_scroll = 0
-    ; heap_pan = 0
     ; heap_selected = None
     ; heap_cursor = None
     ; stack_cursor = None
@@ -337,8 +331,6 @@ let apply_action
     { model with selected_frame = Some (clamp_frame index) }
   | Scroll_heap delta ->
     { model with heap_scroll = Int.max 0 (model.heap_scroll + delta) }
-  | Pan_heap delta ->
-    { model with heap_pan = Int.max 0 (model.heap_pan + delta) }
   | Toggle_heap_fold fold -> toggle_heap_fold model fold
   | Toggle_stack_fold call ->
     { model with stack_folds = toggle model.stack_folds call }
@@ -417,8 +409,7 @@ module Computed = struct
   type t =
     { view : View.t
     ; on_click : Position.t -> [ `Act of Action.t | `Quit ] option
-    ; on_scroll :
-        Position.t -> [ `Up | `Down ] -> sideways:bool -> Action.t option
+    ; on_scroll : Position.t -> [ `Up | `Down ] -> Action.t option
     }
 end
 
@@ -611,7 +602,6 @@ let render
                 ~new_addresses
                 ~folds:heap_folds
                 ~scroll:model.heap_scroll
-                ~pan:model.heap_pan
                 ~selection)
          ; (* junctions ride over the rules they interrupt *)
            View.pad
@@ -746,7 +736,6 @@ let render
                        ~new_addresses
                        ~folds:heap_folds
                        ~scroll:model.heap_scroll
-                       ~pan:model.heap_pan
                        ~selection
                        ~width:layout.heap.width
                        ~height:layout.heap.height
@@ -761,7 +750,6 @@ let render
                        ~new_addresses
                        ~folds:heap_folds
                        ~scroll:model.heap_scroll
-                       ~pan:model.heap_pan
                        ~selection
                        ~width:layout.heap.width
                        ~height:layout.heap.height
@@ -771,21 +759,16 @@ let render
                        act (Action.Select_heap_node spot)))
                 | None -> None))))
   in
-  let on_scroll (position : Position.t) direction ~sideways : Action.t option
-    =
+  (* the wheel only goes up and down, which is all the heap has left to do:
+     rows wrap rather than running off the edge, so there is nothing sideways
+     to reach *)
+  let on_scroll (position : Position.t) direction : Action.t option =
     match Region.contains layout.heap position with
     | false -> None
     | true ->
-      (* the wheel only goes up and down, so sideways rides on a held
-         modifier — two columns a tick, roughly the vertical tick's share of
-         a row. Ctrl or alt, not shift: the terminal wire has a shift bit for
-         mouse events but notty never decodes it, so shift+wheel arrives here
-         as a plain wheel. *)
-      (match direction, sideways with
-       | `Up, false -> Some (Action.Scroll_heap (-1))
-       | `Down, false -> Some (Action.Scroll_heap 1)
-       | `Up, true -> Some (Action.Pan_heap (-2))
-       | `Down, true -> Some (Action.Pan_heap 2))
+      (match direction with
+       | `Up -> Some (Action.Scroll_heap (-1))
+       | `Down -> Some (Action.Scroll_heap 1))
   in
   { Computed.view; on_click; on_scroll }
 ;;
@@ -884,9 +867,6 @@ let component
          | (End | ASCII 'G'), [] -> inject (Step_to Int.max_value)
          | Page `Up, [] -> inject (Scroll_heap (-3))
          | Page `Down, [] -> inject (Scroll_heap 3)
-         (* the heap's sideways PgUp/PgDn — a column of a row at a time *)
-         | ASCII '[', [] -> inject (Pan_heap (-8))
-         | ASCII ']', [] -> inject (Pan_heap 8)
          | Tab, [] -> inject Focus_next_pane
          | Enter, [] -> inject Commit_cursor
          (* the outline is a list of lines, so ↑/↓ run it end to end — the
@@ -907,9 +887,8 @@ let component
          | _ -> Effect.Ignore)
       | Mouse { kind = Left; position; mods = _ } ->
         click_or_ignore (on_click position)
-      | Mouse { kind = Scroll direction; position; mods } ->
-        inject_or_ignore
-          (on_scroll position direction ~sideways:(not (List.is_empty mods)))
+      | Mouse { kind = Scroll direction; position; mods = _ } ->
+        inject_or_ignore (on_scroll position direction)
       | Mouse _ | Paste _ -> Effect.Ignore
   in
   ~view, ~handler

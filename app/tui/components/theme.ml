@@ -32,6 +32,14 @@ let highlight_deep = color 0xa6d2ff
 let cursor = color 0xf2913d
 let cursor_bg = color 0x4a2c10
 let cursor_deep = color 0xffc489
+
+(* One node can be drawn twice — its own row, and a pointer at it from a
+   structure that shares it — and both light up so the pair can be found.
+   These are the muted halves of the two washes above: dim enough that the
+   row actually being pointed at still wins, strong enough to spot from
+   across the pane, which a tinted word alone was not. *)
+let cursor_echo = color 0x3b2712
+let highlight_echo = color 0x122536
 let text = color 0xefebe6
 let secondary = color 0xd8d3cd
 let muted = color 0xbbb5ad
@@ -41,6 +49,11 @@ let border = color 0x6f6a62
 let hairline = color 0x4a4640
 let tick_past = color 0x2e5578
 let app_purple = color 0xc39ae2
+
+(* a printed type, in the heap pane's type column: leaning crimson rather
+   than toward the accent gold, so a column of them never reads as a column
+   of highlights — and pointedly not green, which the [new] tag owns *)
+let type_name = color 0xe06c75
 
 (* the app's purple, in its syntax-highlighting role *)
 let keyword = app_purple

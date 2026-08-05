@@ -38,7 +38,10 @@
     So a map lists its bindings, a hashtable its entries, and a list its
     elements, all at one depth, while a record's fields still nest under it.
     Empty skeleton slots are not rows: they are most of a tree's nodes and
-    none of its content.
+    none of its content. A row the wire left with nothing at all to say — an
+    empty container's one entry, a revisit stub the registry could not
+    resolve — reads [null], spelled out, so it cannot be mistaken for a
+    value.
 
     Any row with something under it folds: a [▾]/[▸] glyph sits before it,
     and clicking the glyph tucks its children away behind a [⋯ n] count while
@@ -48,16 +51,24 @@
     out as a row of its own. Fold keys are stable across steps ({!Fold.t}:
     structure id, or structure id + edge path).
 
+    Nothing is cropped: a row too wide for the pane wraps onto continuation
+    lines, indented under its own first column, so a wide record or an
+    inlined float array costs height rather than going unread.
+
     Two of the rows are picked out (see {!Selection}): the selected one is
     blue and the one the keyboard is aiming at is orange, and those two are
     the only rows that spell out an address — twelve hex digits on every line
     would set the pane's whole width from a string nobody was reading. The
-    address rides the right margin, so revealing one moves nothing to its
-    left.
+    address rides the right margin of the row's last line, placed once the
+    wrapping is settled — on a line of its own where that line has no room
+    for it. So a row never reflows around its own address; a wrapped one can
+    grow a line while the cursor is on it, which is the cheaper of the two.
 
-    Because a [↗] row and the row it names are one node, picking either tints
-    the other's value to match — the value only, so the line you are actually
-    on is still the one wearing the wash and the address. *)
+    Because a [↗] row and the row it names are one node, picking either
+    lights the other in a muted wash of the same hue: a shared subtree is the
+    one thing on the pane you go looking for from across it. The row you are
+    actually standing on keeps the full wash and the address, so the pair
+    never reads as two cursors. *)
 
 open! Core
 open Jsip_types
@@ -152,10 +163,9 @@ val accordion_folds
     empty filter keeps everything. *)
 val matches_filter : Replay.Structure.t -> filter:string -> bool
 
-(** [scroll] is the row the outline starts at and [pan] the manual horizontal
-    offset ([\[]/[\]], or the wheel with ctrl or alt held) — for the rare row
-    whose value runs past the pane. Both clamp to the outline; [scroll] also
-    slides on its own to keep the aimed row in view.
+(** [scroll] is the line the outline starts at — lines, not rows, because a
+    row too wide for the pane wraps rather than running off it. It clamps to
+    the outline and slides on its own to keep the aimed row in view.
 
     [note] rides the meta line ahead of the counts — the app's place to say
     an app-level mode is shaping the pane (the live [/] filter, the accordion
@@ -171,7 +181,6 @@ val view
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
-  -> pan:int
   -> selection:Selection.t
   -> View.t
 
@@ -209,15 +218,15 @@ val move_cursor
   -> Spot.t option
 
 (** The fold glyph a click at pane-body position [(x, y)] hits, mirroring
-    [view]'s layout and scrolling. Checked before {!spot_at}: the glyph cell
-    toggles, the rest of the line jumps. *)
+    [view]'s wrapping and scrolling. Checked before {!spot_at}: the glyph
+    cell toggles, the rest of the row jumps. A wrapped row carries its glyph
+    on its first line and nowhere else. *)
 val toggle_at
   :  structures:Replay.Structure.t list
   -> nodes:Replay.Nodes.t
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
-  -> pan:int
   -> selection:Selection.t
   -> width:int
   -> height:int
@@ -226,16 +235,16 @@ val toggle_at
   -> Fold.t option
 
 (** The row a click at pane-body position [(x, y)] lands on, mirroring
-    [view]'s scrolling — the app jumps the replay to that node's allocation
-    step. A row spans the pane, so only [y] decides. Clicking a [↗] lands on
-    the pointer, not on the row it names. *)
+    [view]'s wrapping and scrolling — the app jumps the replay to that node's
+    allocation step. A row spans the pane and any line it wrapped onto, so
+    only [y] decides. Clicking a [↗] lands on the pointer, not on the row it
+    names. *)
 val spot_at
   :  structures:Replay.Structure.t list
   -> nodes:Replay.Nodes.t
   -> new_addresses:Snapshot.Address.Set.t
   -> folds:Set.M(Fold).t
   -> scroll:int
-  -> pan:int
   -> selection:Selection.t
   -> width:int
   -> height:int
