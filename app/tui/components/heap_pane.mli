@@ -56,16 +56,23 @@
     tints the other's border to match — the border only, so the card you are
     actually on is still the one wearing the wash and the address.
 
-    A structure whose name no longer reaches it fades: the header and the
-    name riding its root card drop to the ghost gray, and the header says
-    which of the two happened — [· shadowed] when a later [let] took the name
-    over, [· out of scope] when nothing on the stack binds it any more (see
-    {!Jsip_replay.Replay.Visibility}). Since the note is part of the header
-    text, [/] filters on it too. What fades is only the NAME: the cards keep
-    their outlines and contents, because an old version's blocks are usually
-    the live version's blocks — after [let m = M.remove "a" m] the surviving
-    subtree is one object drawn under two headers, and dimming it in one
-    would be a lie about the heap.
+    A structure whose name no longer reaches it is drawn faded throughout —
+    outlines, values, rails, empty slots and header, the whole diagram a step
+    further back. The header says which of the two happened: [· shadowed]
+    when a later [let] took the name over, [· out of scope] when nothing on
+    the stack binds it any more (see {!Jsip_replay.Replay.Visibility}). Since
+    the note is part of the header text, [/] filters on it too.
+
+    Fading is per DRAWING, not per block, and the difference shows: after
+    [let m = M.remove "a" m] the surviving subtree is one heap block that
+    appears twice — faded as the old version's right child, lit as the whole
+    of the new version — because those are two things to say about one
+    object, not a contradiction. A structure referenced from another is drawn
+    inside its referrer but keeps its own verdict for the same reason, so a
+    live map hanging off a faded queue cell stays lit.
+
+    Selection outranks fading: aiming at a faded card still lights it orange,
+    which is the one thing you can still do with a structure out of reach.
 
     {v
     ▾ m · map ⟨string ⇒ int⟩            ▾ bigger · map ⟨string ⇒ int⟩

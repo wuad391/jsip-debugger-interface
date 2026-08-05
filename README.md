@@ -101,12 +101,14 @@ divider line along each seam:
   either one tints the other's border to match, so a shared subtree
   reads as one object drawn twice. Cards allocated *at this step* carry a green `new` tag in
   the border's top right. A structure the program can no longer name
-  fades: after `let m = M.add "a" 1 m` both versions are alive and both
-  are called `m`, so the older one's name greys out and its header says
-  `· shadowed` — `· out of scope` for one whose binding has been left
-  behind, like a queue built inside a function that has returned. Only
-  the name fades; the cards stay lit, because an old version's blocks
-  are usually the live version's blocks. Structures lay side by side, up to three to a
+  fades — outlines, values, rails and all: after `let m = M.add "a" 1 m`
+  both versions are alive and both are called `m`, so the older one greys
+  out and its header says `· shadowed` (`· out of scope` for one whose
+  binding has been left behind, like a queue built inside a function that
+  has returned). Fading is per drawing, not per block, which is how
+  sharing keeps reading correctly: after `M.remove` the surviving subtree
+  shows faded as the old version's child and lit as the whole of the new
+  one, because those are two things to say about one object. Structures lay side by side, up to three to a
   row, packed bottom-left so a collapse frees real space; a structure's
   column is chosen from its expanded footprint, so collapsing one leaves
   the others where they are. Clicking a card jumps the replay to the

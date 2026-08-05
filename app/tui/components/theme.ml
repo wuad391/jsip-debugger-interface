@@ -99,3 +99,43 @@ let heat ~share =
 
 let fg c = Attr.fg c
 let fg' c = [ Attr.fg c ]
+
+module For_testing = struct
+  (* every role by name, so a test can say which gray a cell is wearing
+     rather than matching hex — and so the answer lives beside the
+     definitions rather than in a copy that goes stale *)
+  let roles =
+    [ "bg", bg
+    ; "accent", accent
+    ; "fresh", fresh
+    ; "highlight", highlight
+    ; "highlight_bg", highlight_bg
+    ; "highlight_deep", highlight_deep
+    ; "cursor", cursor
+    ; "cursor_bg", cursor_bg
+    ; "cursor_deep", cursor_deep
+    ; "card_border", card_border
+    ; "rail", rail
+    ; "text", text
+    ; "secondary", secondary
+    ; "muted", muted
+    ; "faint", faint
+    ; "ghost", ghost
+    ; "border", border
+    ; "hairline", hairline
+    ; "tick_past", tick_past
+    ; "app_purple", app_purple
+    ; "ident", ident
+    ; "string_lit", string_lit
+    ; "number", number
+    ]
+  ;;
+
+  let color_name color =
+    List.find_map roles ~f:(fun (name, role) ->
+      match Attr.Color.equal color role with
+      | true -> Some name
+      | false -> None)
+    |> Option.value ~default:(Sexp.to_string [%sexp (color : Attr.Color.t)])
+  ;;
+end

@@ -356,13 +356,79 @@ let summary_spans leaves ~arity =
       [ `Label, [%string "%{label}="]; `Value, value ])
 ;;
 
-let span_view (tag, text) =
+(* Every color one structure's drawing takes, in one place, so that fading a
+   structure is a change of palette rather than a condition at each of a
+   dozen drawing sites.
+
+   A structure the program can no longer name is drawn in [faded]: the same
+   diagram a step further back — gray outlines instead of the card blue, the
+   contents in the ghost gray, the rails and empty slots dimmer still, and
+   the key of a binding no longer bold. Selection wins over both, so aiming
+   at a faded card still lights it orange; that is the one thing you can do
+   to a structure that is out of reach. *)
+module Palette = struct
+  type t =
+    { border : Attr.Color.t (** a card's solid outline *)
+    ; dashed : Attr.Color.t (** the [↗] pointer box and the [∅] slot *)
+    ; text : Attr.Color.t (** values, names, the [⋯ n hidden] note *)
+    ; label : Attr.Color.t (** field labels, and the [l]/[r] under a rail *)
+    ; arrow : Attr.Color.t (** the [→] of a binding, and [·] *)
+    ; rail : Attr.Color.t
+    ; glyph : Attr.Color.t (** the fold [▾]/[▸] *)
+    ; address : Attr.Color.t
+    ; key_bold : bool
+    }
+
+  let lit =
+    { border = Theme.card_border
+    ; dashed = Theme.ghost
+    ; text = Theme.text
+    ; label = Theme.muted
+    ; arrow = Theme.ghost
+    ; rail = Theme.rail
+    ; glyph = Theme.secondary
+    ; address = Theme.secondary
+    ; key_bold = true
+    }
+  ;;
+
+  let faded =
+    { border = Theme.border
+    ; dashed = Theme.hairline
+    ; text = Theme.ghost
+    ; label = Theme.border
+    ; arrow = Theme.hairline
+    ; rail = Theme.border
+    ; glyph = Theme.border
+    ; address = Theme.border
+    ; key_bold = false
+    }
+  ;;
+
+  let of_visibility visibility =
+    match Replay.Visibility.is_reachable visibility with
+    | true -> lit
+    | false -> faded
+  ;;
+
+  (* a referenced structure is drawn inside its referrer's tree but is not
+     part of it: it keeps its own verdict, so a live map hanging off a
+     shadowed queue cell stays lit *)
+  let of_structure (structure : Replay.Structure.t) =
+    of_visibility structure.visibility
+  ;;
+end
+
+let span_view ~(palette : Palette.t) (tag, text) =
   let attrs =
     match tag with
-    | `Key -> [ Theme.fg Theme.text; Attr.bold ]
-    | `Value -> Theme.fg' Theme.text
-    | `Arrow -> Theme.fg' Theme.ghost
-    | `Label -> Theme.fg' Theme.muted
+    | `Key ->
+      (match palette.key_bold with
+       | true -> [ Theme.fg palette.text; Attr.bold ]
+       | false -> Theme.fg' palette.text)
+    | `Value -> Theme.fg' palette.text
+    | `Arrow -> Theme.fg' palette.arrow
+    | `Label -> Theme.fg' palette.label
   in
   View.text ~attrs text
 ;;
@@ -420,6 +486,7 @@ let node_box
   ~leaves
   ~arity
   ~(context : Context.t)
+  ~(palette : Palette.t)
   ~site
   ~fold_glyph
   ~hidden_count
@@ -431,11 +498,11 @@ let node_box
     Selection.mark context.selection ~address:node.virtual_address ~site
   in
   let border =
-    Theme.fg' (Selection.Mark.border mark ~plain:Theme.card_border)
+    Theme.fg' (Selection.Mark.border mark ~plain:palette.border)
   in
   let summaries =
     List.map (summary_spans leaves ~arity) ~f:(fun line ->
-      View.hcat (List.map line ~f:span_view))
+      View.hcat (List.map line ~f:(span_view ~palette)))
   in
   (* both picked-out cards spell their address out: the blue one because it
      is the chosen one, the orange one because knowing what you are about to
@@ -447,7 +514,7 @@ let node_box
     | `Always, _ | `When_picked, true ->
       Some
         (View.text
-           ~attrs:(Theme.fg' Theme.secondary)
+           ~attrs:(Theme.fg' palette.address)
            [%string " %{Snapshot.Address.display node.virtual_address} "])
   in
   (* border riders: the structure's name left, a fresh allocation right *)
@@ -455,15 +522,9 @@ let node_box
     match root_structure with
     | None -> View.none
     | Some structure ->
-      (* the name is what goes out of scope, so the name is what fades: a
-         shadowed version's card keeps its outline and contents, because the
-         blocks are still there and are usually shared with the live one *)
-      let plain =
-        match Replay.Visibility.is_reachable structure.visibility with
-        | true -> Theme.fg' Theme.text
-        | false -> Theme.fg' Theme.ghost
+      let attrs =
+        Selection.Mark.label_attrs mark ~plain:(Theme.fg' palette.text)
       in
-      let attrs = Selection.Mark.label_attrs mark ~plain in
       View.text ~attrs [%string " %{Replay.Structure.display structure} "]
   in
   let new_tag =
@@ -526,7 +587,9 @@ let node_box
     | 0 -> card
     | n ->
       let note =
-        View.text ~attrs:(Theme.fg' Theme.text) [%string "⋯ %{n#Int} hidden"]
+        View.text
+          ~attrs:(Theme.fg' palette.text)
+          [%string "⋯ %{n#Int} hidden"]
       in
       let indent = Int.max 0 ((card_width - View.width note) / 2) in
       View.vcat [ card; View.pad ~l:indent note ]
@@ -537,7 +600,7 @@ let node_box
     match fold_glyph with
     | None -> View.text " "
     | Some folded ->
-      View.text ~attrs:(Theme.fg' Theme.secondary) (glyph_of ~folded)
+      View.text ~attrs:(Theme.fg' palette.glyph) (glyph_of ~folded)
   in
   View.zcat [ View.pad ~l:1 card; glyph ]
 ;;
@@ -546,8 +609,8 @@ let node_box
    the same three rows as a real one. A bare [∅] hanging off a rail read as
    an annotation on the edge; a box reads as what it is, the thing the
    pointer does not point at. *)
-let nil_box =
-  let attrs = Theme.fg' Theme.ghost in
+let nil_box ~(palette : Palette.t) =
+  let attrs = Theme.fg' palette.dashed in
   View.vcat
     [ View.text ~attrs "┌┄┄┄┐"
     ; View.text ~attrs "┆ ∅ ┆"
@@ -596,6 +659,7 @@ let shared_box
   ~id
   ~ds_type
   ~(context : Context.t)
+  ~(palette : Palette.t)
   ~site
   ~show_address
   =
@@ -605,20 +669,22 @@ let shared_box
     | Some (node : Snapshot.Node.t) ->
       Selection.mark context.selection ~address:node.virtual_address ~site
   in
-  let border = Theme.fg' (Selection.Mark.border mark ~plain:Theme.ghost) in
+  let border =
+    Theme.fg' (Selection.Mark.border mark ~plain:palette.dashed)
+  in
   let summaries =
     match target with
     | Some node ->
       List.map (shared_spans node ~ds_type) ~f:(fun line ->
-        View.hcat (List.map line ~f:span_view))
+        View.hcat (List.map line ~f:(span_view ~palette)))
     | None ->
-      [ View.text ~attrs:(Theme.fg' Theme.muted) [%string "#%{id#Int}"] ]
+      [ View.text ~attrs:(Theme.fg' palette.label) [%string "#%{id#Int}"] ]
   in
   (* the arrow rides the border where a card's name does, and reads like one
      where the pointer is picked out *)
   let arrow =
     let attrs =
-      Selection.Mark.label_attrs mark ~plain:(Theme.fg' Theme.muted)
+      Selection.Mark.label_attrs mark ~plain:(Theme.fg' palette.label)
     in
     View.text ~attrs " ↗ "
   in
@@ -631,7 +697,7 @@ let shared_box
     | `Always, _ | `When_picked, true ->
       Option.map target ~f:(fun (node : Snapshot.Node.t) ->
         View.text
-          ~attrs:(Theme.fg' Theme.secondary)
+          ~attrs:(Theme.fg' palette.address)
           [%string " %{Snapshot.Address.display node.virtual_address} "])
   in
   let inner =
@@ -679,7 +745,7 @@ let sibling_gap = 3
    center. Light stroke, but a brighter gray than the surrounding chrome: the
    rails are the diagram's edges — the actual pointers — so they should read
    ahead of the pane's dividers without turning into bars themselves. *)
-let rail ~parent_center ~centers =
+let rail ~(palette : Palette.t) ~parent_center ~centers =
   let leftmost =
     List.min_elt centers ~compare:Int.compare |> Option.value ~default:0
   in
@@ -712,11 +778,11 @@ let rail ~parent_center ~centers =
   for x = 0 to rightmost do
     Buffer.add_string buf (glyph x)
   done;
-  View.text ~attrs:(Theme.fg' Theme.rail) (Buffer.contents buf)
+  View.text ~attrs:(Theme.fg' palette.rail) (Buffer.contents buf)
 ;;
 
 (* edge labels sitting under their hooks *)
-let rail_labels ~labeled_centers =
+let rail_labels ~(palette : Palette.t) ~labeled_centers =
   let width =
     List.fold labeled_centers ~init:0 ~f:(fun width (center, label) ->
       max width (center + 1 + (String.length label / 2) + String.length label))
@@ -728,7 +794,7 @@ let rail_labels ~labeled_centers =
       let at = start + i in
       match at < width with true -> Bytes.set buffer at char | false -> ()));
   View.text
-    ~attrs:(Theme.fg' Theme.muted)
+    ~attrs:(Theme.fg' palette.label)
     (Bytes.to_string buffer |> String.rstrip)
 ;;
 
@@ -745,6 +811,7 @@ let rec tree
   (node : Snapshot.Node.t)
   ~ds_type
   ~(context : Context.t)
+  ~(palette : Palette.t)
   ~folds
   ~structure_id
   ~path
@@ -782,6 +849,7 @@ let rec tree
       ~leaves
       ~arity:(List.length node.block)
       ~context
+      ~palette
       ~site
       ~fold_glyph
       ~hidden_count
@@ -821,6 +889,7 @@ let rec tree
       List.mapi edges ~f:(fun index (label, edge) ->
         match edge with
         | Edge.Nil ->
+          let nil_box = nil_box ~palette in
           label, (nil_box, View.width nil_box / 2, View.width nil_box, [], [])
         | Edge.Shared { id; node = target } ->
           (* the node is on the canvas already — point at it, wearing its
@@ -839,6 +908,7 @@ let rec tree
               ~id
               ~ds_type
               ~context
+              ~palette
               ~site:stub_site
               ~show_address:`When_picked
           in
@@ -848,6 +918,7 @@ let rec tree
               ~id
               ~ds_type
               ~context
+              ~palette
               ~site:stub_site
               ~show_address:`Always
           in
@@ -874,17 +945,22 @@ let rec tree
               child
               ~ds_type
               ~context
+              ~palette
               ~folds
               ~structure_id
               ~path:(index :: path)
               ~depth:(depth + 1)
               ~parent:(Some site) )
         | Edge.Ref (structure : Replay.Structure.t) ->
+          (* another structure, drawn here rather than in a section of its
+             own — so it brings its own verdict with it, and a live map
+             hanging off a faded queue cell stays lit *)
           ( label
           , tree
               structure.snapshot.root_node
               ~ds_type:structure.snapshot.ds_type
               ~context
+              ~palette:(Palette.of_structure structure)
               ~folds
               ~structure_id:structure.id
               ~path:[]
@@ -983,11 +1059,11 @@ let rec tree
         | false -> Some (center, label))
     in
     let rail_rows =
-      [ rail ~parent_center ~centers ]
+      [ rail ~palette ~parent_center ~centers ]
       @
       match List.is_empty labeled_centers with
       | true -> []
-      | false -> [ rail_labels ~labeled_centers ]
+      | false -> [ rail_labels ~palette ~labeled_centers ]
     in
     let children_y = box_height + List.length rail_rows in
     let children_views, children_placed, children_toggles =
@@ -1138,10 +1214,11 @@ let structure_header (structure : Replay.Structure.t) ~folded ~mark =
        | false, true -> Theme.fg' Theme.muted
        | false, false -> Theme.fg' Theme.ghost)
   in
+  let palette = Palette.of_structure structure in
   Selection.Mark.wash
     mark
     (View.hcat
-       [ View.text ~attrs:(Theme.fg' Theme.secondary) (glyph_of ~folded)
+       [ View.text ~attrs:(Theme.fg' palette.glyph) (glyph_of ~folded)
        ; View.text " "
        ; View.text ~attrs:label_attrs label
        ])
@@ -1228,6 +1305,7 @@ let sections ~structures ~nodes ~new_addresses ~folds ~selection =
           (Replay.Structure.current_root structure)
           ~ds_type:structure.snapshot.ds_type
           ~context
+          ~palette:(Palette.of_structure structure)
           ~folds
           ~structure_id:structure.id
           ~path:[]

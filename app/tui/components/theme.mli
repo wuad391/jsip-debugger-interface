@@ -85,3 +85,12 @@ val heat : share:float -> Attr.Color.t
 val fg : Attr.Color.t -> Attr.t
 
 val fg' : Attr.Color.t -> Attr.t list
+
+module For_testing : sig
+  (** The role a color plays, by name — ["ghost"], ["card_border"], … The
+      picture tests render through [Notty.Cap.dumb], which drops color
+      entirely, so anything about fading has to be checked by reading the
+      attributes back and naming them. Falls back to the color's sexp for one
+      this module never defined. *)
+  val color_name : Attr.Color.t -> string
+end

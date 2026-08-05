@@ -19,6 +19,83 @@ let print_view ?(width = 60) ?(height = 14) view =
   |> print_endline
 ;;
 
+(* The picture tests render through [Cap.dumb], which drops color — so
+   anything about fading has to be read back off the escape codes. Renders
+   with the ANSI cap, then prints each row beside the theme roles its cells
+   are wearing, left to right. *)
+let print_palette ?(width = 56) ?(height = 26) view =
+  let image = Bonsai_term.View.Private.notty_image view in
+  let buffer = Buffer.create 4096 in
+  Notty.Render.to_buffer buffer Notty.Cap.ansi (0, 0) (width, height) image;
+  let rendered = Buffer.contents buffer in
+  (* [\027[38;2;R;G;Bm] sets a 24-bit foreground; [\027[0m] clears it. Every
+     other escape (background, bold, cursor moves) only has to be skipped. *)
+  let rows = ref [] in
+  let row = Buffer.create 128 in
+  let roles = ref [] in
+  let fg = ref None in
+  let note () =
+    match !fg with
+    | None -> ()
+    | Some color ->
+      let name = Theme.For_testing.color_name color in
+      (match !roles with
+       | last :: _ when String.equal last name -> ()
+       | _ :: _ | [] -> roles := name :: !roles)
+  in
+  let end_row () =
+    let text = String.rstrip (Buffer.contents row) in
+    (match String.is_empty text with
+     | true -> ()
+     | false -> rows := (text, List.rev !roles) :: !rows);
+    Buffer.clear row;
+    roles := []
+  in
+  let n = String.length rendered in
+  let i = ref 0 in
+  while !i < n do
+    match rendered.[!i] with
+    | '\027' ->
+      let stop = ref (!i + 1) in
+      while !stop < n && not (Char.equal rendered.[!stop] 'm') do
+        Int.incr stop
+      done;
+      let params = String.slice rendered (!i + 2) (Int.min !stop n) in
+      (* one SGR escape can carry several settings, e.g. [0;38;2;r;g;b] —
+         walk them rather than matching the whole list *)
+      let rec settings = function
+        | "38" :: "2" :: r :: g :: b :: rest ->
+          fg
+          := Some
+               (Bonsai_term.Attr.Color.rgb
+                  ~r:(Int.of_string r)
+                  ~g:(Int.of_string g)
+                  ~b:(Int.of_string b));
+          settings rest
+        | "48" :: "2" :: _ :: _ :: _ :: rest -> settings rest
+        | ("0" | "") :: rest ->
+          fg := None;
+          settings rest
+        | (_ : string) :: rest -> settings rest
+        | [] -> ()
+      in
+      settings (String.split params ~on:';');
+      i := !stop + 1
+    | '\n' ->
+      end_row ();
+      Int.incr i
+    | char ->
+      (match Char.is_whitespace char with true -> () | false -> note ());
+      Buffer.add_char row char;
+      Int.incr i
+  done;
+  end_row ();
+  List.rev !rows
+  |> List.iter ~f:(fun (text, roles) ->
+    print_endline
+      [%string "%{text#String}   [%{String.concat roles ~sep:\" \"}]"])
+;;
+
 (* every dump here is a golden fixture — verbatim compiler output vendored
    under testing/expected/ (see testing/README.md) *)
 let replay_of_fixture name =
@@ -31,6 +108,33 @@ let replay_of_fixture name =
 
 (* the pane the way it draws with nothing chosen and nothing aimed at: no
    card spells out its address, which is the common case on screen *)
+let heap_image
+  ~width
+  ~height
+  ?(scroll = 0)
+  ?(pan = 0)
+  ?(selection = Heap_pane.Selection.none)
+  ?folds
+  replay
+  ~step
+  =
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  Heap_pane.view
+    ~note:None
+    ~total:None
+    ~width
+    ~height
+    ~structures
+    ~nodes
+    ~new_addresses
+    ~folds:(Option.value folds ~default:(Set.empty (module Heap_pane.Fold)))
+    ~scroll
+    ~pan
+    ~selection
+;;
+
 let heap_view
   ?(width = 56)
   ?(height = 15)
@@ -110,6 +214,38 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
          M.add k (v * 2) acc
      ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
          M.empty
+    |}]
+;;
+
+let%expect_test "heap pane: a faded structure is faded throughout" =
+  (* the same three [m]s, read back with their colours: the two shadowed
+     structures are drawn entirely in the dim set (gray outlines, ghost
+     contents, dimmer rails and empty slots) while the live one keeps the
+     card blue and white values. The shared [b → 2] card is one block drawn
+     under two headers, and it wears each one's palette — faded as part of
+     the old version, lit as the new version's root. *)
+  let replay = replay_of_fixture "map_basic" in
+  print_palette ~height:26 (heap_image ~width:56 ~height:26 replay ~step:2);
+  [%expect
+    {|
+    HEAP                                  3 live · 4 nodes   [secondary faint]
+    ▾ m · map ⟨string ⇒ int⟩ · shadowed · 1 node   [border ghost]
+     ┌ m ────┐   [border ghost border]
+     │"a" → 1│   [border ghost hairline ghost border]
+     └───────┘   [border]
+    ▾ m · map ⟨string ⇒ int⟩ · shadowed · 2 nodes   [border ghost]
+    ▾┌ m ────┐   [border ghost border]
+     │"a" → 1│   [border ghost hairline ghost border]
+     └───────┘   [border]
+      ┌──────┴───────┐   [border]
+      l              r   [border]
+    ┌┄┄┄┐    ┌ m ────┐   [hairline border ghost border]
+    ┆ ∅ ┆    │"b" → 2│   [hairline border ghost hairline ghost border]
+    └┄┄┄┘    └───────┘   [hairline border]
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node   [secondary highlight_deep]
+     ┌ m ────┐   [card_border text card_border]
+     │"b" → 2│   [card_border text ghost text card_border]
+     └───────┘   [card_border]
     |}]
 ;;
 
