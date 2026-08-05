@@ -1,14 +1,12 @@
-(** The web interface's palette, as CSS color strings — one record per
-    mode, so the light/dark toggle is a change of value, not a change of
-    code path.
+(** The web interface's palette, as CSS color strings — one record per mode,
+    so the light/dark toggle is a change of value, not a change of code path.
 
     {!dark} is the imported design's cool-dark scheme verbatim; {!light} is
     the same hues with lightness inverted. Every pane and the canvas draw
-    from the record they are handed, so the whole screen flips as one
-    surface — don't inline raw colors in views. The compute and flame
-    ramps are shared between modes (they are the TUI's, so a function reads
-    at the same intensity in both interfaces), as is the flame drawer's
-    filled-box ink. *)
+    from the record they are handed, so the whole screen flips as one surface
+    — don't inline raw colors in views. The compute and flame ramps are
+    shared between modes (they are the TUI's, so a function reads at the same
+    intensity in both interfaces), as is the flame drawer's filled-box ink. *)
 
 open! Core
 
@@ -92,8 +90,8 @@ val stack_heat_ramp : Color.t array
 
 val stack_heat : share:float -> Color.t
 
-(** The flame drawer's filled-box ramp, its off-ramp neutral for "no
-    data", and the label inks that sit on both. *)
+(** The flame drawer's filled-box ramp, its off-ramp neutral for "no data",
+    and the label inks that sit on both. *)
 val flame_ramp : Color.t array
 
 val flame_neutral : Color.t

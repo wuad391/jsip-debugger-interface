@@ -1,12 +1,12 @@
-(** The timeline strip's math: the run's per-step allocation density
-    bucketed into a fixed number of colorable segments, and the fraction ↔
-    step conversions scrubbing needs. Pure, so the strip's shape is
+(** The timeline strip's math: the run's per-step allocation density bucketed
+    into a fixed number of colorable segments, and the fraction ↔ step
+    conversions scrubbing needs. Pure, so the strip's shape is
     expect-testable. *)
 
 open! Core
 
-(** Per-segment density in [0, 1]: the PEAK of the steps each segment
-    covers, so a one-step burst stays visible however long the run. At most
+(** Per-segment density in [0, 1]: the PEAK of the steps each segment covers,
+    so a one-step burst stays visible however long the run. At most
     {!max_segments} segments, one per step below that. *)
 val segments : density:float array -> float array
 

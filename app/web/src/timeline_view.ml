@@ -1,6 +1,7 @@
 open! Core
 open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
+open Vdom.Html_syntax
 module Js = Js_of_ocaml.Js
 module Dom_html = Js_of_ocaml.Dom_html
 
@@ -19,7 +20,7 @@ let fraction_of_click (event : Dom_html.mouseEvent Js.t) =
           let width = Js.to_float rect##.right -. left in
           match Float.( > ) width 0. with
           | false -> None
-          | true -> Some ((Float.of_int event##.clientX -. left) /. width)))
+          | true -> Some ((Js.to_float event##.clientX -. left) /. width)))
 ;;
 
 let ticks ~theme ~segments ~step ~total ~inject =

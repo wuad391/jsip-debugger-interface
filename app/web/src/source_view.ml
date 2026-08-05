@@ -1,6 +1,7 @@
 open! Core
 open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
+open Vdom.Html_syntax
 
 let span_view (theme : Theme.t) (token, text, marked) =
   let color = Theme.of_token theme token in

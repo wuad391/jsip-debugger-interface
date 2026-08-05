@@ -2,15 +2,19 @@ open! Core
 open Async
 
 (* The web interface's one command: serve the compiled client and the three
-   inputs the TUI takes as flags. The client fetches [api/dump], the
-   sources the dump mentions through [api/source?path=...], and the
-   optional [api/heat]; parsing happens in the browser, through exactly the
-   readers the TUI uses.
+   inputs the TUI takes as flags. The client fetches [api/dump], the sources
+   the dump mentions through [api/source?path=...], and the optional
+   [api/heat]; parsing happens in the browser, through exactly the readers
+   the TUI uses.
 
    Binds to localhost only: [api/source] resolves paths the dump recorded,
    which is the same local-file trust the TUI extends, and no wider. *)
 
-let respond ?(content_type = "text/plain; charset=utf-8") ?(status = `OK) body =
+let respond
+  ?(content_type = "text/plain; charset=utf-8")
+  ?(status = `OK)
+  body
+  =
   Cohttp_async.Server.respond_string
     ~status
     ~headers:(Cohttp.Header.of_list [ "Content-Type", content_type ])
@@ -20,9 +24,7 @@ let respond ?(content_type = "text/plain; charset=utf-8") ?(status = `OK) body =
 let not_found reason = respond ~status:`Not_found reason
 
 let respond_file path ~content_type =
-  match%bind
-    Monitor.try_with (fun () -> Reader.file_contents path)
-  with
+  match%bind Monitor.try_with (fun () -> Reader.file_contents path) with
   | Ok contents -> respond ~content_type contents
   | Error (_ : exn) -> not_found [%string "cannot read %{path}"]
 ;;
@@ -37,15 +39,24 @@ let resolve_source ~source_root path =
   | false -> source_root ^/ path
 ;;
 
-let handler ~dump_file ~source_root ~perf_file ~body:(_ : Cohttp_async.Body.t) (_ : Socket.Address.Inet.t) request =
+let handler
+  ~dump_file
+  ~source_root
+  ~perf_file
+  ~body:(_ : Cohttp_async.Body.t)
+  (_ : Socket.Address.Inet.t)
+  request
+  =
   let uri = Cohttp.Request.uri request in
   match Uri.path uri with
   | "/" | "/index.html" ->
-    respond ~content_type:"text/html; charset=utf-8" Embedded_assets.index_html
+    respond
+      ~content_type:"text/html; charset=utf-8"
+      Embedded_assets.index_dot_html
   | "/main.bc.js" ->
     respond
       ~content_type:"text/javascript; charset=utf-8"
-      Embedded_assets.main_bc_js
+      Embedded_assets.main_dot_bc_dot_js
   | "/api/dump" -> respond_file dump_file ~content_type:"text/plain"
   | "/api/meta" -> respond (Filename.basename dump_file)
   | "/api/heat" ->
@@ -65,9 +76,7 @@ let handler ~dump_file ~source_root ~perf_file ~body:(_ : Cohttp_async.Body.t) (
 let main ~dump_file ~source_root ~perf_file ~port =
   (* fail fast on a dump that is not there — the browser saying 404 is a
      worse version of this message *)
-  match%bind
-    Monitor.try_with (fun () -> Reader.file_contents dump_file)
-  with
+  match%bind Monitor.try_with (fun () -> Reader.file_contents dump_file) with
   | Error (_ : exn) ->
     Deferred.Or_error.error_s
       [%message "cannot read dump" (dump_file : string)]
@@ -75,7 +84,9 @@ let main ~dump_file ~source_root ~perf_file ~port =
     let%bind (_ : (Socket.Address.Inet.t, int) Cohttp_async.Server.t) =
       Cohttp_async.Server.create
         ~on_handler_error:`Ignore
-        (Tcp.Where_to_listen.bind_to Localhost (On_port port))
+        (Tcp.Where_to_listen.bind_to
+           Tcp.Bind_to_address.Localhost
+           (Tcp.Bind_to_port.On_port port))
         (handler ~dump_file ~source_root ~perf_file)
     in
     printf "jsip web debugger → http://localhost:%d\n%!" port;

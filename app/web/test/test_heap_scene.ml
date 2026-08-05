@@ -38,7 +38,11 @@ let scene_at
 (* one box per line, indented, the way the canvas nests them *)
 let rec show_node ?(indent = 0) (node : Heap_scene.Node.t) ~edge =
   let pad = String.make indent ' ' in
-  let edge = match String.is_empty edge with true -> "" | false -> [%string "%{edge}→ "] in
+  let edge =
+    match String.is_empty edge with
+    | true -> ""
+    | false -> [%string "%{edge}→ "]
+  in
   let kind =
     match node.kind with
     | Heap_scene.Kind.Block -> ""
@@ -67,7 +71,8 @@ let rec show_node ?(indent = 0) (node : Heap_scene.Node.t) ~edge =
 let show_scene (roots, (stats : Heap_scene.Stats.t)) =
   List.iter roots ~f:(fun (root : Heap_scene.Root.t) ->
     let current = match root.is_current with true -> " ★" | false -> "" in
-    print_endline [%string "▾ %{root.header} · %{root.count#Int} nodes%{current}"];
+    print_endline
+      [%string "▾ %{root.header} · %{root.count#Int} nodes%{current}"];
     show_node root.node ~indent:2 ~edge:"";
     print_endline "");
   print_s [%sexp (stats : Heap_scene.Stats.t)]
@@ -76,7 +81,8 @@ let show_scene (roots, (stats : Heap_scene.Stats.t)) =
 let%expect_test "a nested map draws as the AVL tree it physically is" =
   let replay = replay_of_fixture "map_nested" in
   show_scene (scene_at replay ~step:1);
-  [%expect {|
+  [%expect
+    {|
     ▾ #1 · map ⟨string ⇒ int⟩ · 1 nodes
       #1 · "inner" → 2
 
@@ -95,7 +101,8 @@ let%expect_test "folding a root tucks the whole structure behind its box" =
     Set.singleton (module Heap_scene.Fold_key) (Heap_scene.Fold_key.root 1)
   in
   show_scene (scene_at replay ~folds ~step:1);
-  [%expect {|
+  [%expect
+    {|
     ▾ #1 · map ⟨string ⇒ int⟩ · 1 nodes
       #1 · "inner" → 2
 
@@ -112,11 +119,10 @@ let%expect_test "the filter lights matching structures and dims the rest" =
   let replay = replay_of_fixture "queue_of_maps" in
   let roots, stats = scene_at replay ~filter:"queue" ~step:2 in
   List.iter roots ~f:(fun (root : Heap_scene.Root.t) ->
-    print_endline
-      [%string
-        "%{root.header} — matched %{root.matched#Bool}"]);
+    print_endline [%string "%{root.header} — matched %{root.matched#Bool}"]);
   print_s [%sexp (stats : Heap_scene.Stats.t)];
-  [%expect {|
+  [%expect
+    {|
     m · map ⟨string ⇒ int⟩ — matched false
     q · queue ⟨int M.t⟩ — matched true
     ((structures 2) (nodes 3) (new_nodes 1) (hits 3))
@@ -128,7 +134,8 @@ let%expect_test "a shared subtree draws once and points after" =
      second version's reference to the shared block must be a [↗] box *)
   let replay = replay_of_fixture "map_spine_sharing" in
   show_scene (scene_at replay ~step:(Replay.length replay - 1));
-  [%expect {|
+  [%expect
+    {|
     ▾ m · map ⟨string ⇒ int⟩ · 5 nodes
       m · "f" → 6
         l→ "d" → 4

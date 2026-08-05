@@ -23,7 +23,10 @@ module Edge_style = struct
   [@@deriving sexp_of, equal]
 
   let cycle t =
-    match t with Angled -> Orthogonal | Orthogonal -> Curved | Curved -> Angled
+    match t with
+    | Angled -> Orthogonal
+    | Orthogonal -> Curved
+    | Curved -> Angled
   ;;
 end
 
@@ -34,10 +37,7 @@ module Theme_mode = struct
   [@@deriving sexp_of, equal]
 
   let toggle t = match t with Dark -> Light | Light -> Dark
-
-  let palette t =
-    match t with Dark -> Theme.dark | Light -> Theme.light
-  ;;
+  let palette t = match t with Dark -> Theme.dark | Light -> Theme.light
 end
 
 (* a source fold is per file: the dump may span several *)

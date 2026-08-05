@@ -6,19 +6,13 @@ open Jsip_replay
 open Jsip_web_components
 open Jsip_web
 
-(* The browser-side twin of [app/bin/main.ml]: fetch what the server holds
-   — the dump, the sources it mentions, the optional heat profile — parse
-   with exactly the readers the TUI uses, and start the app. Everything
-   loads up front; a failure becomes a full-page error. *)
-
-let fetch path =
-  match%map Async_js.Http.get path with
-  | Ok response -> Ok response.content
-  | Error (_ : Error.t) as error -> error
-;;
+(* The browser-side twin of [app/bin/main.ml]: fetch what the server holds —
+   the dump, the sources it mentions, the optional heat profile — parse with
+   exactly the readers the TUI uses, and start the app. Everything loads up
+   front; a failure becomes a full-page error. *)
 
 let load_replay () =
-  match%map fetch "api/dump" with
+  match%map Async_js.Http.get "api/dump" with
   | Error error -> Error error
   | Ok contents ->
     Dump_reader.parse contents
@@ -30,28 +24,25 @@ let load_replay () =
 (* every file the dump mentions, fetched and highlighted once up front; a
    missing file becomes a placeholder pane, not a failure *)
 let load_sources replay =
-  Deferred.List.map
-    (Replay.files replay)
-    ~how:`Sequential
-    ~f:(fun path ->
-      match%map fetch [%string "api/source?path=%{Uri.pct_encode path}"] with
-      | Ok contents ->
-        ( path
-        , Ok
-            (Source_model.Loaded.of_source_file
-               (Source_file.of_lines (String.split_lines contents))) )
-      | Error (_ : Error.t) ->
-        ( path
-        , Or_error.error_string
-            [%string
-              "%{path} is not under the server's -source-root — the dump's \
-               paths resolve from the replayed program's root, so start \
-               serve.exe there or pass -source-root DIR"] ))
+  Deferred.List.map (Replay.files replay) ~how:`Sequential ~f:(fun path ->
+    match%map Async_js.Http.get "api/source" ~arguments:[ "path", path ] with
+    | Ok contents ->
+      ( path
+      , Ok
+          (Source_model.Loaded.of_source_file
+             (Source_file.of_lines (String.split_lines contents))) )
+    | Error (_ : Error.t) ->
+      ( path
+      , Or_error.error_string
+          [%string
+            "%{path} is not under the server's -source-root — the dump's \
+             paths resolve from the replayed program's root, so start \
+             serve.exe there or pass -source-root DIR"] ))
   >>| String.Map.of_alist_exn
 ;;
 
 let load_profile () =
-  match%map fetch "api/heat" with
+  match%map Async_js.Http.get "api/heat" with
   (* the heat endpoint 404s when serve.exe was started without a
      [-perf-file]; uncolored frames, not an error *)
   | Error (_ : Error.t) -> None
@@ -59,12 +50,9 @@ let load_profile () =
 ;;
 
 let load_dump_name () =
-  match%map fetch "api/meta" with
+  match%map Async_js.Http.get "api/meta" with
   | Error (_ : Error.t) -> "dump"
-  | Ok name ->
-    (match String.strip name with
-     | "" -> "dump"
-     | name -> name)
+  | Ok name -> (match String.strip name with "" -> "dump" | name -> name)
 ;;
 
 let main () =
@@ -74,8 +62,7 @@ let main () =
   | Ok replay ->
     (match Replay.length replay with
      | 0 ->
-       return
-         (`Error (Error.of_string "the dump has no events to replay"))
+       return (`Error (Error.of_string "the dump has no events to replay"))
      | (_ : int) ->
        let%bind sources = load_sources replay in
        let%bind profile = load_profile () in

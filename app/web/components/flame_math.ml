@@ -90,7 +90,8 @@ let bars tree ~zoom ~width ~live =
   let has_profile =
     Map.exists
       tree.Flame_tree.functions
-      ~f:(fun (metrics : Flame_tree.Metrics.t) -> Option.is_some metrics.share)
+      ~f:(fun (metrics : Flame_tree.Metrics.t) ->
+        Option.is_some metrics.share)
   in
   let share (node : Flame_tree.Node.t) =
     match has_profile with
@@ -138,10 +139,7 @@ let bars tree ~zoom ~width ~live =
             ~x:cx
             ~width:w
             ~depth:(depth + 1)
-            ~live:
-              (match lit with
-               | true -> rest
-               | false -> []);
+            ~live:(match lit with true -> rest | false -> []);
           cx +. w)
     in
     match pool with
@@ -149,8 +147,7 @@ let bars tree ~zoom ~width ~live =
     | Some (pool_width, count) ->
       add (depth + 1) (Segment.Pool { x = end_x; width = pool_width; count })
   in
-  (* a zoom that no longer resolves means the whole tree — the TUI's
-     fallback *)
+  (* a zoom that no longer resolves means the whole tree — the TUI's fallback *)
   let zoom =
     match (zoom : Path.t) with
     | [] -> []
@@ -205,7 +202,8 @@ let heat_source tree =
   match
     Map.exists
       tree.Flame_tree.functions
-      ~f:(fun (metrics : Flame_tree.Metrics.t) -> Option.is_some metrics.share)
+      ~f:(fun (metrics : Flame_tree.Metrics.t) ->
+        Option.is_some metrics.share)
   with
   | true -> `Compute
   | false -> `Calls

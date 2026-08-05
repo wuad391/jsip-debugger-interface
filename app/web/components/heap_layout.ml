@@ -63,9 +63,7 @@ let line_width (line : Heap_scene.Line.t) =
 let size (node : Heap_scene.Node.t) ~tier =
   match node.kind with
   | Heap_scene.Kind.Nil ->
-    (match tier with
-     | 0 -> 8., 7.
-     | (_ : int) -> 30., 23.)
+    (match tier with 0 -> 8., 7. | (_ : int) -> 30., 23.)
   | Heap_scene.Kind.Shared (_ : int) | Heap_scene.Kind.Block ->
     let lines_w =
       List.fold node.lines ~init:0. ~f:(fun widest line ->
@@ -75,9 +73,7 @@ let size (node : Heap_scene.Node.t) ~tier =
       List.fold node.raw ~init:0. ~f:(fun widest ((_ : string), value) ->
         Float.max widest (40. +. (label_width value *. 6.1) +. 14.))
     in
-    let w1 =
-      Float.min 320. ((label_width node.label *. 7.4) +. 20.)
-    in
+    let w1 = Float.min 320. ((label_width node.label *. 7.4) +. 20.) in
     let w2 =
       Float.min
         340.
@@ -87,18 +83,17 @@ let size (node : Heap_scene.Node.t) ~tier =
     let w3 = Float.min 380. (Float.max w2 raw_w) in
     let h3 = h2 +. 9. +. (Float.of_int (List.length node.raw) *. 13.) in
     (match tier with
-     | 0 ->
-       9. +. (Float.of_int (Int.min node.words 7) *. 1.6), 7.
+     | 0 -> 9. +. (Float.of_int (Int.min node.words 7) *. 1.6), 7.
      | 1 -> w1, 23.
      | 2 -> w2, h2
      | (_ : int) -> w3, h3)
 ;;
 
-(* ── the tree layout, per tier ─────────────────────────────────────────
-   The mockup's: siblings side by side in field order, each subtree as wide
-   as itself or its children, the parent centered over its spread; one row
-   of boxes per depth, each row as tall as its tallest box; roots stacked
-   down the canvas, each under a header line. *)
+(* ── the tree layout, per tier ───────────────────────────────────────── The
+   mockup's: siblings side by side in field order, each subtree as wide as
+   itself or its children, the parent centered over its spread; one row of
+   boxes per depth, each row as tall as its tallest box; roots stacked down
+   the canvas, each under a header line. *)
 
 let gaps ~tier =
   let pick a b c d = match tier with 0 -> a | 1 -> b | 2 -> c | _ -> d in
@@ -126,13 +121,17 @@ let compute (roots : Heap_scene.Root.t list) ~tier =
         measure child ~depth:(depth + 1))
     in
     measure root.node ~depth:0;
-    let depths = 1 + (Hashtbl.keys row_heights |> List.fold ~init:0 ~f:Int.max) in
+    let depths =
+      1 + (Hashtbl.keys row_heights |> List.fold ~init:0 ~f:Int.max)
+    in
     let row_y = Array.create ~len:depths 0. in
     let acc = ref 0. in
     for depth = 0 to depths - 1 do
       row_y.(depth) <- !acc;
       acc
-      := !acc +. Option.value (Hashtbl.find row_heights depth) ~default:0. +. gy
+      := !acc
+         +. Option.value (Hashtbl.find row_heights depth) ~default:0.
+         +. gy
     done;
     let rec subtree_width (node : Heap_scene.Node.t) =
       let w, (_ : float) = size node ~tier in
@@ -146,7 +145,8 @@ let compute (roots : Heap_scene.Root.t list) ~tier =
         in
         Float.max w spread
     in
-    let rec place (node : Heap_scene.Node.t) ~left ~depth ~parent ~edge_label =
+    let rec place (node : Heap_scene.Node.t) ~left ~depth ~parent ~edge_label
+      =
       let w, h = size node ~tier in
       let width = subtree_width node in
       let x = left +. ((width -. w) /. 2.) in
@@ -188,10 +188,10 @@ let all roots = Array.init 4 ~f:(fun tier -> compute roots ~tier)
 
 (* ── zoom plumbing ─────────────────────────────────────────────────────
    Semantic zoom: the scale factor [k] maps onto a continuous detail tier
-   through log-spaced stops, geometry crossfades between the two
-   neighbouring tiers' layouts, and the drawn CONTENT switches only once
-   the box has nearly finished growing — so text never draws into a box
-   that cannot hold it. *)
+   through log-spaced stops, geometry crossfades between the two neighbouring
+   tiers' layouts, and the drawn CONTENT switches only once the box has
+   nearly finished growing — so text never draws into a box that cannot hold
+   it. *)
 
 let stops = [| 0.26; 0.62; 1.35; 2.9 |]
 

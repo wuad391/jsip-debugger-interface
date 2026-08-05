@@ -1,6 +1,6 @@
 (** The source pane's rows, as data: {!Jsip_parsing.Syntax}-colored lines,
-    fold regions, the active line with the event's [char_range] marked —
-    the TUI {!Jsip_tui_components.Source_pane}'s reading minus the terminal
+    fold regions, the active line with the event's [char_range] marked — the
+    TUI {!Jsip_tui_components.Source_pane}'s reading minus the terminal
     cells, for the web view to render and tests to read. *)
 
 open! Core
@@ -8,8 +8,8 @@ open Jsip_types
 module Syntax := Jsip_parsing.Syntax
 
 (** A source file with its highlighting and fold regions precomputed — once
-    per file at startup. A region is a top-level definition: a column-0
-    line and everything under it until the next one. *)
+    per file at startup. A region is a top-level definition: a column-0 line
+    and everything under it until the next one. *)
 module Loaded : sig
   type t =
     { file : Source_file.t
@@ -38,14 +38,14 @@ module Row : sig
         { start : int
         ; stop : int
         ; hides_active : bool
-        (** the fold is standing in for the active line, so it takes the
-            wash in its place *)
+        (** the fold is standing in for the active line, so it takes the wash
+            in its place *)
         }
   [@@deriving sexp_of]
 end
 
-(** Every line of the file in order, folded regions collapsed to their
-    first line plus a marker row. [folds] holds region start lines. *)
+(** Every line of the file in order, folded regions collapsed to their first
+    line plus a marker row. [folds] holds region start lines. *)
 val rows
   :  Loaded.t
   -> folds:Int.Set.t

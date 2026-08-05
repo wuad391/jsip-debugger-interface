@@ -26,7 +26,8 @@ let step_of_fraction ~total ~fraction =
   | true -> 0
   | false ->
     let step =
-      Int.of_float (Float.round_nearest (fraction *. Float.of_int (total - 1)))
+      Int.of_float
+        (Float.round_nearest (fraction *. Float.of_int (total - 1)))
     in
     Int.max 0 (Int.min (total - 1) step)
 ;;
@@ -42,5 +43,5 @@ let fraction_of_step ~total ~step =
 let played ~total ~step ~segments:count =
   match total <= 0 || count = 0 with
   | true -> 0
-  | false -> ((step + 1) * count) / total
+  | false -> (step + 1) * count / total
 ;;

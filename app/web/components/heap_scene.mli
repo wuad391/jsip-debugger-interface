@@ -6,11 +6,10 @@
     view: the web heap pane draws all structures at once and makes them
     legible by ZOOMING (semantic detail tiers in {!Heap_layout}) where the
     TUI made them legible by flattening into an outline. One box per walked
-    block, a dotted [∅] box per empty skeleton slot, a dashed [↗] box where
-    a node is already drawn elsewhere (sharing, cycles), and a structure
-    referenced from another drawn inline under its referrer with its own
-    name and its own lit/faded verdict — each structure appears exactly
-    once.
+    block, a dotted [∅] box per empty skeleton slot, a dashed [↗] box where a
+    node is already drawn elsewhere (sharing, cycles), and a structure
+    referenced from another drawn inline under its referrer with its own name
+    and its own lit/faded verdict — each structure appears exactly once.
 
     Pure data: building is deterministic over one step's
     {!Jsip_replay.Replay.Step}, so it is expect-testable and the canvas
@@ -18,8 +17,14 @@
 
     {[
       let roots, stats =
-        Heap_scene.build ~structures ~nodes ~new_addresses
-          ~folds ~filter:"" ~sort_by_address:false ~accordion:false
+        Heap_scene.build
+          ~structures
+          ~nodes
+          ~new_addresses
+          ~folds
+          ~filter:""
+          ~sort_by_address:false
+          ~accordion:false
       in
       List.map roots ~f:(fun root -> root.header, root.count)
     ]} *)
@@ -29,11 +34,11 @@ open Jsip_types
 open Jsip_replay
 
 (** What one fold toggle names: a node by its structure id and edge-index
-    path from that structure's root. Paths address the structure's shape,
-    not a step's addresses, so folds survive stepping — the TUI's
+    path from that structure's root. Paths address the structure's shape, not
+    a step's addresses, so folds survive stepping — the TUI's
     {!Jsip_tui_components.Heap_pane.Fold} contract. An inlined referenced
-    structure keys folds on its own id, so they follow it whichever
-    structure it is drawn inside. *)
+    structure keys folds on its own id, so they follow it whichever structure
+    it is drawn inside. *)
 module Fold_key : sig
   type t =
     { structure_id : int

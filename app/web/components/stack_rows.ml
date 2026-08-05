@@ -64,8 +64,8 @@ let is_hidden ~folds ~calls index =
     lo <= index && index < folded)
 ;;
 
-(* Exchange-scale dumps repeat themselves: runs of at least this many
-   visible leaves repeating one function at one depth collapse to a single
+(* Exchange-scale dumps repeat themselves: runs of at least this many visible
+   leaves repeating one function at one depth collapse to a single
    [fn args ⋯ ×N] row. A run holding the selection or a live frame never
    collapses, so the rows the eye is following stay individually visible. *)
 let run_threshold = 4

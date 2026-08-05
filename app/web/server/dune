@@ -13,6 +13,7 @@
 
 ; the compiled client and its page, baked into the server binary so
 ; [serve.exe] is self-contained wherever it is run from
+
 (rule
  (targets embedded_assets.ml embedded_assets.mli)
  (deps

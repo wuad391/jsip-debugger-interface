@@ -44,8 +44,8 @@ let parse_lines lines =
     | Error _ as error -> error
     | Ok line_number ->
       (match parse_line line ~current_depth with
-       (* the position is the whole diagnostic for a malformed dump, so it
-          is attached here rather than left to the caller *)
+       (* the position is the whole diagnostic for a malformed dump, so it is
+          attached here rather than left to the caller *)
        | Error error ->
          Error (Error.tag_s error ~tag:[%message (line_number : int)])
        | Ok None -> Ok (line_number + 1)

@@ -1,6 +1,7 @@
 open! Core
 open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
+open Vdom.Html_syntax
 
 let target_action (target : Stack_rows.Target.t) : Action.t =
   match target with

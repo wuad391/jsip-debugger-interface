@@ -26,12 +26,11 @@ let show
   let heat = Array.map calls ~f:(fun (_ : Call.t) -> None) in
   let registered = Array.map calls ~f:(fun (_ : Call.t) -> None) in
   let live =
-    List.map (Replay.step_exn replay ~step).frames ~f:(fun (frame : Call.t) ->
-      snd frame.range)
+    List.map
+      (Replay.step_exn replay ~step).frames
+      ~f:(fun (frame : Call.t) -> snd frame.range)
   in
-  let selected =
-    Option.value selected ~default:(List.length live - 1)
-  in
+  let selected = Option.value selected ~default:(List.length live - 1) in
   let rows =
     Stack_rows.rows ~calls ~heat ~live ~selected ~folds ~expanded ~registered
   in
@@ -58,14 +57,14 @@ let show
     let target = Sexp.to_string [%sexp (row.target : Stack_rows.Target.t)] in
     print_endline
       [%string
-        "%{state} %{indent}%{glyph} %{row.fn} %{row.args}%{hidden} \
-         %{target}"])
+        "%{state} %{indent}%{glyph} %{row.fn} %{row.args}%{hidden} %{target}"])
 ;;
 
 let%expect_test "the live chain is lit and everything else jumps" =
   let replay = replay_of_fixture "map_fold" in
   show replay ~step:2;
-  [%expect {|
+  [%expect
+    {|
           M.add "b" 2 M.empty (Step 0)
       ▾ M.add "a" 1 (M.add "b" 2 M.empty) (Step 1)
     ●     M.add k (v * 2) acc (Frame 1)
@@ -78,7 +77,8 @@ let%expect_test "folding a call hides its range behind a count" =
   let replay = replay_of_fixture "map_fold" in
   (* call 4 is the [M.fold] whose range spans the two inner adds *)
   show replay ~step:0 ~folds:(Int.Set.singleton 4);
-  [%expect {|
+  [%expect
+    {|
     ●     M.add "b" 2 M.empty (Frame 1)
     ○ ▾ M.add "a" 1 (M.add "b" 2 M.empty) (Frame 0)
       ▸ M.fold (fun k v acc -> M.add k (v * 2) acc) m M.empty ⋯ 2 (Step 4)
@@ -86,12 +86,13 @@ let%expect_test "folding a call hides its range behind a count" =
 ;;
 
 let%expect_test "a run inside the live window never collapses" =
-  (* map_spine_sharing is six identical [M.add] leaves, and at every step
-     the live frame sits inside that run — so the protection keeps every
-     row individually visible, which is the point of the protection *)
+  (* map_spine_sharing is six identical [M.add] leaves, and at every step the
+     live frame sits inside that run — so the protection keeps every row
+     individually visible, which is the point of the protection *)
   let replay = replay_of_fixture "map_spine_sharing" in
   show replay ~step:(Replay.length replay - 1);
-  [%expect {|
+  [%expect
+    {|
         ▸ M.add "f" 6 M.empty ⋯ ×4 (Step 0)
       ▾ M.add "j" 10 (seed ()) (Step 4)
     ●   M.add "g" 7 m (Frame 0)
@@ -151,14 +152,10 @@ let show_synthetic calls ~live ~selected ~expanded =
 let%expect_test "runs of identical leaves collapse past the threshold" =
   let calls =
     synthetic_calls
-      ((List.init 6 ~f:(fun (_ : int) -> "Queue.add", 1))
+      (List.init 6 ~f:(fun (_ : int) -> "Queue.add", 1)
        @ [ "Book.publish", 1 ])
   in
-  show_synthetic
-    calls
-    ~live:[ 6 ]
-    ~selected:0
-    ~expanded:Int.Set.empty;
+  show_synthetic calls ~live:[ 6 ] ~selected:0 ~expanded:Int.Set.empty;
   [%expect {|
     0: Queue.add ⋯ ×6
     6: Book.publish
@@ -168,16 +165,11 @@ let%expect_test "runs of identical leaves collapse past the threshold" =
 let%expect_test "an expanded run lists its members again" =
   let calls =
     synthetic_calls
-      ((List.init 6 ~f:(fun (_ : int) -> "Queue.add", 1))
+      (List.init 6 ~f:(fun (_ : int) -> "Queue.add", 1)
        @ [ "Book.publish", 1 ])
   in
   let head =
-    Stack_rows.run_head
-      ~calls
-      ~folds:Int.Set.empty
-      ~live:[ 6 ]
-      ~selected:0
-      3
+    Stack_rows.run_head ~calls ~folds:Int.Set.empty ~live:[ 6 ] ~selected:0 3
   in
   print_s [%sexp (head : int option)];
   (match head with
@@ -188,7 +180,8 @@ let%expect_test "an expanded run lists its members again" =
        ~live:[ 6 ]
        ~selected:0
        ~expanded:(Int.Set.singleton head));
-  [%expect {|
+  [%expect
+    {|
     (0)
     0: Queue.add
     1: Queue.add

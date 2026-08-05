@@ -102,7 +102,8 @@ module State = struct
     ; mutable dirty : bool
     ; mutable mini : Mini.t option
     ; mutable raf : Dom_html.animation_frame_request_id option
-    ; mutable observer : Js_of_ocaml.ResizeObserver.resizeObserver Js.t option
+    ; mutable observer :
+        Js_of_ocaml.ResizeObserver.resizeObserver Js.t option
     ; mutable keydown : Dom.event_listener_id option
     ; mutable hud_zoom : int
     ; mutable hud_tier : float
@@ -113,10 +114,16 @@ end
 let font ?(italic = false) ?(bold = false) size =
   let italic = match italic with true -> "italic " | false -> "" in
   let bold = match bold with true -> "700 " | false -> "" in
-  sprintf "%s%s%.1fpx 'JetBrains Mono', ui-monospace, monospace" italic bold size
+  sprintf
+    "%s%s%.1fpx 'JetBrains Mono', ui-monospace, monospace"
+    italic
+    bold
+    size
 ;;
 
-let now () = Js.to_float Dom_html.window##.performance##now
+(* wall-clock milliseconds, for pulse fades — [Js.date] because this jsoo's
+   window object does not carry [performance] *)
+let now () = Js.to_float (new%js Js.date_now)##getTime
 
 let inject (state : State.t) action =
   Vdom.Effect.Expert.handle_non_dom_event_exn (state.input.inject action)
@@ -160,15 +167,17 @@ let rebuild_styles (state : State.t) =
 (* ── geometry helpers ────────────────────────────────────────────────── *)
 
 let layouts (state : State.t) = state.input.layouts
-let box_of state id = Heap_layout.box_of (layouts state) ~tier_f:state.State.tier_f ~id
+
+let box_of state id =
+  Heap_layout.box_of (layouts state) ~tier_f:state.State.tier_f ~id
+;;
 
 let visible_placed (state : State.t) =
   (layouts state).(0).Heap_layout.Tier_layout.placed
 ;;
 
 let world_of_screen (state : State.t) sx sy =
-  ( (sx -. state.view.x) /. state.view.k
-  , (sy -. state.view.y) /. state.view.k )
+  (sx -. state.view.x) /. state.view.k, (sy -. state.view.y) /. state.view.k
 ;;
 
 let node_at (state : State.t) sx sy =
@@ -212,30 +221,25 @@ let placed_by_id (state : State.t) id =
 let set_anchor (state : State.t) sx sy =
   let wx, wy = world_of_screen state sx sy in
   let best =
-    List.fold
-      (visible_placed state)
-      ~init:None
-      ~f:(fun best placed ->
-        match box_of state placed.Heap_layout.Placed.id with
-        | None -> best
-        | Some box ->
-          let cx = box.x +. (box.w /. 2.) in
-          let cy = box.y +. (box.h /. 2.) in
-          let distance = Float.hypot (cx -. wx) (cy -. wy) in
-          (match best with
-           | Some ((_ : string), (_ : Heap_layout.Box.t), closest)
-             when Float.( <= ) closest distance ->
-             best
-           | Some _ | None ->
-             Some (placed.Heap_layout.Placed.id, box, distance)))
+    List.fold (visible_placed state) ~init:None ~f:(fun best placed ->
+      match box_of state placed.Heap_layout.Placed.id with
+      | None -> best
+      | Some box ->
+        let cx = box.x +. (box.w /. 2.) in
+        let cy = box.y +. (box.h /. 2.) in
+        let distance = Float.hypot (cx -. wx) (cy -. wy) in
+        (match best with
+         | Some ((_ : string), (_ : Heap_layout.Box.t), closest)
+           when Float.( <= ) closest distance ->
+           best
+         | Some _ | None -> Some (placed.Heap_layout.Placed.id, box, distance)))
   in
   state.anchor
   <- (match best with
       | None -> Some (Anchor.Free { wx; wy; sx; sy })
       | Some (id, box, (_ : float)) ->
         (* clamp to the node's box so the anchor is always on real content —
-           a point in the gap between nodes flies apart as the layout
-           grows *)
+           a point in the gap between nodes flies apart as the layout grows *)
         let nx = Float.clamp_exn ((wx -. box.x) /. box.w) ~min:0. ~max:1. in
         let ny = Float.clamp_exn ((wy -. box.y) /. box.h) ~min:0. ~max:1. in
         let px = box.x +. (nx *. box.w) in
@@ -282,7 +286,9 @@ let fit (state : State.t) =
     state.view.k <- k;
     state.view.k_target <- k;
     state.tier_f <- Heap_layout.tier_for ~k;
-    let width, height = Heap_layout.bounds_now (layouts state) ~tier_f:state.tier_f in
+    let width, height =
+      Heap_layout.bounds_now (layouts state) ~tier_f:state.tier_f
+    in
     state.view.x <- (state.width -. (width *. k)) /. 2.;
     state.view.y
     <- (match Float.( < ) (height *. k) (state.height -. 40.) with
@@ -294,7 +300,7 @@ let fit (state : State.t) =
 
 (* stepping lands the eye on the walked structure — pan, never rezoom, and
    only when it is off screen *)
-let land (state : State.t) =
+let land_on_current (state : State.t) =
   match state.input.current_root_id with
   | None -> ()
   | Some id ->
@@ -331,7 +337,9 @@ let set_stroke (context : Dom_html.canvasRenderingContext2D Js.t) color =
   context##.strokeStyle := Js.string color
 ;;
 
-let set_dash (context : Dom_html.canvasRenderingContext2D Js.t) segments =
+let set_dash (context : Dom_html.canvasRenderingContext2D Js.t) segments
+  : unit
+  =
   Js.Unsafe.meth_call
     context
     "setLineDash"
@@ -347,7 +355,11 @@ let fit_text label ~size ~room =
     String.prefix label keep ^ "…"
 ;;
 
-let line_parts (theme : Theme.t) (line : Heap_scene.Line.t) ~(style : Node_style.t) =
+let line_parts
+  (theme : Theme.t)
+  (line : Heap_scene.Line.t)
+  ~(style : Node_style.t)
+  =
   List.map line ~f:(fun (part : Heap_scene.Line.Part.t) ->
     match part with
     | Key text -> text, style.ink, false
@@ -391,8 +403,8 @@ let draw_node
     match raised with
     | false -> box
     | true ->
-      (* focal mode: the box near the cursor grows to its own tier's size
-         and floats over its neighbours *)
+      (* focal mode: the box near the cursor grows to its own tier's size and
+         floats over its neighbours *)
       let split = Heap_layout.split tier in
       let wa, ha = Heap_layout.size node ~tier:split.a in
       let wb, hb = Heap_layout.size node ~tier:split.b in
@@ -437,7 +449,8 @@ let draw_node
       | false -> set_stroke context color
       | true -> set_stroke context theme.fresh);
      context##.lineWidth
-     := Js.float ((match hovered || selected with true -> 1.4 | false -> 1.) /. k);
+     := Js.float
+          ((match hovered || selected with true -> 1.4 | false -> 1.) /. k);
      (match style.dashed with
       | true -> set_dash context [ Js.float (3. /. k); Js.float (3. /. k) ]
       | false -> ());
@@ -446,9 +459,7 @@ let draw_node
        (Js.float (box.y +. (0.5 /. k)))
        (Js.float (box.w -. (1. /. k)))
        (Js.float (box.h -. (1. /. k)));
-     (match style.dashed with
-      | true -> set_dash context []
-      | false -> ()));
+     (match style.dashed with true -> set_dash context [] | false -> ()));
   (* fold marker: the box stays, the subtree is behind it *)
   (match node.folded && ct >= 1 with
    | false -> ()
@@ -510,16 +521,18 @@ let draw_node
      let y = ref (box.y +. 25.) in
      List.iter node.lines ~f:(fun line ->
        let x = ref (box.x +. 8.) in
-       List.iter (line_parts theme line ~style) ~f:(fun (text, color, italic) ->
-         context##.font := Js.string (font ~italic 11.);
-         set_fill context color;
-         let room = box.x +. box.w -. 8. -. !x in
-         (match Float.( > ) room 8. with
-          | false -> ()
-          | true ->
-            let fitted = fit_text text ~size:11. ~room in
-            context##fillText (Js.string fitted) (Js.float !x) (Js.float !y);
-            x := !x +. (Float.of_int (String.length fitted) *. 6.6)));
+       List.iter
+         (line_parts theme line ~style)
+         ~f:(fun (text, color, italic) ->
+           context##.font := Js.string (font ~italic 11.);
+           set_fill context color;
+           let room = box.x +. box.w -. 8. -. !x in
+           match Float.( > ) room 8. with
+           | false -> ()
+           | true ->
+             let fitted = fit_text text ~size:11. ~room in
+             context##fillText (Js.string fitted) (Js.float !x) (Js.float !y);
+             x := !x +. (Float.of_int (String.length fitted) *. 6.6));
        y := !y +. 15.);
      (match ct = 3 && not (List.is_empty node.raw) with
       | false -> ()
@@ -542,8 +555,7 @@ let draw_node
             (Js.float !ry);
           set_fill context theme.raw_value;
           context##fillText
-            (Js.string
-               (fit_text value ~size:9.5 ~room:(box.w -. 46.)))
+            (Js.string (fit_text value ~size:9.5 ~room:(box.w -. 46.)))
             (Js.float (box.x +. 8. +. 26.))
             (Js.float !ry);
           ry := !ry +. 13.))
@@ -666,7 +678,8 @@ let draw_heads (state : State.t) =
           (Js.float (head.y +. 14.));
         let prefix_width =
           Js.to_float
-            (context##measureText (Js.string [%string "%{glyph}%{name} "]))##.width
+            (context##measureText (Js.string [%string "%{glyph}%{name} "]))##.
+            width
         in
         let nodes_word =
           match root.count with 1 -> "node" | (_ : int) -> "nodes"
@@ -681,14 +694,18 @@ let draw_heads (state : State.t) =
 let draw_mini (state : State.t) =
   let context = state.context in
   let theme = state.input.theme in
-  let width, height = Heap_layout.bounds_now (layouts state) ~tier_f:state.tier_f in
+  let width, height =
+    Heap_layout.bounds_now (layouts state) ~tier_f:state.tier_f
+  in
   let mw = 168. in
   let mh = 118. in
   let pad = 14. in
   let x = state.width -. mw -. pad in
   let y = state.height -. mh -. pad in
   let scale =
-    Float.min ((mw -. 12.) /. Float.max 1. width) ((mh -. 12.) /. Float.max 1. height)
+    Float.min
+      ((mw -. 12.) /. Float.max 1. width)
+      ((mh -. 12.) /. Float.max 1. height)
   in
   state.mini <- Some { Mini.x; y; w = mw; h = mh; scale };
   context##save;
@@ -769,28 +786,37 @@ let draw_tooltip (state : State.t) =
            "  " ^ Heap_scene.Line.text line, theme.text)
          @ (match List.length node.lines > 8 with
             | true ->
-              [ [%string "  … %{List.length node.lines - 8#Int} more"]
-                , theme.faint ]
+              [ ( [%string "  … %{List.length node.lines - 8#Int} more"]
+                , theme.faint )
+              ]
             | false -> [])
          @ (match node.folded with
             | true ->
-              [ [%string "  folded — h unfolds ⋯ %{node.hidden_count#Int}"]
-                , theme.accent ]
+              [ ( [%string "  folded — h unfolds ⋯ %{node.hidden_count#Int}"]
+                , theme.accent )
+              ]
             | false -> [])
-         @ (match node.faded with
-            | true -> [ "  name no longer reaches this", theme.faint ]
-            | false -> [])
+         @
+         match node.faded with
+         | true -> [ "  name no longer reaches this", theme.faint ]
+         | false -> []
        in
        let width =
          List.fold lines ~init:120. ~f:(fun widest (text, (_ : string)) ->
-           Float.max widest ((Float.of_int (String.length text) *. 6.6) +. 20.))
+           Float.max
+             widest
+             ((Float.of_int (String.length text) *. 6.6) +. 20.))
          |> Float.min 360.
        in
        let height = 14. +. (Float.of_int (List.length lines) *. 16.) in
        let x = Float.min (sx +. 18.) (state.width -. width -. 8.) in
        let y = Float.min (sy +. 16.) (state.height -. height -. 8.) in
        set_fill context theme.tooltip_bg;
-       context##fillRect (Js.float x) (Js.float y) (Js.float width) (Js.float height);
+       context##fillRect
+         (Js.float x)
+         (Js.float y)
+         (Js.float width)
+         (Js.float height);
        set_stroke context theme.tooltip_border;
        context##.lineWidth := Js.float 1.;
        context##strokeRect
@@ -813,9 +839,7 @@ let sync_hud (state : State.t) =
     Int.of_float (Float.round_nearest (state.view.k *. 100.))
   in
   let tier = Float.round_decimal state.tier_f ~decimal_digits:1 in
-  match
-    zoom_percent = state.hud_zoom && Float.equal tier state.hud_tier
-  with
+  match zoom_percent = state.hud_zoom && Float.equal tier state.hud_tier with
   | true -> ()
   | false ->
     state.hud_zoom <- zoom_percent;
@@ -834,7 +858,11 @@ let draw (state : State.t) =
     (Js.float 0.)
     (Js.float 0.);
   set_fill context theme.bg;
-  context##fillRect (Js.float 0.) (Js.float 0.) (Js.float state.width) (Js.float state.height);
+  context##fillRect
+    (Js.float 0.)
+    (Js.float 0.)
+    (Js.float state.width)
+    (Js.float state.height);
   context##save;
   context##translate (Js.float state.view.x) (Js.float state.view.y);
   context##scale (Js.float state.view.k) (Js.float state.view.k);
@@ -883,15 +911,22 @@ let draw (state : State.t) =
                3.
                (global_tier
                 +. ((1.55 +. (state.tier_f *. 0.5))
-                    *. Float.exp (-.(distance /. 190.) *. (distance /. 190.))))
+                    *. Float.exp (-.(distance /. 190.) *. (distance /. 190.))
+                   ))
          in
          (match focal && Float.( > ) tier (global_tier +. 0.3) with
           | true -> raised := (placed, box, tier) :: !raised
           | false -> draw_node state placed box ~tier ~raised:false)));
   List.iter
-    (List.sort !raised ~compare:(fun ((_ : Heap_layout.Placed.t), (_ : Heap_layout.Box.t), a) ((_ : Heap_layout.Placed.t), (_ : Heap_layout.Box.t), b) ->
-       Float.compare a b))
-    ~f:(fun (placed, box, tier) -> draw_node state placed box ~tier ~raised:true);
+    (List.sort
+       !raised
+       ~compare:
+         (fun
+           ((_ : Heap_layout.Placed.t), (_ : Heap_layout.Box.t), a)
+           ((_ : Heap_layout.Placed.t), (_ : Heap_layout.Box.t), b)
+         -> Float.compare a b))
+    ~f:(fun (placed, box, tier) ->
+      draw_node state placed box ~tier ~raised:true);
   (* pulses: rings widening off boxes this step allocated *)
   let time = now () in
   state.pulses
@@ -924,8 +959,7 @@ let resize (state : State.t) =
   let rect = state.canvas##getBoundingClientRect in
   let width = Js.to_float rect##.right -. Js.to_float rect##.left in
   let height = Js.to_float rect##.bottom -. Js.to_float rect##.top in
-  state.dpr
-  <- Float.min 2. (Js.to_float Dom_html.window##.devicePixelRatio);
+  state.dpr <- Float.min 2. (Js.to_float Dom_html.window##.devicePixelRatio);
   state.width <- width;
   state.height <- height;
   state.canvas##.width := Int.max 1 (Int.of_float (width *. state.dpr));
@@ -943,8 +977,8 @@ let resize (state : State.t) =
 
 let canvas_position (state : State.t) (event : #Dom_html.mouseEvent Js.t) =
   let rect = state.canvas##getBoundingClientRect in
-  ( Float.of_int event##.clientX -. Js.to_float rect##.left
-  , Float.of_int event##.clientY -. Js.to_float rect##.top )
+  ( Js.to_float event##.clientX -. Js.to_float rect##.left
+  , Js.to_float event##.clientY -. Js.to_float rect##.top )
 ;;
 
 let on_wheel (state : State.t) (event : Dom_html.wheelEvent Js.t) =
@@ -954,7 +988,7 @@ let on_wheel (state : State.t) (event : Dom_html.wheelEvent Js.t) =
   let delta = Js.to_float event##.deltaY in
   let ctrl = Js.to_bool event##.ctrlKey in
   let factor =
-    Float.exp (-.delta *. (match ctrl with true -> 0.012 | false -> 0.0022))
+    Float.exp (-.delta *. match ctrl with true -> 0.012 | false -> 0.0022)
   in
   state.view.k_target
   <- Float.clamp_exn (state.view.k_target *. factor) ~min:0.08 ~max:7.
@@ -991,8 +1025,8 @@ let on_pointer_down (state : State.t) (event : Dom_html.mouseEvent Js.t) =
   | false ->
     state.drag
     <- Some
-         ( Float.of_int event##.clientX
-         , Float.of_int event##.clientY
+         ( Js.to_float event##.clientX
+         , Js.to_float event##.clientY
          , state.view.x
          , state.view.y );
     state.drag_moved <- false;
@@ -1005,8 +1039,8 @@ let on_pointer_move (state : State.t) (event : Dom_html.mouseEvent Js.t) =
   match state.mini_drag, state.drag with
   | true, (_ : (float * float * float * float) option) -> mini_to state sx sy
   | false, Some (px, py, vx, vy) ->
-    let dx = Float.of_int event##.clientX -. px in
-    let dy = Float.of_int event##.clientY -. py in
+    let dx = Js.to_float event##.clientX -. px in
+    let dy = Js.to_float event##.clientY -. py in
     (match Float.( > ) (Float.hypot dx dy) 3. with
      | true -> state.drag_moved <- true
      | false -> ());
@@ -1019,9 +1053,7 @@ let on_pointer_move (state : State.t) (event : Dom_html.mouseEvent Js.t) =
       Option.map (node_at state sx sy) ~f:(fun placed ->
         placed.Heap_layout.Placed.id)
     in
-    (match
-       state.input.lod
-     with
+    (match state.input.lod with
      | Action.Lod.Focal -> state.dirty <- true
      | Action.Lod.Uniform -> ());
     (match [%equal: string option] hover state.hover with
@@ -1098,8 +1130,7 @@ let pan_by (state : State.t) dx dy =
 let hovered_fold_key (state : State.t) =
   match state.hover with
   | Some id ->
-    Option.map (placed_by_id state id) ~f:(fun placed ->
-      placed.node.key)
+    Option.map (placed_by_id state id) ~f:(fun placed -> placed.node.key)
   | None ->
     (* nothing aimed at: fold the structure the step walked, the TUI's
        fallback *)
@@ -1123,13 +1154,9 @@ let on_key (state : State.t) (event : Dom_html.keyboardEvent Js.t) =
   match target_is_input with
   | true -> ()
   | false ->
-    let key =
-      Js.Optdef.case event##.key (fun () -> "") Js.to_string
-    in
+    let key = Js.Optdef.case event##.key (fun () -> "") Js.to_string in
     let act ?(prevent = true) action =
-      (match prevent with
-       | true -> Dom.preventDefault event
-       | false -> ());
+      (match prevent with true -> Dom.preventDefault event | false -> ());
       inject state action
     in
     (match key with
@@ -1264,8 +1291,7 @@ let init (input : Input.t) () =
     }
   in
   rebuild_styles state;
-  listen canvas "wheel" (fun ev ->
-    on_wheel state (Js.Unsafe.coerce ev));
+  listen canvas "wheel" (fun ev -> on_wheel state (Js.Unsafe.coerce ev));
   listen canvas "pointerdown" (fun ev ->
     on_pointer_down state (Js.Unsafe.coerce ev));
   listen canvas "pointermove" (fun ev ->
@@ -1305,7 +1331,11 @@ let init (input : Input.t) () =
   state, canvas
 ;;
 
-let update (previous : State.t) (canvas : Dom_html.canvasElement Js.t) (input : Input.t) =
+let update
+  (previous : State.t)
+  (canvas : Dom_html.canvasElement Js.t)
+  (input : Input.t)
+  =
   let old = previous.input in
   previous.input <- input;
   (match phys_equal old.roots input.roots with
@@ -1315,7 +1345,7 @@ let update (previous : State.t) (canvas : Dom_html.canvasElement Js.t) (input : 
      (* a committed jump or a step rebuilt the scene under the anchor *)
      previous.anchor <- None);
   (match
-     old.filter_active = input.filter_active
+     Bool.equal old.filter_active input.filter_active
      && Theme.equal old.theme input.theme
    with
    | true -> ()
@@ -1327,7 +1357,7 @@ let update (previous : State.t) (canvas : Dom_html.canvasElement Js.t) (input : 
      previous.pulses
      <- List.map input.pulse_ids ~f:(fun id -> { Pulse.id; started = time })
         @ previous.pulses;
-     land previous);
+     land_on_current previous);
   previous.dirty <- true;
   previous, canvas
 ;;

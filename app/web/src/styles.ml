@@ -2,8 +2,8 @@ open! Core
 open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
 
-(* This project does not depend on [ppx_css], so [style=] inside [{%html}]
-   is off limits; styles are plain [style] attributes built here, named for
+(* This project does not depend on [ppx_css], so [style=] inside [{%html}] is
+   off limits; styles are plain [style] attributes built here, named for
    their roles, over whichever {!Theme} palette the model holds. *)
 let style css = Vdom.Attr.create "style" css
 
@@ -78,7 +78,8 @@ let left_column ~stack_collapsed ~source_collapsed =
     | true, true -> "auto auto 1fr"
   in
   style
-    [%string "display:grid;grid-template-rows:%{rows};min-height:0;min-width:0"]
+    [%string
+      "display:grid;grid-template-rows:%{rows};min-height:0;min-width:0"]
 ;;
 
 let pane (theme : Theme.t) ~bordered_bottom =
@@ -94,7 +95,9 @@ let pane (theme : Theme.t) ~bordered_bottom =
 ;;
 
 let pane_header (theme : Theme.t) ~clickable =
-  let cursor = match clickable with true -> "cursor:pointer;" | false -> "" in
+  let cursor =
+    match clickable with true -> "cursor:pointer;" | false -> ""
+  in
   style
     [%string
       "display:flex;justify-content:space-between;align-items:baseline;padding:7px \
@@ -156,7 +159,9 @@ let source_line (theme : Theme.t) ~active =
 ;;
 
 let source_fold_gutter (theme : Theme.t) ~foldable =
-  let cursor = match foldable with true -> "cursor:pointer;" | false -> "" in
+  let cursor =
+    match foldable with true -> "cursor:pointer;" | false -> ""
+  in
   style
     [%string
       "flex:none;width:14px;text-align:center;color:%{theme.ghost};font-size:11px;padding-top:1px;%{cursor}user-select:none"]
@@ -164,9 +169,7 @@ let source_fold_gutter (theme : Theme.t) ~foldable =
 
 let source_number (theme : Theme.t) ~active =
   let color =
-    match active with
-    | true -> theme.selection_text
-    | false -> theme.ghost
+    match active with true -> theme.selection_text | false -> theme.ghost
   in
   style
     [%string
@@ -241,7 +244,8 @@ let flame_drawer (theme : Theme.t) ~open_ =
   style
     [%string
       "position:relative;height:%{height};border-top:1px solid \
-       %{theme.border};display:grid;grid-template-rows:auto 1fr;min-height:0"]
+       %{theme.border};display:grid;grid-template-rows:auto \
+       1fr;min-height:0"]
 ;;
 
 let flame_body = style "position:relative;overflow-y:auto;min-height:0"
@@ -292,7 +296,9 @@ let legend_cell color = style [%string "width:17px;background:%{color}"]
 let color color = style [%string "color:%{color}"]
 
 let colored ?(italic = false) ?(bold = false) color =
-  let italic = match italic with true -> "font-style:italic;" | false -> "" in
+  let italic =
+    match italic with true -> "font-style:italic;" | false -> ""
+  in
   let bold = match bold with true -> "font-weight:700;" | false -> "" in
   style [%string "color:%{color};%{italic}%{bold}"]
 ;;

@@ -4,6 +4,7 @@ open Jsip_replay
 open Jsip_web_components
 open Bonsai.Let_syntax
 module Vdom = Virtual_dom.Vdom
+open Vdom.Html_syntax
 module Js = Js_of_ocaml.Js
 module Dom_html = Js_of_ocaml.Dom_html
 module Effect = Bonsai_web.Effect
@@ -150,18 +151,18 @@ let apply_action
   | Toggle_accordion -> { model with accordion = not model.accordion }
   | Toggle_address_order ->
     { model with sort_by_address = not model.sort_by_address }
-  (* [.]: back to the latest change — clearing the pinned box on the way,
-     so blue follows the walked structure again *)
+  (* [.]: back to the latest change — clearing the pinned box on the way, so
+     blue follows the walked structure again *)
   | Focus_latest -> move ~playing:model.playing model.step
-  (* [/] always starts from empty: the old filter was shaped around
-     whatever you were hunting last time *)
+  (* [/] always starts from empty: the old filter was shaped around whatever
+     you were hunting last time *)
   | Begin_filter -> { model with typing_filter = true; heap_filter = "" }
   | Set_filter filter -> { model with heap_filter = filter }
   | Commit_filter -> { model with typing_filter = false }
   | Cancel_filter -> { model with typing_filter = false; heap_filter = "" }
-  (* committing a box is exactly what clicking it does — jump to where it
-     was allocated — and additionally pins it, so it stays blue and keeps
-     showing at the new step *)
+  (* committing a box is exactly what clicking it does — jump to where it was
+     allocated — and additionally pins it, so it stays blue and keeps showing
+     at the new step *)
   | Select_heap_address address ->
     let stepped =
       match Map.find births address with
@@ -216,8 +217,8 @@ let heat_of_calls ~profile ~(calls : Call.t array) =
     , `Calls )
 ;;
 
-(* how much allocated at each step — the timeline's shading — as each
-   step's share of the run's busiest step *)
+(* how much allocated at each step — the timeline's shading — as each step's
+   share of the run's busiest step *)
 let density_of_steps replay =
   let counts =
     Array.init (Replay.length replay) ~f:(fun step ->
@@ -228,8 +229,8 @@ let density_of_steps replay =
     Float.of_int count /. Float.of_int busiest)
 ;;
 
-(* what each step's call put into the registry, by the name the heap lists
-   it under — the [· m] / [· #826] tag on that call's row *)
+(* what each step's call put into the registry, by the name the heap lists it
+   under — the [· m] / [· #826] tag on that call's row *)
 let registrations replay =
   let ids ~step =
     List.map
@@ -287,9 +288,11 @@ let scroll_into_center id =
       |]
 ;;
 
-let scroll_panes_effect = Effect.of_sync_fun (fun (stack_id, source_id) ->
-  scroll_into_center stack_id;
-  scroll_into_center source_id)
+let scroll_panes_effect =
+  Effect.of_sync_fun (fun (stack_id, source_id) ->
+    scroll_into_center stack_id;
+    scroll_into_center source_id)
+;;
 
 let close_window_effect =
   Effect.of_sync_fun (fun () -> Dom_html.window##close) ()
@@ -343,9 +346,7 @@ let component
   let tick =
     let%arr { Model.playing; _ } = model
     and inject in
-    match playing with
-    | true -> inject Action.Tick
-    | false -> Effect.Ignore
+    match playing with true -> inject Action.Tick | false -> Effect.Ignore
   in
   Bonsai.Clock.every
     ~when_to_start_next_effect:`Every_multiple_of_period_non_blocking
@@ -427,8 +428,8 @@ let component
       ; inject
       }
   in
-  (* keep the selected call and the active source line centered as the
-     replay moves — the TUI's landing, spelled scrollIntoView *)
+  (* keep the selected call and the active source line centered as the replay
+     moves — the TUI's landing, spelled scrollIntoView *)
   let scroll_key =
     let%arr { Model.step; selected_frame; _ } = model in
     let selected =
@@ -437,7 +438,9 @@ let component
         ~max:(frame_count replay ~step - 1)
     in
     let live = live_calls replay ~step in
-    let selected_step = Option.value (List.nth live selected) ~default:step in
+    let selected_step =
+      Option.value (List.nth live selected) ~default:step
+    in
     let frame =
       Option.value
         (List.nth (Replay.step_exn replay ~step).frames selected)
@@ -468,7 +471,9 @@ let component
     graph;
   let view =
     let%arr model
-    and (_ : Heap_scene.Root.t list), stats, (_ : Heap_layout.Tier_layout.t array)
+    and ( (_ : Heap_scene.Root.t list)
+        , stats
+        , (_ : Heap_layout.Tier_layout.t array) )
       =
       scene
     and heap_canvas = heap_view
@@ -608,8 +613,11 @@ let component
     in
     let depth_count =
       1
-      + List.fold flame_rows ~init:0 ~f:(fun deepest (row : Flame_math.Row.t) ->
-          Int.max deepest row.depth)
+      + List.fold
+          flame_rows
+          ~init:0
+          ~f:(fun deepest (row : Flame_math.Row.t) ->
+            Int.max deepest row.depth)
     in
     let flame_drawer =
       Flame_view.view
@@ -633,7 +641,9 @@ let component
           ; (match sort_by_address with
              | true -> Some "by address"
              | false -> None)
-          ; (match Action.Edge_style.equal edge_style Action.Edge_style.Angled with
+          ; (match
+               Action.Edge_style.equal edge_style Action.Edge_style.Angled
+             with
              | true -> None
              | false ->
                Some
@@ -656,21 +666,17 @@ let component
           | true -> "esc"
           | false ->
             [%string
-              "%{stats.Heap_scene.Stats.hits#Int} hit%{match \
-               stats.hits with 1 -> \"\" | _ -> \"s\"}"]
+              "%{stats.Heap_scene.Stats.hits#Int} hit%{match stats.hits \
+               with 1 -> \"\" | _ -> \"s\"}"]
         in
         let on_keydown (event : Dom_html.keyboardEvent Js.t) =
-          let key =
-            Js.Optdef.case event##.key (fun () -> "") Js.to_string
-          in
+          let key = Js.Optdef.case event##.key (fun () -> "") Js.to_string in
           match key with
           | "Enter" -> inject Action.Commit_filter
           | "Escape" -> inject Action.Cancel_filter
           | (_ : string) -> Effect.Ignore
         in
-        let on_input (_ : _) value =
-          inject (Action.Set_filter (Option.value value ~default:""))
-        in
+        let on_input (_ : _) value = inject (Action.Set_filter value) in
         let autofocus =
           match typing_filter with
           | true -> Vdom.Attr.autofocus true
@@ -702,9 +708,7 @@ let component
     in
     let structure_chip =
       (* the walked structure's kind, typed when the wire says *)
-      let kind =
-        Snapshot.Ds_type.display call.info.snapshot.ds_type
-      in
+      let kind = Snapshot.Ds_type.display call.info.snapshot.ds_type in
       let current =
         List.find structures ~f:(fun (s : Replay.Structure.t) ->
           s.is_current)
@@ -721,9 +725,7 @@ let component
         ~structure:structure_chip
         ~playing
         ~heat:
-          (match has_heat with
-           | false -> None
-           | true -> Some heat_source)
+          (match has_heat with false -> None | true -> Some heat_source)
     in
     {%html|
       <div %{Styles.root theme}>

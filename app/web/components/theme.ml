@@ -249,13 +249,12 @@ let ramp_index ~share =
 
 let stack_heat ~share = stack_heat_ramp.(ramp_index ~share)
 
-(* the flame drawer's ramp, in blue like the TUI's: boxes are filled, so
-   the stops stay light enough for dark label ink, and the neutral is off
-   the ramp so "no data" cannot be misread as "cold" *)
+(* the flame drawer's ramp, in blue like the TUI's: boxes are filled, so the
+   stops stay light enough for dark label ink, and the neutral is off the
+   ramp so "no data" cannot be misread as "cold" *)
 let flame_ramp = [| "#7d8f9c"; "#5f9fc4"; "#3fb0e0"; "#2ec5f5"; "#5fe0ff" |]
 let flame_neutral = "#454b50"
 let flame_label = "#0f1416"
 let flame_label_neutral = "#b6bcc0"
 let flame ~share = flame_ramp.(ramp_index ~share)
-
 let fade t fill = mix fill t.bg ~amount:0.62

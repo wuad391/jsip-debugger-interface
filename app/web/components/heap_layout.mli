@@ -1,14 +1,14 @@
-(** Geometry for the heap canvas: per-tier tree layouts and the semantic
-    zoom that crossfades between them.
+(** Geometry for the heap canvas: per-tier tree layouts and the semantic zoom
+    that crossfades between them.
 
     Zoom is SEMANTIC: the wheel does not scale one picture, it moves a
-    continuous detail tier [0. .. 3.] derived from the scale factor —
-    postage stamp, label, fields, machine words — and each integer tier has
-    its own layout, laid out for what its boxes hold at that detail.
-    Geometry interpolates between the two neighbouring tiers' layouts
-    ({!box_of}); the drawn content switches only once a box has nearly
-    finished growing ({!content_tier}), so text never draws into a box that
-    cannot hold it yet.
+    continuous detail tier [0. .. 3.] derived from the scale factor — postage
+    stamp, label, fields, machine words — and each integer tier has its own
+    layout, laid out for what its boxes hold at that detail. Geometry
+    interpolates between the two neighbouring tiers' layouts ({!box_of}); the
+    drawn content switches only once a box has nearly finished growing
+    ({!content_tier}), so text never draws into a box that cannot hold it
+    yet.
 
     All pure float math over a {!Heap_scene} — the canvas widget draws it,
     tests read it. Text is measured by character count (the canvas font is
@@ -61,8 +61,8 @@ module Tier_layout : sig
     }
 end
 
-(** A node's box size at a tier — exposed for the widget's focal
-    (fisheye) mode, which grows single boxes past the global tier. *)
+(** A node's box size at a tier — exposed for the widget's focal (fisheye)
+    mode, which grows single boxes past the global tier. *)
 val size : Heap_scene.Node.t -> tier:int -> float * float
 
 val compute : Heap_scene.Root.t list -> tier:int -> Tier_layout.t

@@ -2,6 +2,7 @@ open! Core
 open Jsip_types
 open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
+open Vdom.Html_syntax
 
 let row_height = 18.
 
@@ -24,8 +25,8 @@ let segment_view theme (segment : Flame_math.Segment.t) ~depth ~inject =
         "title"
         [%string "%{label} — click jumps, double-click zooms"]
     in
-    (* a bar stands for every call that merged into it; clicking goes to
-       the first of them — the TUI's jump — and double-click rescales *)
+    (* a bar stands for every call that merged into it; clicking goes to the
+       first of them — the TUI's jump — and double-click rescales *)
     let jump (_ : _) = inject (Action.Jump_flame path) in
     let zoom (_ : _) = inject (Action.Zoom_flame path) in
     let x = sprintf "%.1f" x in
@@ -37,24 +38,28 @@ let segment_view theme (segment : Flame_math.Segment.t) ~depth ~inject =
     |}
 ;;
 
-let view ~theme ~(tree : Flame_tree.t) ~rows ~open_ ~zoomed ~depth_count ~inject
+let view
+  ~theme
+  ~(tree : Flame_tree.t)
+  ~rows
+  ~open_
+  ~zoomed
+  ~depth_count
+  ~inject
   =
-  let title =
-    match open_ with true -> "▾ FLAME" | false -> "▸ FLAME"
-  in
+  let title = match open_ with true -> "▾ FLAME" | false -> "▸ FLAME" in
   let source =
     match Flame_math.heat_source tree with
     | `Compute -> "color = compute"
     | `Calls -> "color = calls"
   in
   let zoom_note =
-    match zoomed with
-    | false -> ""
-    | true -> " · zoomed · Z reset"
+    match zoomed with false -> "" | true -> " · zoomed · Z reset"
   in
   let meta =
     [%string
-      "%{tree.total_events#Int} events · width = calls · %{source}%{zoom_note}"]
+      "%{tree.total_events#Int} events · width = calls · \
+       %{source}%{zoom_note}"]
   in
   let header =
     {%html|
@@ -71,11 +76,11 @@ let view ~theme ~(tree : Flame_tree.t) ~rows ~open_ ~zoomed ~depth_count ~inject
   | true ->
     let bars =
       List.concat_map rows ~f:(fun (row : Flame_math.Row.t) ->
-        List.map row.segments ~f:(segment_view theme ~depth:row.depth ~inject))
+        List.map
+          row.segments
+          ~f:(segment_view theme ~depth:row.depth ~inject))
     in
-    let height =
-      sprintf "%.0fpx" (Float.of_int depth_count *. row_height)
-    in
+    let height = sprintf "%.0fpx" (Float.of_int depth_count *. row_height) in
     {%html|
       <div %{Styles.flame_drawer theme ~open_:true}>
         %{header}

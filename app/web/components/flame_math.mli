@@ -4,10 +4,10 @@
 
     Same contract: one row per call depth, roots at the BOTTOM, siblings in
     name order, a bar's width its subtree's share of the trace's events and
-    its color its function's share of sampled compute (call volume when
-    there is no profile). Children too narrow to draw pool into a [+N]
-    marker rather than vanishing, and the gap at a row's right end is the
-    parent's own calls — exposed self time, drawn as nothing. *)
+    its color its function's share of sampled compute (call volume when there
+    is no profile). Children too narrow to draw pool into a [+N] marker
+    rather than vanishing, and the gap at a row's right end is the parent's
+    own calls — exposed self time, drawn as nothing. *)
 
 open! Core
 open Jsip_types

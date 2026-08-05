@@ -1,6 +1,7 @@
 open! Core
 open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
+open Vdom.Html_syntax
 
 (* the bottom bar: app chip, dump, the walked structure, the replay mode —
    and the right end is the cross-pane legend, the one place that says what

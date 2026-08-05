@@ -68,8 +68,10 @@ module Node = struct
   [@@deriving sexp_of]
 
   let rec fold t ~init ~f =
-    List.fold t.children ~init:(f init t) ~f:(fun acc ((_ : string), child) ->
-      fold child ~init:acc ~f)
+    List.fold
+      t.children
+      ~init:(f init t)
+      ~f:(fun acc ((_ : string), child) -> fold child ~init:acc ~f)
   ;;
 end
 
@@ -98,11 +100,11 @@ module Stats = struct
   [@@deriving sexp_of, equal]
 end
 
-(* ── ported outline vocabulary ─────────────────────────────────────────
-   The readings below mirror {!Jsip_tui_components.Heap_pane}'s: the same
-   wire facts drawn as boxes instead of rows. They cannot share code — the
-   TUI library links [bonsai_term], which js_of_ocaml cannot — so the rules
-   are restated here; [Heap_pane]'s comments are the long-form versions. *)
+(* ── ported outline vocabulary ───────────────────────────────────────── The
+   readings below mirror {!Jsip_tui_components.Heap_pane}'s: the same wire
+   facts drawn as boxes instead of rows. They cannot share code — the TUI
+   library links [bonsai_term], which js_of_ocaml cannot — so the rules are
+   restated here; [Heap_pane]'s comments are the long-form versions. *)
 
 let is_positional label = String.for_all label ~f:Char.is_digit
 
@@ -174,8 +176,8 @@ let field_lines leaves ~arity : Line.t list =
       [ Line.Part.Label [%string "%{label}="]; Value value ])
 ;;
 
-(* a second look at a node someone else draws — pointer boxes name what
-   their target holds, so this must not claim references *)
+(* a second look at a node someone else draws — pointer boxes name what their
+   target holds, so this must not claim references *)
 let shared_leaves (node : Snapshot.Node.t) ~ds_type =
   let interior = Snapshot.Ds_type.interior_labels ds_type in
   List.filter node.block ~f:(fun (label, block) ->
@@ -294,9 +296,7 @@ let node_edges (node : Snapshot.Node.t) ~ds_type ~(context : Context.t) =
        | true ->
          Some
            (Edge.Shared
-              { id = structure.id
-              ; node = Some structure.snapshot.root_node
-              }))
+              { id = structure.id; node = Some structure.snapshot.root_node }))
     | None ->
       (match Context.node context block with
        | None -> None
@@ -304,8 +304,7 @@ let node_edges (node : Snapshot.Node.t) ~ds_type ~(context : Context.t) =
          (match Hash_set.mem context.drawn_nodes definition.id with
           | false -> Some (Edge.Child definition)
           | true ->
-            Some
-              (Edge.Shared { id = definition.id; node = Some definition })))
+            Some (Edge.Shared { id = definition.id; node = Some definition })))
   in
   let edges, leaves =
     List.fold
@@ -487,8 +486,8 @@ let rec tree
             ~path:(index :: path)
             ~query )
       | Ref structure ->
-        (* another structure drawn here rather than under a header of its
-           own — it keeps its own verdict, so a live map hanging off a faded
+        (* another structure drawn here rather than under a header of its own
+           — it keeps its own verdict, so a live map hanging off a faded
            queue cell stays lit. Its folds key on its own id, so they follow
            it whichever structure it ends up drawn inside. *)
         ( label
@@ -496,7 +495,8 @@ let rec tree
             (Replay.Structure.current_root structure)
             ~ds_type:structure.snapshot.ds_type
             ~context
-            ~faded:(not (Replay.Visibility.is_reachable structure.visibility))
+            ~faded:
+              (not (Replay.Visibility.is_reachable structure.visibility))
             ~name:(Some (structure_name structure))
             ~structure_id:structure.id
             ~path:[]
@@ -536,9 +536,9 @@ let rec tree
   }
 ;;
 
-(* folds as a post-pass: a folded node keeps its box and hands its subtree
-   to the [⋯ n] count. [accordion] folds every structure's root but the one
-   the replay is standing in — node folds inside the open one keep working,
+(* folds as a post-pass: a folded node keeps its box and hands its subtree to
+   the [⋯ n] count. [accordion] folds every structure's root but the one the
+   replay is standing in — node folds inside the open one keep working,
    exactly the TUI's accordion contract. *)
 let rec prune (node : Node.t) ~folds : Node.t =
   match Set.mem folds node.key && not (List.is_empty node.children) with
@@ -572,13 +572,21 @@ let build
     | true -> by_address structures
   in
   let context = Context.create ~structures ~nodes ~new_addresses in
+  let current_id =
+    List.find_map structures ~f:(fun (structure : Replay.Structure.t) ->
+      match structure.is_current with
+      | true -> Some structure.id
+      | false -> None)
+  in
   let roots =
     List.filter_map structures ~f:(fun (structure : Replay.Structure.t) ->
       match Hash_set.mem context.drawn structure.id with
       | true -> None (* already inlined under an earlier referrer *)
       | false ->
         Hash_set.add context.drawn structure.id;
-        let faded = not (Replay.Visibility.is_reachable structure.visibility) in
+        let faded =
+          not (Replay.Visibility.is_reachable structure.visibility)
+        in
         let node =
           tree
             (Replay.Structure.current_root structure)
@@ -590,8 +598,18 @@ let build
             ~path:[]
             ~query
         in
+        (* the accordion must not fold the walked structure away — including
+           when it is drawn INSIDE another root's tree, which is where a
+           referenced structure lives *)
+        let contains_current =
+          match current_id with
+          | None -> false
+          | Some id ->
+            Node.fold node ~init:false ~f:(fun found (child : Node.t) ->
+              found || child.key.structure_id = id)
+        in
         let folds =
-          match accordion && not structure.is_current with
+          match accordion && not contains_current with
           | false -> folds
           | true -> Set.add folds (Fold_key.root structure.id)
         in

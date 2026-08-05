@@ -84,14 +84,14 @@ module Row = struct
         { start : int
         ; stop : int
         ; hides_active : bool
-        (** the fold is standing in for the active line, so it takes the
-            wash in its place *)
+        (** the fold is standing in for the active line, so it takes the wash
+            in its place *)
         }
   [@@deriving sexp_of]
 end
 
-(* the pane's rows: every line of the file, folded regions collapsed to
-   their first line plus a [⋯ n lines] marker *)
+(* the pane's rows: every line of the file, folded regions collapsed to their
+   first line plus a [⋯ n lines] marker *)
 let rows (loaded : Loaded.t) ~folds ~active_line ~callsite_line ~char_range =
   let length = Source_file.length loaded.file in
   let rec walk number acc =

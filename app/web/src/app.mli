@@ -9,8 +9,8 @@ open Jsip_types
 open Jsip_replay
 open Jsip_web_components
 
-(** Everything loaded and parsed up front, exactly like the TUI's [main]:
-    the replay, each mentioned source file (a missing one renders as a
+(** Everything loaded and parsed up front, exactly like the TUI's [main]: the
+    replay, each mentioned source file (a missing one renders as a
     placeholder pane), and the optional heat profile. *)
 val run
   :  ?profile:Heat_profile.t

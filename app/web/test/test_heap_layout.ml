@@ -42,14 +42,17 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
   let counts =
     Array.map layouts ~f:(fun layout -> List.length layout.placed)
   in
-  let same_boxes = Array.for_all counts ~f:(fun count -> count = counts.(0)) in
+  let same_boxes =
+    Array.for_all counts ~f:(fun count -> count = counts.(0))
+  in
   let growing =
     Array.for_alli layouts ~f:(fun tier layout ->
       tier = 0 || Float.( >= ) layout.width layouts.(tier - 1).width)
   in
   print_endline
     [%string "same boxes %{same_boxes#Bool} · growing %{growing#Bool}"];
-  [%expect {|
+  [%expect
+    {|
     tier 0: 8 boxes · 32.×282.
     tier 1: 8 boxes · 168.×902.
     tier 2: 8 boxes · 205.×1150.
@@ -67,10 +70,10 @@ let%expect_test "a parent's box is centered over the spread of its children" =
     print_endline
       [%string
         "%{placed.id} d%{placed.depth#Int} %{placed.edge_label} → \
-         x=%{Float.round_nearest box.x#Float} \
-         y=%{Float.round_nearest box.y#Float} \
-         w=%{Float.round_nearest box.w#Float}"]);
-  [%expect {|
+         x=%{Float.round_nearest box.x#Float} y=%{Float.round_nearest \
+         box.y#Float} w=%{Float.round_nearest box.w#Float}"]);
+  [%expect
+    {|
     1: d0  → x=0. y=30. w=161.
     2: d0  → x=5. y=217. w=161.
     2:0 d1 l → x=0. y=294. w=30.
@@ -86,7 +89,8 @@ let%expect_test "zoom stops and tiers round-trip through each other" =
       [%string
         "k=%{sprintf \"%.2f\" k} → tier %{sprintf \"%.2f\" tier} → \
          k=%{sprintf \"%.2f\" back}"]);
-  [%expect {|
+  [%expect
+    {|
     k=0.30 → tier 0.16 → k=0.30
     k=0.62 → tier 1.00 → k=0.62
     k=1.00 → tier 1.61 → k=1.00
@@ -102,10 +106,11 @@ let%expect_test "content switches tiers only once geometry has grown" =
     let split = Heap_layout.split tier_f in
     print_endline
       [%string
-        "tier_f %{sprintf \"%.2f\" tier_f}: geometry %{split.a#Int}→\
-         %{split.b#Int} at %{sprintf \"%.2f\" split.f} · content \
-         %{Heap_layout.content_tier tier_f#Int}"]);
-  [%expect {|
+        "tier_f %{sprintf \"%.2f\" tier_f}: geometry \
+         %{split.a#Int}→%{split.b#Int} at %{sprintf \"%.2f\" split.f} · \
+         content %{Heap_layout.content_tier tier_f#Int}"]);
+  [%expect
+    {|
     tier_f 0.00: geometry 0→1 at 0.00 · content 0
     tier_f 0.50: geometry 0→1 at 0.59 · content 0
     tier_f 0.84: geometry 0→1 at 0.99 · content 0
@@ -132,7 +137,8 @@ let%expect_test "interpolated boxes sit between their two tier homes" =
         [%string
           "tier_f %{sprintf \"%.2f\" tier_f}: w=%{Float.round_nearest \
            box.w#Float} h=%{Float.round_nearest box.h#Float}"]);
-  [%expect {|
+  [%expect
+    {|
     tier_f 1.00: w=161. h=23.
     tier_f 1.40: w=166. h=31.
     tier_f 1.85: w=173. h=39.

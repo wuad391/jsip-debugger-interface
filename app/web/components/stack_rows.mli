@@ -1,15 +1,15 @@
-(** The call-stack pane's rows, as data: the whole run's calls with the
-    live chain lit, folds, repeat runs and registration tags — the TUI
-    {!Jsip_tui_components.Stack_pane}'s reading, minus the terminal cells,
-    so the web view renders it and expect tests read it. *)
+(** The call-stack pane's rows, as data: the whole run's calls with the live
+    chain lit, folds, repeat runs and registration tags — the TUI
+    {!Jsip_tui_components.Stack_pane}'s reading, minus the terminal cells, so
+    the web view renders it and expect tests read it. *)
 
 open! Core
 open Jsip_types
 
 (** What clicking a row (or its glyph) means — the TUI's contract: a live
-    call selects its frame, a dimmed one jumps the replay to its step, a
-    fold glyph toggles the call's range, a run glyph expands/collapses the
-    repeat run headed there. *)
+    call selects its frame, a dimmed one jumps the replay to its step, a fold
+    glyph toggles the call's range, a run glyph expands/collapses the repeat
+    run headed there. *)
 module Target : sig
   type t =
     | Frame of int (** index into the live chain *)
@@ -62,11 +62,11 @@ module Row : sig
   [@@deriving sexp_of]
 end
 
-(** One row per visible call: folds hide their ranges, a collapsed repeat
-    run is one row (its head, wearing the [⋯ ×N]). Argument conventions are
-    the TUI's: [calls]/[heat]/[registered] indexed by step, [live] the
-    current stack's steps outermost first, [selected] an index into [live],
-    [folds] fold heads, [expanded] reopened run heads. *)
+(** One row per visible call: folds hide their ranges, a collapsed repeat run
+    is one row (its head, wearing the [⋯ ×N]). Argument conventions are the
+    TUI's: [calls]/[heat]/[registered] indexed by step, [live] the current
+    stack's steps outermost first, [selected] an index into [live], [folds]
+    fold heads, [expanded] reopened run heads. *)
 val rows
   :  calls:Call.t array
   -> heat:float option array

@@ -244,8 +244,8 @@ let%expect_test "labelled and optional arguments carry their labels" =
 ;;
 
 let%expect_test "parse over a dump's contents agrees with read, exactly" =
-  (* the web interface fetches the dump over HTTP and feeds [parse]; the
-     TUI [read]s the file — they must be one reader *)
+  (* the web interface fetches the dump over HTTP and feeds [parse]; the TUI
+     [read]s the file — they must be one reader *)
   let disagreements =
     List.count all_fixtures ~f:(fun name ->
       let from_file = Dump_reader.read (fixture name) in
