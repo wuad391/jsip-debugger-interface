@@ -190,6 +190,41 @@ module Node = struct
     List.fold t.children ~init:(f init t) ~f:(fun acc child ->
       fold child ~init:acc ~f)
   ;;
+
+  (* Sizing what the wire recorded: each node is a block — one header word
+     plus a word per field — and the payloads the wire can size add their own
+     blocks: a string is a header plus its padded bytes, a boxed number is a
+     custom block, a float array is a header plus a word per element. A block
+     whose every field is a float counts flat, the way OCaml lays float
+     records out. Undecoded pointers ([Address], closures) count their slot
+     alone, and an [Id] is counted where its node was defined — a floor on
+     the walked shape, not a census of everything reachable. *)
+  let heap_words t =
+    fold t ~init:0 ~f:(fun words (node : t) ->
+      let flat_floats =
+        (not (List.is_empty node.block))
+        && List.for_all node.block ~f:(fun ((_ : string), block) ->
+          match (block : Block.t) with
+          | Float (_ : float) -> true
+          | Int _ | String _ | Int32 _ | Int64 _ | Nativeint _
+          | Float_array _ | Address _ | Id _ | Child ->
+            false)
+      in
+      let payload (block : Block.t) =
+        match block with
+        | Float (_ : float) ->
+          (match flat_floats with true -> 0 | false -> 2)
+        | String s -> 1 + ((String.length s + 8) / 8)
+        | Int32 _ | Int64 _ | Nativeint _ -> 3
+        | Float_array floats -> 1 + List.length floats
+        | Int _ | Address _ | Id _ | Child -> 0
+      in
+      words
+      + 1
+      + List.length node.block
+      + List.sum (module Int) node.block ~f:(fun ((_ : string), block) ->
+        payload block))
+  ;;
 end
 
 type t =

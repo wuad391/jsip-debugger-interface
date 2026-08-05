@@ -1067,6 +1067,21 @@ let node_count_label count =
   match count with 1 -> "1 node" | count -> [%string "%{count#Int} nodes"]
 ;;
 
+(* loosely 1024-based, one decimal past a kilobyte — the point is scale, and
+   the words come off the wire's 64-bit runs *)
+let bytes_label words =
+  let bytes = words * 8 in
+  match bytes < 1024, bytes < 1024 * 1024 with
+  | true, (_ : bool) -> [%string "%{bytes#Int} B"]
+  | false, true -> Printf.sprintf "%.1f kB" (Float.of_int bytes /. 1024.)
+  | false, false ->
+    Printf.sprintf "%.1f MB" (Float.of_int bytes /. (1024. *. 1024.))
+;;
+
+let structure_words (structure : Replay.Structure.t) =
+  Snapshot.Node.heap_words structure.snapshot.root_node
+;;
+
 (* the name · kind · type line — what a structure's header says about it, and
    so also what [/] lets you filter by *)
 let header_text (structure : Replay.Structure.t) =
@@ -1094,11 +1109,13 @@ let matches_filter structure ~filter =
    structure collapses to. The one this step's event walked reads in the
    highlight blue. *)
 let structure_header (structure : Replay.Structure.t) ~folded ~mark =
-  (* size on the summary line: it is all you see of a collapsed structure,
-     and how big each one is is the thing worth scanning for when hundreds of
-     them are collapsed *)
+  (* size on the summary line, twice over — how many nodes, and how much
+     memory their blocks pin. The header is all you see of a collapsed
+     structure, and those are the numbers worth scanning for when hundreds of
+     them are collapsed to one line each. *)
   let size = node_count_label (count_nodes [ structure ]) in
-  let label = [%string "%{header_text structure} · %{size}"] in
+  let memory = bytes_label (structure_words structure) in
+  let label = [%string "%{header_text structure} · %{size} · %{memory}"] in
   (* standing on the header means the whole structure is what is picked out,
      so it takes the same colours a picked card does. Only an exact match
      counts: the root card shares this address, and a card is not its
@@ -1607,7 +1624,12 @@ let view
         [%string "%{live#Int} of %{total#Int} live"]
       | Some (_ : int) | None -> [%string "%{live#Int} live"]
     in
-    let base = [%string "%{living} · %{node_count_label nodes}"] in
+    let memory =
+      bytes_label (List.sum (module Int) structures ~f:structure_words)
+    in
+    let base =
+      [%string "%{living} · %{node_count_label nodes} · %{memory}"]
+    in
     let base =
       match fresh with
       | 0 -> base

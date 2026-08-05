@@ -148,6 +148,15 @@ module Node : sig
         Snapshot.Node.fold root ~init:0 ~f:(fun n (_ : t) -> n + 1)
       ]} *)
   val fold : t -> init:'a -> f:('a -> t -> 'a) -> 'a
+
+  (** The words this node's walked shape occupies on the heap: a header and a
+      word per field for every block, plus the out-of-line payloads the wire
+      can size (strings, boxed numbers, float arrays; an all-float block
+      counts flat, the way OCaml lays float records out). Undecoded pointers
+      count their slot alone and a shared [Id] is counted at its definition,
+      so this is a floor on the walked shape, not a census of everything
+      reachable. The dumps come from 64-bit runs: a word is 8 bytes. *)
+  val heap_words : t -> int
 end
 
 type t =

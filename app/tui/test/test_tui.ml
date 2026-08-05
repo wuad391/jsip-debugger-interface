@@ -117,8 +117,8 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   heap_view replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
+    HEAP                  2 live · 3 nodes · 168 B · 2 new
+    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes · 112 B
     ▾┌ m  new ┐
      │"a" → 1 │
      └────────┘
@@ -128,7 +128,7 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
     ┆ ∅ ┆    │"b" → 2│
     └┄┄┄┘    └───────┘
 
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node · 56 B
      ┌ m ────┐
      │"a" → 1│
      └───────┘
@@ -140,8 +140,8 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
   heap_view replay ~step:2;
   [%expect
     {|
-    HEAP                          1 live · 3 nodes · 1 new
-    ▾ q · queue ⟨string⟩ · 3 nodes
+    HEAP                  1 live · 3 nodes · 104 B · 1 new
+    ▾ q · queue ⟨string⟩ · 3 nodes · 104 B
     ▾┌ q ─────┐
      │length 2│
      └────────┘
@@ -163,8 +163,8 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
   heap_view replay ~step:2;
   [%expect
     {|
-    HEAP                          3 live · 5 nodes · 2 new
-    ▾ #4 · map ⟨string ⇒ int * string⟩ · 2 nodes
+    HEAP                  3 live · 5 nodes · 312 B · 2 new
+    ▾ #4 · map ⟨string ⇒ int * string⟩ · 2 nodes · 96 B
             ▾┌ #4  new ┐
              │"pair"   │
              └─────────┘
@@ -174,7 +174,7 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
     ┆ ∅ ┆    │1, "one"│           ┆ ∅ ┆
     └┄┄┄┘    └────────┘           └┄┄┄┘
 
-    ▾ #2 · map ⟨string ⇒ float⟩ · 2 nodes
+    ▾ #2 · map ⟨string ⇒ float⟩ · 2 nodes · 144 B
            ▾┌ #2 ───────┐
             │"pi" → 3.14│
             └───────────┘
@@ -190,13 +190,13 @@ let%expect_test "heap pane: a collected structure is simply gone" =
   heap_view ~height:8 replay ~step:1;
   [%expect
     {|
-    HEAP                           1 live · 1 node · 1 new
-    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node
+    HEAP                    1 live · 1 node · 56 B · 1 new
+    ▾ #1 · map ⟨string ⇒ int⟩ · 1 node · 56 B
      ┌ #1 ─ new ┐
      │"dead" → 0│
      └──────────┘
-    HEAP                           1 live · 1 node · 1 new
-    ▾ #2 · map ⟨string ⇒ int⟩ · 1 node
+    HEAP                    1 live · 1 node · 56 B · 1 new
+    ▾ #2 · map ⟨string ⇒ int⟩ · 1 node · 56 B
      ┌ #2 ─ new ┐
      │"live" → 1│
      └──────────┘
@@ -212,8 +212,8 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
   heap_view ~width:60 ~height:12 replay ~step:2;
   [%expect
     {|
-    HEAP                              3 live · 8 nodes · 3 new
-    ▾ m · core.map ⟨string ⇒ int⟩ · 3 nodes
+    HEAP                      3 live · 8 nodes · 280 B · 3 new
+    ▾ m · core.map ⟨string ⇒ int⟩ · 3 nodes · 112 B
                ▾┌ m  new ┐
                 │·       │
                 └────────┘
@@ -235,8 +235,8 @@ let%expect_test "heap pane: a Core hash queue chains through its elements" =
   heap_view ~width:64 ~height:22 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  1 live · 9 nodes · 2 new
-    ▾ q · core.hash_queue ⟨string ⇒ int⟩ · 9 nodes
+    HEAP                          1 live · 9 nodes · 240 B · 2 new
+    ▾ q · core.hash_queue ⟨string ⇒ int⟩ · 9 nodes · 240 B
                        ▾┌ q ┐
                         │·  │
                         └───┘
@@ -268,8 +268,8 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
   heap_view ~width:60 ~height:14 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                              3 live · 5 nodes · 1 new
-    ▾ ts · user ⟨trades⟩ · 1 node
+    HEAP                      3 live · 5 nodes · 160 B · 1 new
+    ▾ ts · user ⟨trades⟩ · 1 node · 24 B
                ▾┌ ts  new ┐
                 │0        │
                 └─────────┘
@@ -481,8 +481,8 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
   heap_view ~width:60 replay ~step:2;
   [%expect
     {|
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ #6 · set ⟨int⟩ · 4 nodes
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ #6 · set ⟨int⟩ · 4 nodes · 128 B
                       ▾┌ #6  new ┐
                        │3        │
                        └─────────┘
@@ -541,13 +541,13 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
   heap_view ~height:14 replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 2 nodes · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 1 node
+    HEAP                   2 live · 2 nodes · 80 B · 1 new
+    ▾ q · queue ⟨int M.t⟩ · 1 node · 24 B
      ┌ q  new ┐
      │length 0│
      └────────┘
 
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node · 56 B
      ┌ m ────┐
      │"k" → 1│
      └───────┘
@@ -561,8 +561,8 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
   heap_view ~height:21 replay ~step:2;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 2 nodes
+    HEAP                  2 live · 3 nodes · 104 B · 1 new
+    ▾ q · queue ⟨int M.t⟩ · 2 nodes · 48 B
     ▾┌ q ─────┐
      │length 1│
      └────────┘
@@ -584,8 +584,8 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
   heap_view ~width:60 ~height:17 replay ~step:1;
   [%expect
     {|
-    HEAP                              1 live · 3 nodes · 1 new
-    ▾ tbl · hashtbl ⟨string ⇒ int⟩ · 3 nodes
+    HEAP                      1 live · 3 nodes · 208 B · 1 new
+    ▾ tbl · hashtbl ⟨string ⇒ int⟩ · 3 nodes · 208 B
     ▾┌ tbl ─┐
      │size 1│
      └──────┘
@@ -638,8 +638,8 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
   heap_view ~width:60 ~height:26 replay ~step:3;
   [%expect
     {|
-    HEAP                              2 live · 3 nodes · 1 new
-    ▾ qq · queue ⟨'a Queue.t⟩ · 2 nodes
+    HEAP                       2 live · 3 nodes · 72 B · 1 new
+    ▾ qq · queue ⟨'a Queue.t⟩ · 2 nodes · 48 B
     ▾┌ qq ────┐
      │length 1│
      └────────┘
@@ -661,8 +661,8 @@ let%expect_test "heap pane: closures stay opaque" =
   heap_view ~width:60 ~height:13 replay ~step:1;
   [%expect
     {|
-    HEAP                              1 live · 2 nodes · 2 new
-    ▾ q · queue ⟨int -> int⟩ · 2 nodes
+    HEAP                       1 live · 2 nodes · 48 B · 2 new
+    ▾ q · queue ⟨int -> int⟩ · 2 nodes · 48 B
     ▾┌ q ─────┐
      │length 1│
      └────────┘
@@ -727,14 +727,14 @@ let%expect_test "heap fold: a card keeps itself, hides its kids" =
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
+    HEAP                  2 live · 3 nodes · 168 B · 2 new
+    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes · 112 B
     ▸┌ m  new ┐
      │"a" → 1 │
      └────────┘
      ⋯ 1 hidden
 
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node · 56 B
      ┌ m ────┐
      │"a" → 1│
     |}]
@@ -764,8 +764,8 @@ let%expect_test "heap fold: a structure collapses to its header" =
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 1 new
-    ▸ q · queue ⟨int M.t⟩ · 2 nodes
+    HEAP                  2 live · 3 nodes · 104 B · 1 new
+    ▸ q · queue ⟨int M.t⟩ · 2 nodes · 48 B
     |}]
 ;;
 
@@ -1027,8 +1027,8 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
     (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Node (1, [ 1 ]) ]);
   [%expect
     {|
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ #6 · set ⟨int⟩ · 4 nodes
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ #6 · set ⟨int⟩ · 4 nodes · 128 B
                       ▾┌ #6  new ┐
                        │3        │
                        └─────────┘
@@ -1041,8 +1041,8 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
              l              r
      ┌ new ┐              ┌┄┄┄┐
      │1    │              ┆ ∅ ┆
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ #6 · set ⟨int⟩ · 4 nodes
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ #6 · set ⟨int⟩ · 4 nodes · 128 B
                       ▾┌ #6  new ┐
                        │3        │
                        └─────────┘
@@ -1124,8 +1124,8 @@ let%expect_test "delta wire: a revisit stub replays the earlier shape" =
   heap_view ~height:9 replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes
+    HEAP                  2 live · 3 nodes · 168 B · 2 new
+    ▾ m · map ⟨string ⇒ int⟩ · 2 nodes · 112 B
     ▾┌ m  new ┐
      │"a" → 1 │
      └────────┘
@@ -1142,8 +1142,8 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  4 live · 7 nodes · 3 new
-    ▾ #5 · map ⟨string ⇒ point⟩ · 3 nodes
+    HEAP                          4 live · 7 nodes · 360 B · 3 new
+    ▾ #5 · map ⟨string ⇒ point⟩ · 3 nodes · 168 B
                        ▾┌ #5  new ┐
                         │"p"      │
                         └─────────┘
@@ -1164,7 +1164,7 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
                                                                  └
 
 
-    ▾ m · map ⟨string ⇒ point⟩ · 2 nodes
+    ▾ m · map ⟨string ⇒ point⟩ · 2 nodes · 112 B
                     ▾┌ m ┐
                      │"p"│
                      └───┘
@@ -1182,8 +1182,8 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
   heap_view ~width:64 ~height:36 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 6 nodes · 3 new
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
+    HEAP                          2 live · 6 nodes · 336 B · 3 new
+    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes · 168 B
                             ▾┌ bigger  new ┐
                              │"f" → 6      │
                              └─────────────┘
@@ -1198,7 +1198,7 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
      │"b" → 2│            ┆ ∅ ┆    │"g" → 7│             │"j" → 10
      └───────┘            └┄┄┄┘    └───────┘             └────────
 
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
+    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes · 168 B
                 ▾┌ m ────┐
                  │"f" → 6│
                  └───────┘
@@ -1220,8 +1220,8 @@ let%expect_test "delta wire: a payload cycle terminates" =
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 3 nodes · 1 new
-    ▾ q · queue ⟨cyc⟩ · 2 nodes
+    HEAP                           2 live · 3 nodes · 88 B · 1 new
+    ▾ q · queue ⟨cyc⟩ · 2 nodes · 48 B
     ▾┌ q ─────┐
      │length 1│
      └────────┘
@@ -1244,8 +1244,8 @@ let%expect_test "delta wire: version chains share their spines" =
   heap_view ~width:64 ~height:20 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 8 nodes · 4 new
-    ▾ #11 · map ⟨string ⇒ int⟩ · 4 nodes
+    HEAP                          2 live · 8 nodes · 448 B · 4 new
+    ▾ #11 · map ⟨string ⇒ int⟩ · 4 nodes · 224 B
                ▾┌ #11  new ┐
                 │"b" → 2   │
                 └──────────┘
@@ -1296,8 +1296,8 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
     ~step;
   [%expect
     {|
-    HEAP                                              2 live · 6 nodes · 3 new
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
+    HEAP                                      2 live · 6 nodes · 336 B · 3 new
+    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes · 168 B
                             ▾┌ bigger ─── new ┐
                              │"f" → 6         │
                              └ 0x78de5b5fff78 ┘
@@ -1312,7 +1312,7 @@ let%expect_test "selection: only the chosen and aimed cards spell an address"
      │"b" → 2│            ┆ ∅ ┆    │"g" → 7│             │"j" → 10│
      └───────┘            └┄┄┄┘    └───────┘             └────────┘
 
-    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes
+    ▾ m · map ⟨string ⇒ int⟩ · 3 nodes · 168 B
                 ▾┌ m ────┐
                  │"f" → 6│
                  └───────┘
@@ -1613,8 +1613,8 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   show !selection;
   [%expect
     {|
-    HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
+    HEAP          accordion · 2 live · 6 nodes · 336 B · 3 new
+    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes · 168 B
                             ▾┌ bigger ─── new ┐
                              │"f" → 6         │
                              └ 0x78de5b5fff78 ┘
@@ -1633,8 +1633,8 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   show !selection;
   [%expect
     {|
-    HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes
+    HEAP          accordion · 2 live · 6 nodes · 336 B · 3 new
+    ▾ bigger · map ⟨string ⇒ int⟩ · 3 nodes · 168 B
                             ▾┌ bigger ─── new ┐
                              │"f" → 6         │
                              └ 0x78de5b5fff78 ┘
@@ -1685,11 +1685,11 @@ let%expect_test "a step lands the heap on the structure it walked" =
   [%expect
     {|
     scroll=37 pan=0
-     HEAP             5 live · 12 nodes · 2 new
+     HEAP     5 live · 12 nodes · 384 B · 2 new
      ┆ ∅ ┆    │4│
      └┄┄┄┘    └─┘
 
-     ▾ a · set ⟨int⟩ · 3 nodes
+     ▾ a · set ⟨int⟩ · 3 nodes · 96 B
      ▾┌ a ─────────────┐
       │1               │
       └ 0x768f6ebf2148 ┘
@@ -1725,7 +1725,7 @@ let%expect_test "the heap pans by hand, and the cursor still overrides" =
     ~step;
   [%expect
     {|
-    HEAP      2 live · 6 nodes · 3 new
+    HEAP 2 live · 6 nodes · 336 B · 3 n
     ▾ bigger · map ⟨string ⇒ int⟩ · 3
                             ▾┌ bigger
                              │"f" → 6
@@ -1733,24 +1733,24 @@ let%expect_test "the heap pans by hand, and the cursor still overrides" =
                     ┌────────────────┴
                     l
            ▾┌───────┐
-    HEAP      2 live · 6 nodes · 3 new
-    ap ⟨string ⇒ int⟩ · 3 nodes
+    HEAP 2 live · 6 nodes · 336 B · 3 n
+    ap ⟨string ⇒ int⟩ · 3 nodes · 168
                 ▾┌ bigger  new ┐
                  │"f" → 6      │
                  └─────────────┘
         ┌────────────────┴────────────
         l
     ────┐                        ▾┌──
-    HEAP      2 live · 6 nodes · 3 new
-     · 3 nodes
+    HEAP 2 live · 6 nodes · 336 B · 3 n
+     · 3 nodes · 168 B
     gger  new ┐
      → 6      │
     ──────────┘
     ────┴────────────────┐
                          r
                 ▾┌── new ┐
-    HEAP      2 live · 6 nodes · 3 new
-    string ⇒ int⟩ · 3 nodes
+    HEAP 2 live · 6 nodes · 336 B · 3 n
+    string ⇒ int⟩ · 3 nodes · 168 B
             ▾┌ bigger ─── new ┐
              │"f" → 6         │
              └ 0x78de5b5fff78 ┘
@@ -1790,8 +1790,8 @@ let%expect_test "filter: only matching structures stay on the canvas" =
   show "queue";
   [%expect
     {|
-    HEAP             /queue · 1 of 2 live · 1 node · 1 new
-    ▾ q · queue ⟨int M.t⟩ · 1 node
+    HEAP      /queue · 1 of 2 live · 1 node · 24 B · 1 new
+    ▾ q · queue ⟨int M.t⟩ · 1 node · 24 B
      ┌ q  new ┐
      │length 0│
      └────────┘
@@ -1801,8 +1801,8 @@ let%expect_test "filter: only matching structures stay on the canvas" =
   show "MAP";
   [%expect
     {|
-    HEAP               /MAP · 1 of 2 live · 1 node · 1 new
-    ▾ m · map ⟨string ⇒ int⟩ · 1 node
+    HEAP        /MAP · 1 of 2 live · 1 node · 56 B · 1 new
+    ▾ m · map ⟨string ⇒ int⟩ · 1 node · 56 B
      ┌ m ────┐
      │"k" → 1│
      └───────┘
@@ -1860,11 +1860,11 @@ let%expect_test "selection: committing a link follows the node to its step" =
   [%expect
     {|
     (birth 3)
-     HEAP                                  4 live · 8 nodes · 3 new
+     HEAP                          4 live · 8 nodes · 448 B · 3 new
       │"d" → 4│             │"h" → 8│
       └───────┘             └───────┘
 
-     ▾ m2 · map ⟨string ⇒ int⟩ · 2 nodes
+     ▾ m2 · map ⟨string ⇒ int⟩ · 2 nodes · 112 B
             ▾┌ m2 ───┐
              │"f" → 6│
              └───────┘
