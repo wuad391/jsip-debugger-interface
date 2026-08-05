@@ -455,7 +455,8 @@ module Computed = struct
   type t =
     { view : View.t
     ; on_click : Position.t -> [ `Act of Action.t | `Quit ] option
-    ; on_scroll : Position.t -> [ `Up | `Down ] -> Action.t option
+    ; on_scroll :
+        Position.t -> [ `Up | `Down ] -> sideways:bool -> Action.t option
     }
 end
 
@@ -852,14 +853,25 @@ let render
                           act (Action.Select_heap_node spot)))
                    | None -> None)))))
   in
-  (* the wheel only goes up and down, which is all either canvas has left to
-     do: rows wrap rather than running off the edge, and the diagram's
-     sideways is on [\[]/[\]] *)
-  let on_scroll (position : Position.t) direction : Action.t option =
+  (* The wheel has one axis, so the diagram's sideways rides on a held
+     modifier, with [\[]/[\]] for the same thing from the keyboard.
+
+     Ctrl or alt, NOT shift. The terminal's mouse encoding does carry a shift
+     bit, but notty decodes only the meta and ctrl ones
+     ([Notty.Unescape.mouse_p] reads bits 3 and 4 and no others), so
+     shift+wheel arrives here as a bare wheel event with nothing to tell it
+     apart from an unmodified one. Notty drops the dedicated horizontal-wheel
+     buttons too, so there is no second axis to read either. *)
+  let on_scroll (position : Position.t) direction ~sideways : Action.t option
+    =
     let delta = match direction with `Up -> -1 | `Down -> 1 in
-    match Option.is_some model.popped_out with
-    | true -> Some (Action.Scroll_pop_out delta)
-    | false ->
+    match Option.is_some model.popped_out, sideways with
+    | true, false -> Some (Action.Scroll_pop_out delta)
+    (* four columns a tick, roughly a wheel notch's share of a box *)
+    | true, true -> Some (Action.Pan_pop_out (delta * 4))
+    (* the outline has nothing sideways to reach — its rows wrap — so a held
+       modifier over it changes nothing *)
+    | false, (true | false) ->
       (match Region.contains layout.heap position with
        | false -> None
        | true -> Some (Action.Scroll_heap delta))
@@ -1007,8 +1019,11 @@ let component
          | _ -> Effect.Ignore)
       | Mouse { kind = Left; position; mods = _ } ->
         click_or_ignore (on_click position)
-      | Mouse { kind = Scroll direction; position; mods = _ } ->
-        inject_or_ignore (on_scroll position direction)
+      (* any modifier at all means sideways: notty only ever reports ctrl and
+         meta for a mouse event, which are exactly the two that can mean it *)
+      | Mouse { kind = Scroll direction; position; mods } ->
+        inject_or_ignore
+          (on_scroll position direction ~sideways:(not (List.is_empty mods)))
       | Mouse _ | Paste _ -> Effect.Ignore
   in
   ~view, ~handler

@@ -258,6 +258,32 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
     |}]
 ;;
 
+let%expect_test "a wrapped record breaks between its fields, never inside \
+                 one"
+  =
+  (* [x=3] is two spans — a muted label and a colored value — with nothing
+     between them, and a break at that seam would leave [x=] ending one line
+     and its [3] beginning the next. A change of color is not a place to
+     break, so the whole field moves down together. *)
+  let replay = replay_of_fixture "user_types" in
+  heap_view ~width:16 ~height:12 replay ~step:(Replay.length replay - 1);
+  [%expect
+    {|
+    HEAP 3 live · 5
+      p  point
+        x=3  y=4
+    ▾ ts  trades
+        0  new
+    └─ ▾ hd  t
+           trade
+           101
+       ├─   tags
+       │      "buy
+       │      "lim
+       └─   span
+    |}]
+;;
+
 let%expect_test "the pop-out draws the tree the outline stands for" =
   (* the same map the outline reads as two bindings, as the AVL nodes it
      actually is: a root with an empty [l] and a walked [r], each edge

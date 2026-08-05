@@ -127,8 +127,13 @@ divider line along each seam:
   puts it away with everything else exactly where you left it; `Enter`
   again takes the jump the row would have taken, to the step that
   allocated it. While it is up it owns the keyboard: `↑↓←→`, `[`/`]` and
-  `PgUp`/`PgDn` move around a diagram bigger than the slab, and nothing
-  steps until you close it.
+  `PgUp`/`PgDn` move around a diagram bigger than the slab — which it
+  often is, since this is the format that spreads a tree sideways — and
+  nothing steps until you close it. The wheel scrolls it, and the wheel
+  with `ctrl` or `alt` held pans it sideways. Not `shift`: the terminal's
+  mouse encoding has a shift bit, but notty decodes only the ctrl and
+  meta ones, so shift+wheel arrives indistinguishable from a plain
+  wheel — `ctrl`/`alt` or `[`/`]` are the sideways gestures there are.
 
   ```
   ┌────────────────────────────────────────────────────────────────────────────┐
