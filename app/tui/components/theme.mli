@@ -18,6 +18,11 @@ val bg : Attr.Color.t
     rather than among them: the heap's diagram pop-out. *)
 val raised : Attr.Color.t
 
+(** The call stack's alternating rows — one shade off {!bg}, a band only
+    against its neighbor, so a wall of forty calls reads as rows instead of
+    as a texture. *)
+val stripe_bg : Attr.Color.t
+
 (** The brand gold: the session bar's dot. *)
 val accent : Attr.Color.t
 

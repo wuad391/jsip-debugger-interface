@@ -119,23 +119,28 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
      and long argument lists wrap *)
   let replay = replay_of_fixture "map_fold" in
   print_view
-    ~height:10
+    ~height:12
     (Stack_pane.view
        ~width:56
-       ~height:10
+       ~height:12
        ~calls:(calls_of replay)
        ~heat:(no_heat (calls_of replay))
        ~live:(live_of replay ~step:2)
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor:None);
+       ~cursor:None
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            5 calls · 2 live
+    ▾ CALL STACK                          5 calls · 2 live
          M.add "b" 2 M.empty
+
      ▾ M.add "a" 1 (M.add "b" 2 M.empty)
+
     ▎    M.add k (v * 2) acc
+
          M.add k (v * 2) acc
+
      ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
          M.empty
     |}]
@@ -146,12 +151,29 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
   heap_view replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ m  int M.t  1 binding
+    HEAP                  2 live · 3 nodes · 168 B · 2 new
+    ▾ m  int M.t  1 binding  1 node · 56 B
     └─   "a" → 1
-    ▾ m  int M.t  2 bindings  new
+
+    ▾ m  int M.t  2 bindings  2 nodes · 112 B  new
     ├─   "a" → 1  new
     └─   "b" → 2  new
+    |}]
+;;
+
+let%expect_test "memory: a structure's row sizes it, the meta sums them" =
+  (* the wire's own 64-bit words, priced at 8 bytes each: one binding is the
+     AVL node's five words (header + l v d r) plus the key's string block (a
+     header and one padded word) — 7 words, 56 B. A floor, not a census:
+     undecoded pointers count their slot alone. The meta totals the live
+     structures the same way. *)
+  let replay = replay_of_fixture "map_basic" in
+  heap_view ~height:5 replay ~step:0;
+  [%expect
+    {|
+    HEAP                    1 live · 1 node · 56 B · 1 new
+    ▾ m  int M.t  1 binding  1 node · 56 B  new
+    └─   "a" → 1  new
     |}]
 ;;
 
@@ -160,8 +182,8 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
   heap_view replay ~step:2;
   [%expect
     {|
-    HEAP                          1 live · 3 nodes · 1 new
-    ▾ q  string Queue.t  length 2
+    HEAP                  1 live · 3 nodes · 104 B · 1 new
+    ▾ q  string Queue.t  length 2  3 nodes · 104 B
     ├─   "x"
     └─   "y"  new
     |}]
@@ -172,13 +194,16 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
   heap_view replay ~step:2;
   [%expect
     {|
-    HEAP                          3 live · 5 nodes · 2 new
-    ▾ m  float M.t  1 binding
+    HEAP                  3 live · 5 nodes · 312 B · 2 new
+    ▾ m  float M.t  1 binding  1 node · 72 B
     └─   "pi" → 3.14
-    ▾ #2  float M.t  2 bindings
+
+    ▾ #2  float M.t  2 bindings  2 nodes · 144 B
     ├─   "pi" → 3.14
     └─   "e" → 2.71
-    ▾ #4  (int * string) M.t  1 element  new
+
+    ▾ #4  (int * string) M.t  1 element  2 nodes · 96 B
+        new
     └─ ▾ "pair" →  new
        └─   d  1, "one"  new
     |}]
@@ -193,11 +218,11 @@ let%expect_test "heap pane: a collected structure is simply gone" =
   heap_view ~height:8 replay ~step:1;
   [%expect
     {|
-    HEAP                           1 live · 1 node · 1 new
-    ▾ #1  int M.t  1 binding  new
+    HEAP                    1 live · 1 node · 56 B · 1 new
+    ▾ #1  int M.t  1 binding  1 node · 56 B  new
     └─   "dead" → 0  new
-    HEAP                           1 live · 1 node · 1 new
-    ▾ #2  int M.t  1 binding  new
+    HEAP                    1 live · 1 node · 56 B · 1 new
+    ▾ #2  int M.t  1 binding  1 node · 56 B  new
     └─   "live" → 1  new
     |}]
 ;;
@@ -211,13 +236,15 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
   heap_view ~width:60 ~height:12 replay ~step:2;
   [%expect
     {|
-    HEAP                              3 live · 8 nodes · 3 new
-    ▾ m  (string, int) Map.t  1 binding
+    HEAP                      3 live · 8 nodes · 280 B · 3 new
+    ▾ m  (string, int) Map.t  1 binding  2 nodes · 56 B
     └─   "b" → 2
-    ▾ m  (string, int) Map.t  2 bindings
+
+    ▾ m  (string, int) Map.t  2 bindings  3 nodes · 112 B
     ├─   "b" → 2
     └─   "a" → 1
-    ▾ m  (string, int) Map.t  3 bindings  new
+
+    ▾ m  (string, int) Map.t  3 bindings  3 nodes · 112 B  new
     ├─   "b" → 2  new
     ├─   ↗ "a" → 1
     └─   "c" → 3  new
@@ -232,8 +259,8 @@ let%expect_test "heap pane: a Core hash queue chains through its elements" =
   heap_view ~width:64 ~height:22 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  1 live · 9 nodes · 2 new
-    ▾ q  (string, int) Hash_queue.t  4 bindings
+    HEAP                          1 live · 9 nodes · 240 B · 2 new
+    ▾ q  (string, int) Hash_queue.t  4 bindings  9 nodes · 240 B
     ├─   v  "a" → 1
     ├─   v  "b" → 2
     ├─   v  "c" → 3  new
@@ -249,10 +276,11 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
   heap_view ~width:60 ~height:14 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                              3 live · 5 nodes · 1 new
-      p  point  x=3  y=4
-    ▾ ts  trades  0  new
-    └─ ▾ hd  t  trade  101
+    HEAP                      3 live · 5 nodes · 160 B · 1 new
+      p  point  x=3  y=4  1 node · 24 B
+
+    ▾ ts  trades  0  1 node · 24 B  new
+    └─ ▾ hd  t  trade  101  3 nodes · 112 B
        ├─   tags  "buy", "limit"
        └─   span  1, 9
     |}]
@@ -272,15 +300,15 @@ let%expect_test "a wrapped record breaks between its fields, never inside \
     HEAP 3 live · 5
       p  point
         x=3  y=4
+        1 node ·
+        24 B
+
     ▾ ts  trades
-        0  new
+        0  1 node
+        · 24 B
+        new
     └─ ▾ hd  t
            trade
-           101
-       ├─   tags
-       │      "buy
-       │      "lim
-       └─   span
     |}]
 ;;
 
@@ -295,7 +323,7 @@ let%expect_test "the pop-out draws the tree the outline stands for" =
   [%expect
     {|
     ┌──────────────────────────────────────────────────────────────┐
-    │ DIAGRAM                     m · int M.t · 2 nodes · esc back │
+    │ DIAGRAM             m · int M.t · 2 nodes · 112 B · esc back │
     │                                                              │
     │                                                              │
     │                                                              │
@@ -331,7 +359,7 @@ let%expect_test "the pop-out draws the whole structure, shared nodes and all"
   [%expect
     {|
     ┌────────────────────────────────────────────────────────────────────────────┐
-    │ DIAGRAM                              bigger · int M.t · 6 nodes · esc back │
+    │ DIAGRAM                      bigger · int M.t · 6 nodes · 168 B · esc back │
     │                                                                            │
     │                             ┌ bigger  new ┐                                │
     │                             │"f" → 6      │                                │
@@ -362,7 +390,7 @@ let%expect_test "the pop-out follows a reference into the structure it names"
   [%expect
     {|
     ┌────────────────────────────────────────────────────────────────────────────┐
-    │ DIAGRAM                           q · int M.t Queue.t · 3 nodes · esc back │
+    │ DIAGRAM                    q · int M.t Queue.t · 3 nodes · 48 B · esc back │
     │                                                                            │
     │                                                                            │
     │                                                                            │
@@ -425,6 +453,46 @@ let%expect_test "multi-file: each live frame knows its own file" =
     |}]
 ;;
 
+let%expect_test "the left panes collapse to their title rows" =
+  (* [1] /[2] (or a click on the title) fold a pane to exactly its title —
+         the [▸] and the counts stay, and the layout hands the freed height
+         to the pane underneath (or above) *)
+  let replay = replay_of_fixture "map_fold" in
+  print_view
+    ~width:56
+    ~height:2
+    (Stack_pane.view
+       ~width:56
+       ~height:1
+       ~calls:(calls_of replay)
+       ~heat:(no_heat (calls_of replay))
+       ~live:(live_of replay ~step:2)
+       ~selected:1
+       ~folds:Int.Set.empty
+       ~cursor:None
+       ~collapsed:true);
+  let heights ?stack_collapsed ?source_collapsed () =
+    let layout =
+      Layout.compute
+        ?stack_collapsed
+        ?source_collapsed
+        { Bonsai_term.Dimensions.width = 100; height = 40 }
+    in
+    layout.stack.height, layout.source.height
+  in
+  print_s
+    [%message
+      ""
+        ~both_open:(heights () : int * int)
+        ~stack_shut:(heights ~stack_collapsed:true () : int * int)
+        ~source_shut:(heights ~source_collapsed:true () : int * int)];
+  [%expect
+    {|
+     ▸ CALL STACK                          5 calls · 2 live
+    ((both_open (19 15)) (stack_shut (1 33)) (source_shut (33 1)))
+    |}]
+;;
+
 let%expect_test "source pane: gutter, active line wash, callsite marker" =
   let source =
     Jsip_parsing.Source_reader.load "../../../testing/cases/map_basic.ml"
@@ -440,10 +508,11 @@ let%expect_test "source pane: gutter, active line wash, callsite marker" =
        ~folds:Int.Set.empty
        ~active_line:8
        ~callsite_line:(Some 7)
-       ~char_range:(10, 23));
+       ~char_range:(10, 23)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE                         map_basic.ml · 10 lines
+    ▾ SOURCE                       map_basic.ml · 10 lines
         2    [empty] (an ident), [find] (returns the
                value) and [ignore] don't. *)
      ▾  3 module M = Map.Make (String)
@@ -476,10 +545,11 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
        ~folds:Int.Set.empty
        ~active_line:1
        ~callsite_line:None
-       ~char_range:(0, 0));
+       ~char_range:(0, 0)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE           gone.ml · missing
+    ▾ SOURCE         gone.ml · missing
 
      lib/gone.ml is not at
      ./lib/gone.ml — the dump's paths
@@ -491,10 +561,10 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
 
 let%expect_test "transport: ticks, then the clickable key legend" =
   print_view
-    ~width:96
+    ~width:107
     ~height:3
     (Transport.view
-       ~width:96
+       ~width:107
        ~step:1
        ~total:3
        ~playing:false
@@ -502,8 +572,8 @@ let%expect_test "transport: ticks, then the clickable key legend" =
        ~diagram:false);
   [%expect
     {|
-    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-    ◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · q quit
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+    ◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · q quit
     |}]
 ;;
 
@@ -562,10 +632,11 @@ let%expect_test "source pane: long lines wrap under a blank gutter" =
        ~folds:Int.Set.empty
        ~active_line:9
        ~callsite_line:None
-       ~char_range:(16, 60));
+       ~char_range:(16, 60)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE              map_fold.ml · 15 lines
+    ▾ SOURCE            map_fold.ml · 15 lines
         6
      ▾  7 let () =
         8   let m = M.add "a" 1 (M.add "b" 2
@@ -583,15 +654,17 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
   heap_view ~width:60 replay ~step:2;
   [%expect
     {|
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ a  S.t  3 elements
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ a  S.t  3 elements  3 nodes · 96 B
     ├─   1
     ├─   2
     └─   3
-    ▾ b  S.t  2 elements
+
+    ▾ b  S.t  2 elements  2 nodes · 64 B
     ├─   3
     └─   4
-    ▾ #6  S.t  4 elements  new
+
+    ▾ #6  S.t  4 elements  4 nodes · 128 B  new
     ├─   3  new
     ├─   2  new
     ├─   1  new
@@ -621,16 +694,19 @@ let%expect_test "heap clicks land on a row edge to edge, and nowhere past it"
       Snapshot.Address.display spot.address)
   in
   (* a row spans the pane, so the far right of a line is still that line and
-     only [y] decides; the second structure's row is a place of its own; and
+     only [y] decides; the blank line between the structures belongs to
+     nobody; the second structure's row past it is a place of its own; and
      below the last row there is nothing to land on *)
   print_endline (at ~x:2 ~y:0);
   print_endline (at ~x:48 ~y:0);
   print_endline (at ~x:2 ~y:2);
+  print_endline (at ~x:2 ~y:3);
   print_endline (at ~x:2 ~y:9);
   [%expect
     {|
     0x7fa801ff2348
     0x7fa801ff2348
+    ·
     0x7fa801fee750
     ·
     |}]
@@ -643,10 +719,11 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
   heap_view ~height:14 replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 2 nodes · 1 new
-    ▾ m  int M.t  1 binding
+    HEAP                   2 live · 2 nodes · 80 B · 1 new
+    ▾ m  int M.t  1 binding  1 node · 56 B
     └─   "k" → 1
-      q  int M.t Queue.t  length 0  new
+
+      q  int M.t Queue.t  length 0  1 node · 24 B  new
     |}]
 ;;
 
@@ -657,9 +734,9 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
   heap_view ~height:21 replay ~step:2;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 1 new
-    ▾ q  int M.t Queue.t  length 1
-    └─ ▾ m  int M.t  1 binding
+    HEAP                  2 live · 3 nodes · 104 B · 1 new
+    ▾ q  int M.t Queue.t  length 1  2 nodes · 48 B
+    └─ ▾ m  int M.t  1 binding  1 node · 56 B
        └─   "k" → 1
     |}]
 ;;
@@ -669,8 +746,8 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
   heap_view ~width:60 ~height:17 replay ~step:1;
   [%expect
     {|
-    HEAP                              1 live · 3 nodes · 1 new
-    ▾ tbl  (string, int) Hashtbl.t  size 1
+    HEAP                      1 live · 3 nodes · 208 B · 1 new
+    ▾ tbl  (string, int) Hashtbl.t  size 1  3 nodes · 208 B
     └─   "a" → 1  new
     |}]
 ;;
@@ -711,9 +788,9 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
   heap_view ~width:60 ~height:26 replay ~step:3;
   [%expect
     {|
-    HEAP                              2 live · 3 nodes · 1 new
-    ▾ qq  'a Queue.t Queue.t  length 1
-    └─   q1  'a Queue.t  length 0
+    HEAP                       2 live · 3 nodes · 72 B · 1 new
+    ▾ qq  'a Queue.t Queue.t  length 1  2 nodes · 48 B
+    └─   q1  'a Queue.t  length 0  1 node · 24 B
     |}]
 ;;
 
@@ -722,16 +799,17 @@ let%expect_test "heap pane: closures stay opaque" =
   heap_view ~width:60 ~height:13 replay ~step:1;
   [%expect
     {|
-    HEAP                              1 live · 2 nodes · 2 new
-    ▾ q  (int -> int) Queue.t  length 1
+    HEAP                       1 live · 2 nodes · 48 B · 2 new
+    ▾ q  (int -> int) Queue.t  length 1  2 nodes · 48 B
     └─   ⟨0x73a5227efa18⟩  new
     |}]
 ;;
 
 let%expect_test "control chips hit-test exactly where they render" =
-  (* the row wants 96 columns now that [⏎ diagram] is on it; narrower than
-     that and [start_column] pins it at 0 and the right-hand chips crop *)
-  let width = 96 in
+  (* the row wants 107 columns now that [. latest] rides beside [⏎ diagram];
+     narrower than that and [start_column] pins it at 0 and the right-hand
+     chips crop *)
+  let width = 107 in
   let hits =
     List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
       Transport.control_at ~width ~playing:false ~x
@@ -751,12 +829,13 @@ let%expect_test "control chips hit-test exactly where they render" =
     (Back 0 5)
     (Step 9 14)
     (Play 18 29)
-    (Node 33 39)
-    (Diagram 43 51)
-    (Fold 55 60)
-    (Accordion 64 74)
-    (Filter 78 85)
-    (Quit 89 94)
+    (Latest 33 40)
+    (Node 44 50)
+    (Diagram 54 62)
+    (Fold 66 71)
+    (Accordion 75 85)
+    (Filter 89 96)
+    (Quit 100 105)
     |}]
 ;;
 
@@ -783,9 +862,9 @@ let%expect_test "heap fold: a row keeps itself, hides its kids" =
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 1 new
-    ▾ q  int M.t Queue.t  length 1
-    └─ ▸ m  int M.t  1 binding  ⋯ 1
+    HEAP                  2 live · 3 nodes · 104 B · 1 new
+    ▾ q  int M.t Queue.t  length 1  2 nodes · 48 B
+    └─ ▸ m  int M.t  1 binding  1 node · 56 B  ⋯ 1
     |}]
 ;;
 
@@ -812,8 +891,8 @@ let%expect_test "heap fold: a structure collapses to its header" =
        ~selection:Heap_pane.Selection.none);
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 1 new
-    ▸ q  int M.t Queue.t  length 1  ⋯ 2
+    HEAP                  2 live · 3 nodes · 104 B · 1 new
+    ▸ q  int M.t Queue.t  length 1  2 nodes · 48 B  ⋯ 2
     |}]
 ;;
 
@@ -945,7 +1024,7 @@ let%expect_test "collapsing a structure moves the rows below it up, only up" =
   [%expect
     {|
     ((columns_expanded ((1 0) (4 0) (6 0))) (columns_folded ((1 0) (4 0) (6 0)))
-     (rows_expanded (0 4 7)) (rows_folded (0 1 4)))
+     (rows_expanded (0 5 9)) (rows_folded (0 2 6)))
     |}]
 ;;
 
@@ -969,16 +1048,19 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
     |> Option.value_map ~default:"·" ~f:(fun fold ->
       Sexp.to_string [%sexp (fold : Heap_pane.Fold.t)])
   in
-  (* #1's own glyph; the binding under it is a leaf, so no glyph; #2's own
-     glyph two lines down; a cell that is not the glyph column; past the last
-     row *)
+  (* #1's own glyph; the binding under it is a leaf, so no glyph; the gap
+     between the structures has nothing to toggle; #2's own glyph past it; a
+     cell that is not the glyph column; past the last row *)
   print_endline (toggle ~x:0 ~y:0);
   print_endline (toggle ~x:0 ~y:1);
   print_endline (toggle ~x:0 ~y:2);
-  print_endline (toggle ~x:3 ~y:2);
+  print_endline (toggle ~x:0 ~y:3);
+  print_endline (toggle ~x:3 ~y:3);
   print_endline (toggle ~x:0 ~y:9);
-  [%expect {|
+  [%expect
+    {|
     (Structure 1)
+    ·
     ·
     (Structure 2)
     ·
@@ -989,22 +1071,26 @@ let%expect_test "heap fold: toggles sit where the glyphs render" =
 let%expect_test "stack fold: a call's range tucks behind a count" =
   let replay = replay_of_fixture "map_fold" in
   print_view
-    ~height:7
+    ~height:9
     (Stack_pane.view
        ~width:56
-       ~height:7
+       ~height:9
        ~calls:(calls_of replay)
        ~heat:(no_heat (calls_of replay))
        ~live:(live_of replay ~step:4)
        ~selected:0
        ~folds:(Int.Set.of_list [ 1 ])
-       ~cursor:None);
+       ~cursor:None
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                            5 calls · 1 live
+    ▾ CALL STACK                          5 calls · 1 live
      ▸ M.add "a" 1 (M.add "b" 2 M.empty) ⋯ 1
+
          M.add k (v * 2) acc
+
          M.add k (v * 2) acc
+
     ▎▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
     ▎    M.empty
     |}]
@@ -1025,10 +1111,11 @@ let%expect_test "source fold: a definition folds to its first line" =
        ~folds:(Int.Set.of_list [ 5 ])
        ~active_line:8
        ~callsite_line:None
-       ~char_range:(10, 23));
+       ~char_range:(10, 23)
+       ~collapsed:false);
   [%expect
     {|
-    SOURCE                         map_basic.ml · 10 lines
+    ▾ SOURCE                       map_basic.ml · 10 lines
      ▾  1 (* The canonical positive case: add/add/remove
             fire (3 events);
         2    [empty] (an ident), [find] (returns the
@@ -1066,26 +1153,29 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
   render (Set.of_list (module Heap_pane.Fold) [ Heap_pane.Fold.Structure 4 ]);
   [%expect
     {|
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ a  S.t  3 elements
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ a  S.t  3 elements  3 nodes · 96 B
     ├─   1
     ├─   2
     └─   3
-    ▾ b  S.t  2 elements
+
+    ▾ b  S.t  2 elements  2 nodes · 64 B
     ├─   3
     └─   4
-    ▾ #6  S.t  4 elements  new
+
+    ▾ #6  S.t  4 elements  4 nodes · 128 B  new
     ├─   3  new
     ├─   2  new
     ├─   1  new
-    └─   4  new
-    HEAP                              3 live · 9 nodes · 4 new
-    ▾ a  S.t  3 elements
+    HEAP                      3 live · 9 nodes · 288 B · 4 new
+    ▾ a  S.t  3 elements  3 nodes · 96 B
     ├─   1
     ├─   2
     └─   3
-    ▸ b  S.t  2 elements  ⋯ 2
-    ▾ #6  S.t  4 elements  new
+
+    ▸ b  S.t  2 elements  2 nodes · 64 B  ⋯ 2
+
+    ▾ #6  S.t  4 elements  4 nodes · 128 B  new
     ├─   3  new
     ├─   2  new
     ├─   1  new
@@ -1164,10 +1254,11 @@ let%expect_test "delta wire: a revisit stub replays the earlier shape" =
   heap_view ~height:9 replay ~step:1;
   [%expect
     {|
-    HEAP                          2 live · 3 nodes · 2 new
-    ▾ #1  int M.t  1 binding
+    HEAP                  2 live · 3 nodes · 168 B · 2 new
+    ▾ #1  int M.t  1 binding  1 node · 56 B
     └─   "a" → 1
-    ▾ m  int M.t  2 bindings  new
+
+    ▾ m  int M.t  2 bindings  2 nodes · 112 B  new
     ├─   "a" → 1  new
     └─   "b" → 2  new
     |}]
@@ -1179,16 +1270,18 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  4 live · 7 nodes · 3 new
-    ▾ #2  point M.t  1 element
+    HEAP                          4 live · 7 nodes · 360 B · 3 new
+    ▾ #2  point M.t  1 element  1 node · 56 B
     └─ ▾ "p" →
-       └─   d  p  point  x=1  y=2
-    ▾ m  point M.t  2 elements
+       └─   d  p  point  x=1  y=2  1 node · 24 B
+
+    ▾ m  point M.t  2 elements  2 nodes · 112 B
     ├─ ▾ "p" →
     │  └─   d  ↗ x=1  y=2
     └─ ▾ "q" →
        └─   d  ↗ x=1  y=2
-    ▾ #5  point M.t  3 elements  new
+
+    ▾ #5  point M.t  3 elements  3 nodes · 168 B  new
     ├─ ▾ "p" →  new
     │  └─   d  ↗ x=1  y=2
     ├─ ▾ "q" →  new
@@ -1205,14 +1298,15 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
   heap_view ~width:64 ~height:36 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 6 nodes · 3 new
-    ▾ m  int M.t  5 bindings
+    HEAP                          2 live · 6 nodes · 336 B · 3 new
+    ▾ m  int M.t  5 bindings  3 nodes · 168 B
     ├─   "f" → 6
     ├─   "d" → 4
     ├─   "b" → 2
     ├─   "h" → 8
     └─   "j" → 10
-    ▾ bigger  int M.t  5 bindings  new
+
+    ▾ bigger  int M.t  5 bindings  3 nodes · 168 B  new
     ├─   "f" → 6  new
     ├─   ↗ "d" → 4
     ├─   "h" → 8  new
@@ -1226,9 +1320,9 @@ let%expect_test "delta wire: a payload cycle terminates" =
   heap_view ~width:64 ~height:30 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 3 nodes · 1 new
-    ▾ q  cyc Queue.t  length 1
-    └─   r  cyc  name="loop"  self=0
+    HEAP                           2 live · 3 nodes · 88 B · 1 new
+    ▾ q  cyc Queue.t  length 1  2 nodes · 48 B
+    └─   r  cyc  name="loop"  self=0  1 node · 40 B
     |}]
 ;;
 
@@ -1237,13 +1331,14 @@ let%expect_test "delta wire: version chains share their spines" =
   heap_view ~width:64 ~height:20 replay ~step:(Replay.length replay - 1);
   [%expect
     {|
-    HEAP                                  2 live · 8 nodes · 4 new
-    ▾ #7  int M.t  4 bindings
+    HEAP                          2 live · 8 nodes · 448 B · 4 new
+    ▾ #7  int M.t  4 bindings  4 nodes · 224 B
     ├─   "b" → 2
     ├─   "a" → 1
     ├─   "c" → 3
     └─   "d" → 4
-    ▾ #11  int M.t  5 bindings  new
+
+    ▾ #11  int M.t  5 bindings  4 nodes · 224 B  new
     ├─   "b" → 2  new
     ├─   ↗ "a" → 1
     ├─   "c" → 3  new
@@ -1280,14 +1375,15 @@ let%expect_test "selection: only the chosen and aimed rows spell an address" =
     ~step;
   [%expect
     {|
-    HEAP                                              2 live · 6 nodes · 3 new
-    ▾ m  int M.t  5 bindings
+    HEAP                                      2 live · 6 nodes · 336 B · 3 new
+    ▾ m  int M.t  5 bindings  3 nodes · 168 B
     ├─   "f" → 6
     ├─   "d" → 4
     ├─   "b" → 2
     ├─   "h" → 8
     └─   "j" → 10
-    ▾ bigger  int M.t  5 bindings  new                          0x78de5b5fff78
+
+    ▾ bigger  int M.t  5 bindings  3 nodes · 168 B  new         0x78de5b5fff78
     ├─   "f" → 6  new                                           0x78de5b5fff78
     ├─   ↗ "d" → 4
     ├─   "h" → 8  new
@@ -1493,6 +1589,51 @@ let%expect_test "[h]'s target: the node under the cursor; the whole \
     |}]
 ;;
 
+let%expect_test "[h] on a row a fold hid resolves to what still draws it" =
+  (* The cursor can be standing on a row inside a structure when the whole
+     structure folds up — the fallback after stepping does exactly that. [h]
+     resolves the spot against the outline before folding: the hidden row's
+     node is now drawn only by the structure's own row (they share the root's
+     address), whose fold is the structure itself, so [h] reopens it instead
+     of flipping a node fold nobody can see. *)
+  let replay = replay_of_fixture "map_basic" in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step:1
+  in
+  let root =
+    List.find_exn structures ~f:(fun (s : Replay.Structure.t) ->
+      s.is_current)
+    |> Heap_pane.spot_of_structure
+  in
+  (* drop off the header onto the root binding's own row *)
+  let inside =
+    Heap_pane.move_cursor
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~selection:{ Heap_pane.Selection.selected = Some root; cursor = None }
+      ~direction:Heap_pane.Direction.Right
+    |> Option.value_exn
+  in
+  print_s [%sexp (Heap_pane.fold_of_spot inside : Heap_pane.Fold.t)];
+  let resolved =
+    Heap_pane.resolve_spot
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:
+        (Set.of_list (module Heap_pane.Fold) [ Heap_pane.fold_of_spot root ])
+      inside
+    |> Option.value_exn
+  in
+  print_s [%sexp (Heap_pane.fold_of_spot resolved : Heap_pane.Fold.t)];
+  [%expect {|
+    (Node 2 ())
+    (Structure 2)
+    |}]
+;;
+
 let%expect_test "accordion: the structure the keyboard is in is the open one"
   =
   (* [z]'s fold set, recomputed from the selection: every structure closed
@@ -1549,9 +1690,11 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   show !selection;
   [%expect
     {|
-    HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▸ m  int M.t  5 bindings  ⋯ 5
-    ▾ bigger  int M.t  5 bindings  new          0x78de5b5fff78
+    HEAP          accordion · 2 live · 6 nodes · 336 B · 3 new
+    ▸ m  int M.t  5 bindings  3 nodes · 168 B  ⋯ 5
+
+    ▾ bigger  int M.t  5 bindings  3 nodes · 168 B  new
+                                                0x78de5b5fff78
     ├─   "f" → 6  new
     ├─   ↗ "d" → 4
     ├─   "h" → 8  new
@@ -1565,14 +1708,107 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
   show !selection;
   [%expect
     {|
-    HEAP                  accordion · 2 live · 6 nodes · 3 new
-    ▾ m  int M.t  5 bindings                    0x78de6b6e3738
+    HEAP          accordion · 2 live · 6 nodes · 336 B · 3 new
+    ▾ m  int M.t  5 bindings  3 nodes · 168 B   0x78de6b6e3738
     ├─   "f" → 6
     ├─   "d" → 4
     ├─   "b" → 2
     ├─   "h" → 8
     └─   "j" → 10
-    ▸ bigger  int M.t  5 bindings  ⋯ 5  new     0x78de5b5fff78
+
+    ▸ bigger  int M.t  5 bindings  3 nodes · 168 B  ⋯ 5  new
+                                                0x78de5b5fff78
+    |}]
+;;
+
+let%expect_test "a step lands the heap on the structure it walked" =
+  (* Stepping resets the scroll — but to the selection's row, roughly
+     centered, not to the top of the canvas: on a dump with hundreds of
+     structures the walked one can sit far below the fold, and a pane that
+     opened on the top showed everything except the thing the step was about.
+     [bigger] is the walked structure here and sits below [m]'s six lines, so
+     the landing is a real scroll, inside the outline — and the render at it
+     has [bigger]'s row on screen. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  let step = Replay.length replay - 1 in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let selection =
+    { Heap_pane.Selection.selected = None
+    ; cursor = current_spot replay ~step
+    }
+  in
+  let scroll =
+    Heap_pane.landing
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:(Set.empty (module Heap_pane.Fold))
+      ~selection
+      ~width:44
+      ~height:8
+  in
+  printf "scroll=%d\n" scroll;
+  heap_view ~width:44 ~height:8 ~scroll ~selection replay ~step;
+  [%expect
+    {|
+    scroll=4
+     HEAP      2 live · 6 nodes · 336 B · 3 new
+     ├─   "h" → 8
+     └─   "j" → 10
+
+     ▾ bigger  int M.t  5 bindings  3 nodes ·
+         168 B  new              0x78de5b5fff78
+     ├─   "f" → 6  new
+     ├─   ↗ "d" → 4
+    |}]
+;;
+
+let%expect_test "[o]: address order packs allocation neighbors together" =
+  (* Registry order is creation order — [m] before [bigger] — but the
+     [Gc.full_major] between them moved [m], so ascending addresses put
+     [bigger] first. The sort is applied by the app's [heap_inputs] (the [o]
+     toggle), top level only; the pane draws whatever order it is given. *)
+  let replay = replay_of_fixture "map_spine_sharing" in
+  let step = Replay.length replay - 1 in
+  let { Replay.Step.structures; nodes; new_addresses; _ } =
+    Replay.step_exn replay ~step
+  in
+  let order structures =
+    List.map structures ~f:(fun (s : Replay.Structure.t) ->
+      [%string
+        "%{Replay.Structure.display s} %{Snapshot.Address.display s.address}"])
+  in
+  print_s [%sexp (order structures : string list)];
+  print_s [%sexp (order (Heap_pane.by_address structures) : string list)];
+  print_view
+    ~width:44
+    ~height:5
+    (Heap_pane.view
+       ~note:(Some "by address")
+       ~total:None
+       ~width:44
+       ~height:5
+       ~structures:(Heap_pane.by_address structures)
+       ~nodes
+       ~new_addresses
+       ~folds:
+         (Set.of_list
+            (module Heap_pane.Fold)
+            (List.map structures ~f:(fun (s : Replay.Structure.t) ->
+               Heap_pane.Fold.Structure s.id)))
+       ~scroll:0
+       ~selection:Heap_pane.Selection.none);
+  [%expect
+    {|
+    ("m 0x78de6b6e3738" "bigger 0x78de5b5fff78")
+    ("bigger 0x78de5b5fff78" "m 0x78de6b6e3738")
+     HEAP by address · 2 live · 6 nodes · 336 B
+     ▸ bigger  int M.t  6 bindings  3 nodes ·
+         168 B  ⋯ 6  new
+
+     ▸ m  int M.t  4 bindings  3 nodes · 168 B
     |}]
 ;;
 
@@ -1598,30 +1834,30 @@ let%expect_test "a row wider than the pane wraps, and is still one row" =
     ~step;
   [%expect
     {|
-    HEAP    2 live · 6 nodes · 3 new
-    ▾ m  int M.t  5 bindings
+    HEAP 2 live · 6 nodes · 336 B · 3
+    ▾ m  int M.t  5 bindings  3
+        nodes · 168 B
     ├─   "f" → 6
     ├─   "d" → 4
     ├─   "b" → 2
     ├─   "h" → 8
     └─   "j" → 10
-    ▾ bigger  int M.t  5 bindings
-        new
+
+    ▾ bigger  int M.t  5 bindings  3
+        nodes · 168 B  new
     ├─   "f" → 6  new
-    ├─   ↗ "d" → 4
-    ├─   "h" → 8  new
-    HEAP    2 live · 6 nodes · 3 new
-    ▾ m  int M.t  5 bindings
+    HEAP 2 live · 6 nodes · 336 B · 3
+    ▾ m  int M.t  5 bindings  3
+        nodes · 168 B
     ├─   "f" → 6
     ├─   "d" → 4
     ├─   "b" → 2
     ├─   "h" → 8
     └─   "j" → 10
-    ▾ bigger  int M.t  5 bindings
-        new           0x78de5b5fff78
-    ├─   "f" → 6  new
-    ├─   ↗ "d" → 4
-    ├─   "h" → 8  new
+
+    ▾ bigger  int M.t  5 bindings  3
+        nodes · 168 B  new
+                      0x78de5b5fff78
     |}]
 ;;
 
@@ -1654,16 +1890,16 @@ let%expect_test "filter: only matching structures stay on the canvas" =
   show "queue";
   [%expect
     {|
-    HEAP             /queue · 1 of 2 live · 1 node · 1 new
-      q  int M.t Queue.t  length 0  new
+    HEAP      /queue · 1 of 2 live · 1 node · 24 B · 1 new
+      q  int M.t Queue.t  length 0  1 node · 24 B  new
     |}];
   (* matching is case-insensitive, and the kind is part of the header's
      words, so [/MAP] finds the map *)
   show "MAP";
   [%expect
     {|
-    HEAP               /MAP · 1 of 2 live · 1 node · 1 new
-    ▾ m  int M.t  1 binding
+    HEAP        /MAP · 1 of 2 live · 1 node · 56 B · 1 new
+    ▾ m  int M.t  1 binding  1 node · 56 B
     └─   "k" → 1
     |}]
 ;;
@@ -1719,14 +1955,15 @@ let%expect_test "selection: committing a link follows the node to its step" =
   [%expect
     {|
     (birth 5)
-     HEAP                                  2 live · 6 nodes · 3 new
-     ▾ m  int M.t  5 bindings
+     HEAP                          2 live · 6 nodes · 336 B · 3 new
+     ▾ m  int M.t  5 bindings  3 nodes · 168 B
      ├─   "f" → 6
      ├─   "d" → 4
      ├─   "b" → 2
      ├─   "h" → 8
      └─   "j" → 10
-     ▾ bigger  int M.t  5 bindings  new
+
+     ▾ bigger  int M.t  5 bindings  3 nodes · 168 B  new
      ├─   "f" → 6  new                               0x78de5b5fff78
      ├─   ↗ "d" → 4
      ├─   "h" → 8  new
@@ -1761,17 +1998,19 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
        ~live
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor);
+       ~cursor
+       ~collapsed:false);
   [%expect
     {|
     (cursor (1))
-     CALL STACK                            5 calls · 2 live
+     ▾ CALL STACK                          5 calls · 2 live
           M.add "b" 2 M.empty
+
      ▎▾ M.add "a" 1 (M.add "b" 2 M.empty)
+
      ▎    M.add k (v * 2) acc
+
           M.add k (v * 2) acc
-      ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
-          M.empty
     |}]
 ;;
 
@@ -1802,16 +2041,20 @@ let%expect_test "stack pane: heat colors the callee names, layout untouched" =
        ~live:(live_of replay ~step:2)
        ~selected:1
        ~folds:Int.Set.empty
-       ~cursor:None);
+       ~cursor:None
+       ~collapsed:false);
   [%expect
     {|
-    CALL STACK                     5 calls · 2 live · heat
+    ▾ CALL STACK                   5 calls · 2 live · heat
          M.add "b" 2 M.empty
+
      ▾ M.add "a" 1 (M.add "b" 2 M.empty)
+
     ▎    M.add k (v * 2) acc
+
          M.add k (v * 2) acc
+
      ▾ M.fold (fun k v acc -> M.add k (v * 2) acc) m
-         M.empty
     |}]
 ;;
 

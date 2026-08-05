@@ -49,9 +49,12 @@ divider line along each seam:
   reached is dimmed (click one to jump there). Clicking a live frame
   selects it and the source pane follows, marking the caller's line with
   `▸`. Where a call was written is not repeated here — the source pane
-  below already has that line highlighted. Long argument lists wrap, and
-  a call's `▾`/`▸` glyph folds its whole range behind a `⋯ n` count
-  without touching any other pane.
+  below already has that line highlighted. Every other row wears a faint
+  zebra stripe and a blank line separates consecutive calls, so a wall of
+  forty reads as rows rather than as a texture; the gaps are nobody's — no
+  stripe, no wash, and a click on one lands nowhere. Long argument lists
+  wrap, and a call's `▾`/`▸` glyph folds its whole range behind a `⋯ n`
+  count without touching any other pane.
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
   blank gutter, and top-level definitions fold to their first line plus
@@ -68,9 +71,13 @@ divider line along each seam:
   holds. A structure keeps the shape of its most recent walk and only
   leaves the pane when the registry drops it. Each is a top-level row —
   the latest variable name it was observed under (`m`, `tbl`; `#id` when
-  anonymous), its type, and either what its root record says (`length 2`)
-  or how much it holds (`2 bindings`) — with its contents underneath, and
-  the one this event walked reads in blue.
+  anonymous), its type, either what its root record says (`length 2`) or
+  how much it holds (`2 bindings`), and its size (`3 nodes · 104 B`) —
+  with its contents underneath, a blank line between structures (nobody's:
+  unwashed, unclickable, stepped over by the cursor), and the one this
+  event walked reads in blue. The sizes are read off the wire's own words,
+  8 bytes each — a floor, since an undecoded pointer counts one slot — and
+  the pane meta totals the live structures the same way.
 
   The outline is **logical, not physical**. A walked map is an AVL tree
   and a walked hashtable is an array of AVL trees, but neither is what
@@ -115,8 +122,13 @@ divider line along each seam:
   stays, and folding a structure's own row collapses the whole structure
   to that one line. A folded subtree keeps the structures it references
   hidden with it, and folds survive stepping. Clicking a row jumps the
-  replay to the step that allocated it; clicking the glyph folds instead;
-  the wheel scrolls.
+  replay to the step that allocated it; clicking the glyph folds instead.
+
+  Stepping lands the pane on the structure the event walked — its row
+  brought into view, roughly centered — and from there the wheel scrolls
+  freely: only the cursor drags the window with it, so scrolling away to
+  read something else is never fought. `.` (or the `. latest` chip) snaps
+  back to the walked structure whenever you have wandered.
 - **Diagram pop-out** — `Enter` (or the `⏎ diagram` chip) draws the
   structure the cursor is in the way a CS textbook would, over the panes:
   a box per node, rails for the pointers, children spread under their
@@ -161,11 +173,11 @@ divider line along each seam:
   point at: every node it reaches is drawn, and the count is what was drawn.
 - **Transport** — across the top: a bar with one tick per event (click
   to jump) over the controls, right-aligned chips that double as the key legend —
-  `◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold ·
-  z accordion · / filter · q quit` — every chip clickable, and the mode
-  chips (play, accordion, diagram) light up while theirs is on. The row
-  wants 96 columns; narrower than that and the right-hand chips crop. The
-  session bar (dump name, structure) sits along the bottom.
+  `◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram ·
+  h fold · z accordion · / filter · q quit` — every chip clickable, and
+  the mode chips (play, accordion, diagram) light up while theirs is on.
+  The row wants 107 columns; narrower than that and the right-hand chips
+  crop. The session bar (dump name, structure) sits along the bottom.
 
 ## Run it
 
@@ -263,6 +275,19 @@ stay on it. `Enter` keeps the filter,
 `Escape` drops it (also from outside the prompt), and the meta line
 owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
 starts empty.
+
+`o` flips the outline's **order**. The default is registry order —
+creation order, oldest structure first. With `o` on, the top level sorts
+by ascending address instead, so memory locality reads as adjacency:
+structures allocated near each other sit next to each other. Nested
+references keep nesting inside their referrers, folds and the selection
+survive the flip, and the meta line owns up with `by address`.
+
+`1` and `2` — or a click on a pane's title row — collapse the **call
+stack** and the **source pane** to exactly that title (`▸` and the
+counts), handing the freed height to the other left pane; the same key or
+click reopens them. Collapsing the stack while it has the keyboard hands
+focus to the heap.
 
 Beyond the controls row up top, `l`/`n` and `p` also step, `g`/`G` jump
 to the ends, and `PgUp`/`PgDn` scroll the heap. `Escape` also clears a

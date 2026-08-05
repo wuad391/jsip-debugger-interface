@@ -203,7 +203,7 @@ module Visual = struct
     }
 end
 
-let visual_lines
+let build_visual_lines
   ~width
   (loaded : Loaded.t)
   ~folds
@@ -254,6 +254,59 @@ let visual_lines
          walk (number + 1) acc)
   in
   walk 1 []
+;;
+
+(* One frame's visual lines, remembered under everything they read — the pane
+   re-renders on every heap scroll tick, and re-wrapping and re-folding the
+   whole file each time is wasted work while nothing about the file view
+   changed. *)
+module Visual_key = struct
+  type t =
+    { width : int
+    ; loaded : Loaded.t
+    ; folds : Int.Set.t
+    ; active_line : int
+    ; callsite_line : int option
+    ; char_range : int * int
+    }
+
+  let equal a b =
+    a.width = b.width
+    && phys_equal a.loaded b.loaded
+    && Set.equal a.folds b.folds
+    && a.active_line = b.active_line
+    && [%equal: int option] a.callsite_line b.callsite_line
+    && [%equal: int * int] a.char_range b.char_range
+  ;;
+end
+
+let visual_cache : (Visual_key.t * Visual.t list) option ref = ref None
+
+let visual_lines ~width loaded ~folds ~active_line ~callsite_line ~char_range
+  =
+  let key =
+    { Visual_key.width
+    ; loaded
+    ; folds
+    ; active_line
+    ; callsite_line
+    ; char_range
+    }
+  in
+  match !visual_cache with
+  | Some (cached, result) when Visual_key.equal cached key -> result
+  | Some _ | None ->
+    let result =
+      build_visual_lines
+        ~width
+        loaded
+        ~folds
+        ~active_line
+        ~callsite_line
+        ~char_range
+    in
+    visual_cache := Some (key, result);
+    result
 ;;
 
 let scroll_offset visual ~height ~active_line =
@@ -324,25 +377,34 @@ let view
   ~active_line
   ~callsite_line
   ~char_range
+  ~collapsed
   =
   let lines_label =
     match (source : Loaded.t Or_error.t) with
     | Ok loaded -> [%string "%{Source_file.length loaded.file#Int} lines"]
     | Error _ -> "missing"
   in
-  Panel.view
-    ~title:"source"
-    ~meta:[%string "%{file_label} · %{lines_label}"]
-    ~width
-    ~height
-    (body
-       ~width:(Panel.inner_width ~width)
-       ~height:(height - Panel.header_height)
-       ~source
-       ~folds
-       ~active_line
-       ~callsite_line
-       ~char_range)
+  (* collapsed, the pane is its title row — the [▸] is the way back in *)
+  let title =
+    match collapsed with true -> "▸ source" | false -> "▾ source"
+  in
+  let meta = [%string "%{file_label} · %{lines_label}"] in
+  match collapsed with
+  | true -> Panel.view ~title ~meta ~width ~height View.none
+  | false ->
+    Panel.view
+      ~title
+      ~meta
+      ~width
+      ~height
+      (body
+         ~width:(Panel.inner_width ~width)
+         ~height:(height - Panel.header_height)
+         ~source
+         ~folds
+         ~active_line
+         ~callsite_line
+         ~char_range)
 ;;
 
 let toggle_at

@@ -12,7 +12,7 @@
     listed once: a second reference, or a cycle, stays a [↗] row.
 
     {v
-    ▾ q   queue      length 2                              0x796745dee5f8
+    ▾ q   queue      length 2    3 nodes · 96 B            0x796745dee5f8
       ├─ ▾ first  m   int M.t     2 bindings
       │    ├─  "k" → 1
       │    └─  "z" → 4
@@ -20,6 +20,12 @@
            ├─  7
            └─  9
     v}
+
+    A structure's own row also states its size — how many nodes, and how much
+    memory their blocks pin, summed off the wire's 64-bit block runs (a
+    floor: an undecoded pointer counts one slot). A blank line separates
+    consecutive top-level structures; it is nobody's — no wash paints it, no
+    click lands on it, and the cursor steps over it.
 
     The outline is LOGICAL, not physical. A walked map is an AVL tree and a
     walked hashtable is an array of AVL trees, but neither is what a reader
@@ -168,14 +174,24 @@ val accordion_folds
     empty filter keeps everything. *)
 val matches_filter : Replay.Structure.t -> filter:string -> bool
 
+(** The [o] ordering: the same structures in ascending address order, so
+    memory locality reads as adjacency. Top-level order only — a structure
+    referenced from another still nests inside its referrer — and folds and
+    spots key on structure ids and addresses, so they survive the re-sort.
+    Registry order (creation order) is the default the app renders without
+    this. *)
+val by_address : Replay.Structure.t list -> Replay.Structure.t list
+
 (** [scroll] is the line the outline starts at — lines, not rows, because a
     row too wide for the pane wraps rather than running off it. It clamps to
-    the outline and slides on its own to keep the aimed row in view.
+    the outline. Stepping lands the pane via {!landing}, the wheel moves
+    freely from there, and only the cursor drags the window — the one row
+    that must stay on screen is the one the keyboard is aiming at.
 
     [note] rides the meta line ahead of the counts — the app's place to say
     an app-level mode is shaping the pane (the live [/] filter, the accordion
-    light). [total] is how many structures there were before the filter; the
-    live count reads [n of total] when they differ. *)
+    light, address order). [total] is how many structures there were before
+    the filter; the live count reads [n of total] when they differ. *)
 val view
   :  note:string option
   -> total:int option
@@ -188,6 +204,22 @@ val view
   -> scroll:int
   -> selection:Selection.t
   -> View.t
+
+(** Where a step lands the eye: the scroll that brings the selection's row
+    (the cursor's, or failing that the selected one's) into view, roughly
+    centered, clamped to the outline. The app calls this as it steps — and on
+    [.] — so the pane opens on the structure the event walked instead of on
+    whatever sat at the top. The result is ordinary scroll state: the wheel
+    moves freely from there. 0 with nothing to land on. *)
+val landing
+  :  structures:Replay.Structure.t list
+  -> nodes:Replay.Nodes.t
+  -> new_addresses:Snapshot.Address.Set.t
+  -> folds:Set.M(Fold).t
+  -> selection:Selection.t
+  -> width:int
+  -> height:int
+  -> int
 
 (** A spot picked at one step, re-pointed at whatever row draws that node at
     this one — committing a [↗] pointer jumps the replay back to where the

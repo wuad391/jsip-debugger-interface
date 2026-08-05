@@ -513,6 +513,36 @@ let root_is_entry (node : Snapshot.Node.t) ~ds_type =
   (not (List.is_empty payload)) && (not counter_only) && threads_itself
 ;;
 
+let count_nodes structures =
+  List.sum
+    (module Int)
+    structures
+    ~f:(fun (structure : Replay.Structure.t) ->
+      Snapshot.Node.fold
+        structure.snapshot.root_node
+        ~init:0
+        ~f:(fun n (_ : Snapshot.Node.t) -> n + 1))
+;;
+
+let node_count_label count =
+  match count with 1 -> "1 node" | count -> [%string "%{count#Int} nodes"]
+;;
+
+(* loosely 1024-based, one decimal past a kilobyte — the point is scale, and
+   the words come off the wire's 64-bit runs *)
+let bytes_label words =
+  let bytes = words * 8 in
+  match bytes < 1024, bytes < 1024 * 1024 with
+  | true, (_ : bool) -> [%string "%{bytes#Int} B"]
+  | false, true -> Printf.sprintf "%.1f kB" (Float.of_int bytes /. 1024.)
+  | false, false ->
+    Printf.sprintf "%.1f MB" (Float.of_int bytes /. (1024. *. 1024.))
+;;
+
+let structure_words (structure : Replay.Structure.t) =
+  Snapshot.Node.heap_words structure.snapshot.root_node
+;;
+
 (* One entry of the outline before it is flattened into lines: what reached
    it, what it is, what it holds, and what hangs under it. *)
 module Entry = struct
@@ -520,6 +550,9 @@ module Entry = struct
     { field : string (** the edge label that reached it, or [""] *)
     ; name : string (** a structure's name; [""] on a plain entry *)
     ; ty : string (** a structure's type; [""] on a plain entry *)
+    ; stats : string
+    (** a structure's size — how many nodes, and how much memory their blocks
+        pin; [""] on a plain entry *)
     ; value : Span.t list
     ; address : Snapshot.Address.t
     ; is_new : bool
@@ -661,6 +694,7 @@ let rec entries_of
     { Entry.field
     ; name = ""
     ; ty = ""
+    ; stats = ""
     ; value
     ; address = node.virtual_address
     ; is_new = Set.mem context.new_addresses node.virtual_address
@@ -732,9 +766,19 @@ and structure_entry (structure : Replay.Structure.t) ~field ~context ~folds =
       first.value, first.children @ rest
     | (_ : Entry.t list) -> [ Span.Label, count_label rows ], rows
   in
+  (* size on the structure's own row, twice over — how many nodes, and how
+     much memory their blocks pin. That row is all you see of a folded
+     structure, and those are the numbers worth scanning for when hundreds of
+     them are folded to one line each. *)
+  let stats =
+    [%string
+      "%{node_count_label (count_nodes [ structure ])} · %{bytes_label \
+       (structure_words structure)}"]
+  in
   { Entry.field
   ; name = structure_name structure
   ; ty = structure_type structure
+  ; stats
   ; value
   ; address = structure.address
   ; is_new = Set.mem context.new_addresses structure.address
@@ -765,6 +809,7 @@ and pointer_entry ~id ~target ~field ~ds_type ~structure_id ~path =
   { Entry.field
   ; name = ""
   ; ty = ""
+  ; stats = ""
   ; value
   ; address =
       (match target with
@@ -849,7 +894,7 @@ end
    A row's [continuation] and its children's [prefix] are the same string,
    and for the same reason — both are what still hangs off this row once its
    elbow has been drawn. *)
-let rows ~structures ~nodes ~new_addresses ~folds =
+let assemble_rows ~structures ~nodes ~new_addresses ~folds =
   let rec walk (entries : Entry.t list) ~prefix ~depth ~parent acc =
     let last = List.length entries - 1 in
     List.foldi entries ~init:acc ~f:(fun index acc (entry : Entry.t) ->
@@ -879,19 +924,43 @@ let rows ~structures ~nodes ~new_addresses ~folds =
   List.rev (walk entries ~prefix:"" ~depth:0 ~parent:None [])
 ;;
 
-let count_nodes structures =
-  List.sum
-    (module Int)
-    structures
-    ~f:(fun (structure : Replay.Structure.t) ->
-      Snapshot.Node.fold
-        structure.snapshot.root_node
-        ~init:0
-        ~f:(fun n (_ : Snapshot.Node.t) -> n + 1))
-;;
+(* One step's outline, remembered under everything it reads. A wheel tick
+   changes only the crop and a cursor move only the washes — the rows come
+   out identical — and on a thousand-structure dump rebuilding them for every
+   tick is what made scrolling feel like wading. One slot is enough: the app
+   draws one step at a time, and anything that really changes the outline
+   (stepping, folding, filtering) misses and recomputes.
 
-let node_count_label count =
-  match count with 1 -> "1 node" | count -> [%string "%{count#Int} nodes"]
+   The key leans on the replay being an array of precomputed steps:
+   [step_exn] hands out the same physical record every time, so the node
+   table and the address set compare by identity, and a filtered structure
+   list still holds physically-equal elements. *)
+module Rows_key = struct
+  type t =
+    { structures : Replay.Structure.t list
+    ; nodes : Replay.Nodes.t
+    ; new_addresses : Snapshot.Address.Set.t
+    ; folds : Set.M(Fold).t
+    }
+
+  let equal a b =
+    phys_equal a.nodes b.nodes
+    && phys_equal a.new_addresses b.new_addresses
+    && List.equal phys_equal a.structures b.structures
+    && Set.equal a.folds b.folds
+  ;;
+end
+
+let rows_cache : (Rows_key.t * Row.t list) option ref = ref None
+
+let rows ~structures ~nodes ~new_addresses ~folds =
+  let key = { Rows_key.structures; nodes; new_addresses; folds } in
+  match !rows_cache with
+  | Some (cached, result) when Rows_key.equal cached key -> result
+  | Some _ | None ->
+    let result = assemble_rows ~structures ~nodes ~new_addresses ~folds in
+    rows_cache := Some (key, result);
+    result
 ;;
 
 (* the name · kind · type line — everything a structure says about itself,
@@ -916,6 +985,15 @@ let matches_filter structure ~filter =
       ~substring:(String.lowercase filter)
 ;;
 
+(* the [o] ordering: ascending addresses, so memory locality reads as
+   adjacency. Registry order — creation order — is the default. *)
+let by_address structures =
+  List.sort
+    structures
+    ~compare:(fun (a : Replay.Structure.t) (b : Replay.Structure.t) ->
+      Snapshot.Address.compare a.address b.address)
+;;
+
 let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
 
 (* A row as it ends up on the canvas: the lines it occupies and the wash
@@ -925,28 +1003,36 @@ let glyph_of ~folded = match folded with true -> "▸" | false -> "▾"
 module Drawn = struct
   type t =
     { row : Row.t
+    ; lead : int
+    (** blank lines above the row — the breathing room between top-level
+        structures. Part of the row's extent for the line arithmetic, but not
+        of the row: nothing washes the gap and nothing is there to hit. *)
     ; lines : View.t list
     ; bg : Attr.Color.t option
     }
 
-  let height t = List.length t.lines
+  let height t = t.lead + List.length t.lines
   let total_lines drawn = List.sum (module Int) drawn ~f:height
 
-  (* the row a canvas line belongs to, and how far into that row it is: line
-     0 is the one carrying the glyph, the rest are its wrapped tail *)
+  (* The row a canvas line belongs to, and how far into that row it is: line
+     0 is the one carrying the glyph, the rest are its wrapped tail. A line
+     in the gap above a row belongs to nobody. *)
   let at_line drawn ~line =
     let rec go drawn line =
       match drawn with
       | [] -> None
       | (t : t) :: rest ->
         (match line < height t with
-         | true -> Some (t, line)
+         | true ->
+           (match line < t.lead with
+            | true -> None
+            | false -> Some (t, line - t.lead))
          | false -> go rest (line - height t))
     in
     match line < 0 with true -> None | false -> go drawn line
   ;;
 
-  (* the canvas line a row starts on *)
+  (* the canvas line a row's extent starts on — its gap, where it has one *)
   let line_of drawn ~index = total_lines (List.take drawn index)
 end
 
@@ -1000,6 +1086,7 @@ let row_lines (row : Row.t) ~width ~selection =
       ; piece ~attrs:name_attrs entry.name
       ; piece ~attrs:(Theme.fg' Theme.type_name) entry.ty
       ; Span.pieces ~accent entry.value
+      ; piece ~attrs:(Theme.fg' Theme.faint) entry.stats
       ; hidden
       ; tag
       ]
@@ -1063,15 +1150,44 @@ let row_lines (row : Row.t) ~width ~selection =
           | true -> leading @ [ right_align last ]
           | false -> leading @ [ last; right_align (View.text "") ]))
   in
-  { Drawn.row; lines; bg = Selection.Mark.wash mark }
+  { Drawn.row; lead = 0; lines; bg = Selection.Mark.wash mark }
 ;;
 
 (* The whole outline, drawn and washed. Every line is padded to the pane's
-   width, so a picked row's wash runs the full width of each of its lines. *)
-let canvas drawn ~width =
+   width, so a picked row's wash runs the full width of each of its lines. A
+   row's gap stays plain — unwashed background is what separates the
+   structures. *)
+let assemble_canvas drawn ~width =
   View.vcat
     (List.concat_map drawn ~f:(fun (t : Drawn.t) ->
-       List.map t.lines ~f:(fun line -> Panel.row ?bg:t.bg line ~width)))
+       List.init t.lead ~f:(fun (_ : int) -> Panel.row (View.text "") ~width)
+       @ List.map t.lines ~f:(fun line -> Panel.row ?bg:t.bg line ~width)))
+;;
+
+(* The assembled canvas, remembered under the drawn list it was built from —
+   physically, since the memo over [drawn] hands back the same list until
+   something real changes. A wheel tick only crops this differently, and the
+   paint pass then reuses the view's own cached image; rebuilding thousands
+   of washed line views just to crop them elsewhere was most of a tick. *)
+module Canvas_key = struct
+  type t =
+    { drawn : Drawn.t list
+    ; width : int
+    }
+
+  let equal a b = phys_equal a.drawn b.drawn && a.width = b.width
+end
+
+let canvas_cache : (Canvas_key.t * View.t) option ref = ref None
+
+let canvas drawn ~width =
+  let key = { Canvas_key.drawn; width } in
+  match !canvas_cache with
+  | Some (cached, result) when Canvas_key.equal cached key -> result
+  | Some _ | None ->
+    let result = assemble_canvas drawn ~width in
+    canvas_cache := Some (key, result);
+    result
 ;;
 
 let bring_into_view ~at ~start ~length =
@@ -1103,20 +1219,66 @@ let aimed_index rows ~(selection : Selection.t) =
   |> Option.bind ~f:(row_index rows)
 ;;
 
-(* every row wrapped and washed, ready to be counted in lines *)
-let drawn rows ~width ~selection =
-  List.map rows ~f:(row_lines ~width:(Panel.inner_width ~width) ~selection)
+(* Every row wrapped and washed, ready to be counted in lines. A top-level
+   structure takes a blank line of lead over the one before it — breathing
+   room between structures, never between the rows inside one, and the
+   outline's first row needs none. *)
+let draw_rows rows ~width ~selection =
+  List.mapi rows ~f:(fun index (row : Row.t) ->
+    let lead =
+      match index > 0 && row.depth = 0 with true -> 1 | false -> 0
+    in
+    { (row_lines row ~width:(Panel.inner_width ~width) ~selection) with
+      lead
+    })
 ;;
 
-(* The outline scrolls to keep the aimed row on screen, adjusting from
-   wherever the reader had left it. [scroll] counts canvas lines rather than
-   rows, because that is what a wrapped outline can be scrolled to; a row
-   taller than the pane shows its head, which is where its name is. *)
-let resolve_scroll drawn ~height ~scroll ~selection =
+(* The drawing over one outline, remembered the same way as the rows: a wheel
+   tick changes neither, and aiming moves only the washes. Keyed on the
+   physical rows list the memo above hands back, plus what the drawing itself
+   reads. *)
+module Drawn_key = struct
+  type t =
+    { rows : Row.t list
+    ; selection : Selection.t
+    ; width : int
+    }
+
+  let equal a b =
+    phys_equal a.rows b.rows
+    && Selection.equal a.selection b.selection
+    && a.width = b.width
+  ;;
+end
+
+let drawn_cache : (Drawn_key.t * Drawn.t list) option ref = ref None
+
+let drawn rows ~width ~selection =
+  let key = { Drawn_key.rows; selection; width } in
+  match !drawn_cache with
+  | Some (cached, result) when Drawn_key.equal cached key -> result
+  | Some _ | None ->
+    let result = draw_rows rows ~width ~selection in
+    drawn_cache := Some (key, result);
+    result
+;;
+
+(* The outline scrolls freely — the wheel is never fought — except that the
+   row the keyboard is aiming at must stay on screen: a row you cannot see is
+   a row you cannot aim at. Only the cursor drags the window; the selection
+   is brought into view once, by {!landing}, as the app steps, and following
+   it continuously here would pin the window to it — a wheel that can never
+   move the selected row off screen cannot really scroll. [scroll] counts
+   canvas lines rather than rows, because that is what a wrapped outline can
+   be scrolled to; a row taller than the pane shows its head, which is where
+   its name is. *)
+let resolve_scroll drawn ~height ~scroll ~(selection : Selection.t) =
   let length = body_height ~height in
   let scroll = clamp scroll ~max:(Drawn.total_lines drawn - length) in
   match
-    aimed_index (List.map drawn ~f:(fun (t : Drawn.t) -> t.row)) ~selection
+    Option.bind
+      selection.cursor
+      ~f:(row_index (List.map drawn ~f:(fun (t : Drawn.t) -> t.row)))
   with
   | None -> scroll
   | Some index ->
@@ -1124,6 +1286,34 @@ let resolve_scroll drawn ~height ~scroll ~selection =
     let last = first + Drawn.height (List.nth_exn drawn index) - 1 in
     let scroll = bring_into_view ~at:last ~start:scroll ~length in
     bring_into_view ~at:first ~start:scroll ~length
+;;
+
+(* Where a step lands the eye: the scroll that brings the selection's row
+   into view, roughly centered where the outline is long enough to center in.
+   The app calls this as it steps, so the pane opens on the structure the
+   event walked (or the row just committed) instead of on whatever sat at the
+   top; the result is ordinary scroll state, so the wheel moves freely from
+   there and [.] lands the same way again. *)
+let landing
+  ~structures
+  ~nodes
+  ~new_addresses
+  ~folds
+  ~selection
+  ~width
+  ~height
+  =
+  let rows = rows ~structures ~nodes ~new_addresses ~folds in
+  let drawn = drawn rows ~width ~selection in
+  match aimed_index rows ~selection with
+  | None -> 0
+  | Some index ->
+    let first = Drawn.line_of drawn ~index in
+    let row_height = Drawn.height (List.nth_exn drawn index) in
+    let length = body_height ~height in
+    clamp
+      (first + (row_height / 2) - (length / 2))
+      ~max:(Drawn.total_lines drawn - length)
 ;;
 
 let view
@@ -1153,6 +1343,16 @@ let view
       | Some (_ : int) | None -> [%string "%{live#Int} live"]
     in
     let base = [%string "%{living} · %{node_count_label node_count}"] in
+    (* and how much memory those blocks pin, summed off the wire *)
+    let base =
+      match structures with
+      | [] -> base
+      | _ :: _ ->
+        let memory =
+          bytes_label (List.sum (module Int) structures ~f:structure_words)
+        in
+        [%string "%{base} · %{memory}"]
+    in
     let base =
       match fresh with
       | 0 -> base
@@ -1162,7 +1362,12 @@ let view
     | None -> base
     | Some note -> [%string "%{note} · %{base}"]
   in
+  (* the crop's dimensions follow arithmetically from the canvas's, so the
+     panel need not measure it — measuring would force the canvas's image
+     under a key the paint pass does not use, rebuilding it every frame *)
   Panel.view
+    ~body_size:
+      (Panel.inner_width ~width, Int.max 0 (Drawn.total_lines drawn - scroll))
     ~title:"heap"
     ~meta
     ~width
@@ -1754,9 +1959,10 @@ module Diagram = struct
        pane and reads uppercased, and [bigger] is the program's word, not
        ours *)
     let meta =
+      let memory = bytes_label (structure_words structure) in
       [%string
         "%{structure_name structure} · %{structure_type structure} · \
-         %{node_count_label drawn} · esc back"]
+         %{node_count_label drawn} · %{memory} · esc back"]
     in
     let body =
       Panel.view

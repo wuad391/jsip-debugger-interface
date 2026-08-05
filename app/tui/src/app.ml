@@ -61,6 +61,14 @@ module Model = struct
     ; typing_filter : bool
     (** the [/] prompt is open, and keystrokes edit the filter instead of
         driving the panes *)
+    ; stack_collapsed : bool
+    (** the call stack folded to its title row, its height handed to the
+        source pane — [1], or a click on the title *)
+    ; source_collapsed : bool (** likewise the source pane, on [2] *)
+    ; sort_by_address : bool
+    (** [o]: the outline's top level in ascending address order, so memory
+        locality reads as adjacency. Off — the default — is registry order,
+        i.e. creation order. *)
     ; popped_out : Heap_pane.Spot.t option
     (** [Enter] in the heap: the row whose structure is drawn as a diagram
         over the panes. While it is up it owns the keyboard — so the step
@@ -85,6 +93,9 @@ module Model = struct
     ; accordion = false
     ; heap_filter = ""
     ; typing_filter = false
+    ; stack_collapsed = false
+    ; source_collapsed = false
+    ; sort_by_address = false
     ; popped_out = None
     ; pop_scroll = 0
     ; pop_pan = 0
@@ -114,6 +125,14 @@ module Action = struct
     (** [space]: collapse whatever the focused pane is pointing at — the
         structure a heap row belongs to, or a call's descendants *)
     | Toggle_accordion
+    | Toggle_stack_pane
+    | Toggle_source_pane
+    | Toggle_address_order
+    (** [o]: flip the outline's top level between registry (creation) order
+        and ascending address order *)
+    | Focus_latest
+    (** [.]: back to the latest change — the structure this step walked —
+        clearing the aim, the chosen row, and the scroll on the way *)
     | Begin_filter (** [/]: open the prompt, starting from empty *)
     | Filter_input of char
     | Filter_backspace
@@ -160,16 +179,22 @@ let heap_selection replay (model : Model.t) =
 ;;
 
 (* What the heap pane actually draws: the [/] filter thins the registry to
-   the structures whose header matches, and accordion mode closes every
-   structure but the one the keyboard is in. The renderer, the hit-tests and
-   the cursor arithmetic all go through here so they cannot disagree about
-   what is on the canvas. *)
+   the structures whose header matches, [o] re-sorts the survivors by
+   address, and accordion mode closes every structure but the one the
+   keyboard is in. The renderer, the hit-tests, the cursor arithmetic and the
+   landing all go through here so they cannot disagree about what is on the
+   canvas. *)
 let heap_inputs replay (model : Model.t) =
   let structures =
     List.filter
       (Replay.step_exn replay ~step:model.step).structures
       ~f:(fun structure ->
         Heap_pane.matches_filter structure ~filter:model.heap_filter)
+  in
+  let structures =
+    match model.sort_by_address with
+    | false -> structures
+    | true -> Heap_pane.by_address structures
   in
   let folds =
     match model.accordion with
@@ -181,6 +206,35 @@ let heap_inputs replay (model : Model.t) =
         ~selection:(heap_selection replay model)
   in
   structures, folds
+;;
+
+(* Where a step (or a committed jump) lands the heap pane: the selection —
+   the walked structure's root until something is chosen — brought into view.
+   Needs the terminal's dimensions, which reach [apply_action] as the state
+   machine's input; while the app is inactive there is nothing to aim, so the
+   top of the canvas does fine. *)
+let landing replay dimensions (model : Model.t) =
+  match (dimensions : Dimensions.t Bonsai.Computation_status.t) with
+  | Inactive -> 0
+  | Active dimensions ->
+    let layout =
+      Layout.compute
+        ~stack_collapsed:model.stack_collapsed
+        ~source_collapsed:model.source_collapsed
+        dimensions
+    in
+    let { Replay.Step.nodes; new_addresses; _ } =
+      Replay.step_exn replay ~step:model.step
+    in
+    let structures, folds = heap_inputs replay model in
+    Heap_pane.landing
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds
+      ~selection:(heap_selection replay model)
+      ~width:layout.heap.width
+      ~height:layout.heap.height
 ;;
 
 (* the frame the stack pane treats as selected — the renderer's [selected],
@@ -202,6 +256,7 @@ let apply_action
   ~calls
   ~births
   (_ : _ Bonsai.Apply_action_context.t)
+  dimensions
   (model : Model.t)
   action
   =
@@ -216,20 +271,24 @@ let apply_action
     | true -> Set.remove set x
     | false -> Set.add set x
   in
-  (* any move re-follows the innermost frame and rewinds the heap pane, and
-     drops both cursors and the chosen row — at another step those addresses
-     name nothing, so blue goes back to following the walked structure. Folds
-     persist; that is the point of keying them stably. *)
+  (* any move re-follows the innermost frame and drops both cursors and the
+     chosen row — at another step those addresses name nothing, so blue goes
+     back to following the walked structure. Folds persist; that is the point
+     of keying them stably. *)
   let move ~playing step =
-    { model with
-      step = clamp_step step
-    ; selected_frame = None
-    ; playing
-    ; heap_scroll = 0
-    ; heap_selected = None
-    ; heap_cursor = None
-    ; stack_cursor = None
-    }
+    let stepped =
+      { model with
+        step = clamp_step step
+      ; selected_frame = None
+      ; playing
+      ; heap_scroll = 0
+      ; heap_selected = None
+      ; heap_cursor = None
+      ; stack_cursor = None
+      }
+    in
+    (* land the eye on what the step walked, not on the canvas top *)
+    { stepped with heap_scroll = landing replay dimensions stepped }
   in
   (* committing a heap row is exactly what clicking it does — jump to where
      it was allocated — and additionally pins it as the selection, so the row
@@ -259,7 +318,12 @@ let apply_action
         ~folds:stepped.heap_folds
         spot
     in
-    { stepped with heap_selected = selected; heap_cursor = None }
+    (* the landing scroll [move] computed aimed at the walked structure; now
+       that the selection is the committed row, land on that instead *)
+    let landed =
+      { stepped with heap_selected = selected; heap_cursor = None }
+    in
+    { landed with heap_scroll = landing replay dimensions landed }
   in
   let commit (model : Model.t) =
     match model.focus with
@@ -371,7 +435,28 @@ let apply_action
        in
        (match Option.first_some cursor selected with
         | None -> model
-        | Some spot -> toggle_heap_fold model (Heap_pane.fold_of_spot spot))
+        | Some spot ->
+          (* the spot can name a row the outline is not drawing — stepping
+             drops the cursor, and the fallback is the walked structure's
+             root row, which a collapsed structure hides. Fold what is
+             actually on screen: collapsed, the only drawing of that node is
+             the structure's own row, so [h] reopens the structure instead of
+             flipping a node fold nobody can see. *)
+          let { Replay.Step.nodes; new_addresses; _ } =
+            Replay.step_exn replay ~step:model.step
+          in
+          let structures, folds = heap_inputs replay model in
+          (match
+             Heap_pane.resolve_spot
+               ~structures
+               ~nodes
+               ~new_addresses
+               ~folds
+               spot
+           with
+           | None -> model
+           | Some spot ->
+             toggle_heap_fold model (Heap_pane.fold_of_spot spot)))
      | Pane.Stack ->
        let live = live_calls replay ~step:model.step in
        (match
@@ -383,6 +468,22 @@ let apply_action
         | Some call ->
           { model with stack_folds = toggle model.stack_folds call }))
   | Toggle_accordion -> { model with accordion = not model.accordion }
+  | Toggle_stack_pane ->
+    let stack_collapsed = not model.stack_collapsed in
+    (* a collapsed pane cannot be driven; hand the keyboard to the heap *)
+    { model with
+      stack_collapsed
+    ; focus =
+        (match stack_collapsed, model.focus with
+         | true, Pane.Stack -> Pane.Heap
+         | (_ : bool), focus -> focus)
+    }
+  | Toggle_source_pane ->
+    { model with source_collapsed = not model.source_collapsed }
+  | Toggle_address_order ->
+    { model with sort_by_address = not model.sort_by_address }
+  (* re-landing on the current step is exactly what stepping to it does *)
+  | Focus_latest -> move ~playing:model.playing model.step
   (* [/] always starts from empty: the old filter was shaped around whatever
      you were hunting last time, and editing it beats out of a prompt this
      small costs more keys than retyping *)
@@ -469,7 +570,12 @@ let render
   ~(model : Model.t)
   ~dimensions
   =
-  let layout = Layout.compute dimensions in
+  let layout =
+    Layout.compute
+      ~stack_collapsed:model.stack_collapsed
+      ~source_collapsed:model.source_collapsed
+      dimensions
+  in
   let { Replay.Step.call; frames; structures; nodes; new_addresses } =
     Replay.step_exn replay ~step:model.step
   in
@@ -513,7 +619,8 @@ let render
   let selection = heap_selection replay model in
   let heap_structures, heap_folds = heap_inputs replay model in
   (* the meta line owns up to the modes shaping the canvas: the filter as
-     typed (a block cursor while the prompt is open), the accordion by name *)
+     typed (a block cursor while the prompt is open), the accordion and the
+     address order by name *)
   let heap_note =
     let filter =
       match model.typing_filter with
@@ -526,7 +633,12 @@ let render
     let accordion =
       match model.accordion with true -> Some "accordion" | false -> None
     in
-    match List.filter_opt [ filter; accordion ] with
+    let order =
+      match model.sort_by_address with
+      | true -> Some "by address"
+      | false -> None
+    in
+    match List.filter_opt [ filter; accordion; order ] with
     | [] -> None
     | parts -> Some (String.concat parts ~sep:" · ")
   in
@@ -664,7 +776,8 @@ let render
                 ~live
                 ~selected
                 ~folds:model.stack_folds
-                ~cursor:model.stack_cursor)
+                ~cursor:model.stack_cursor
+                ~collapsed:model.stack_collapsed)
          ; place
              layout.source
              (Source_pane.view
@@ -675,7 +788,8 @@ let render
                 ~folds:source_folds
                 ~active_line:(Location.line_number location)
                 ~callsite_line
-                ~char_range:(Location.char_range location))
+                ~char_range:(Location.char_range location)
+                ~collapsed:model.source_collapsed)
          ; place
              layout.heap
              (Heap_pane.view
@@ -749,6 +863,88 @@ let render
   in
   let on_click (position : Position.t) : [ `Act of Action.t | `Quit ] option =
     let act action = `Act action in
+    (* everything below the pane titles — the body hit-tests only start under
+       the title row *)
+    let titleless () =
+      match Region.contains layout.ticks position with
+      | true ->
+        Transport.step_at
+          ~width:layout.ticks.width
+          ~total:(Replay.length replay)
+          ~x:position.x
+        |> Option.map ~f:(fun step -> act (Action.Step_to step))
+      | false ->
+        (match Layout.inner_position layout.stack position with
+         | Some { x; y } ->
+           Stack_pane.target_at
+             ~width:layout.stack.width
+             ~height:layout.stack.height
+             ~calls
+             ~heat
+             ~live
+             ~selected
+             ~folds:model.stack_folds
+             ~cursor:model.stack_cursor
+             ~x
+             ~row:y
+           |> Option.map ~f:(fun target ->
+             match (target : Stack_pane.Target.t) with
+             | Frame index -> act (Action.Select_frame index)
+             | Step step -> act (Action.Step_to step)
+             | Toggle call -> act (Action.Toggle_stack_fold call))
+         | None ->
+           (match Layout.inner_position layout.source position with
+            | Some { x; y } ->
+              Source_pane.toggle_at
+                ~width:layout.source.width
+                ~height:layout.source.height
+                ~source
+                ~folds:source_folds
+                ~active_line:(Location.line_number location)
+                ~callsite_line
+                ~char_range:(Location.char_range location)
+                ~x
+                ~y
+              |> Option.map ~f:(fun line ->
+                act
+                  (Action.Toggle_source_fold
+                     { Source_fold.file = file_path; line }))
+            | None ->
+              (match Layout.inner_position layout.heap position with
+               | Some { x; y } ->
+                 (* the panel pads the body one column right of the border;
+                    fold glyphs win over the row under them *)
+                 let x = max 0 (x - 1) in
+                 (match
+                    Heap_pane.toggle_at
+                      ~structures:heap_structures
+                      ~nodes
+                      ~new_addresses
+                      ~folds:heap_folds
+                      ~scroll:model.heap_scroll
+                      ~selection
+                      ~width:layout.heap.width
+                      ~height:layout.heap.height
+                      ~x
+                      ~y
+                  with
+                  | Some fold -> Some (act (Action.Toggle_heap_fold fold))
+                  | None ->
+                    Heap_pane.spot_at
+                      ~structures:heap_structures
+                      ~nodes
+                      ~new_addresses
+                      ~folds:heap_folds
+                      ~scroll:model.heap_scroll
+                      ~selection
+                      ~width:layout.heap.width
+                      ~height:layout.heap.height
+                      ~x
+                      ~y
+                    |> Option.map ~f:(fun spot ->
+                      act (Action.Select_heap_node spot)))
+               | None -> None)))
+    in
     match Option.is_some model.popped_out with
     (* while the slab is up a click anywhere puts it away, including on the
        [⏎ diagram] chip that raised it — one rule, and it makes the chip the
@@ -766,6 +962,7 @@ let render
            | Back -> act (Action.Step_delta (-1))
            | Step -> act (Action.Step_delta 1)
            | Play -> act Action.Toggle_play
+           | Latest -> act Action.Focus_latest
            | Node -> act (Action.Move_cursor Down)
            | Diagram -> act Action.Pop_out
            | Fold -> act Action.Toggle_focused_fold
@@ -773,85 +970,13 @@ let render
            | Filter -> act Action.Begin_filter
            | Quit -> `Quit)
        | false ->
-         (match Region.contains layout.ticks position with
-          | true ->
-            Transport.step_at
-              ~width:layout.ticks.width
-              ~total:(Replay.length replay)
-              ~x:position.x
-            |> Option.map ~f:(fun step -> act (Action.Step_to step))
+         (* the pane titles collapse and reopen their pane *)
+         (match Layout.on_title layout.stack position with
+          | true -> Some (act Action.Toggle_stack_pane)
           | false ->
-            (match Layout.inner_position layout.stack position with
-             | Some { x; y } ->
-               Stack_pane.target_at
-                 ~width:layout.stack.width
-                 ~height:layout.stack.height
-                 ~calls
-                 ~heat
-                 ~live
-                 ~selected
-                 ~folds:model.stack_folds
-                 ~cursor:model.stack_cursor
-                 ~x
-                 ~row:y
-               |> Option.map ~f:(fun target ->
-                 match (target : Stack_pane.Target.t) with
-                 | Frame index -> act (Action.Select_frame index)
-                 | Step step -> act (Action.Step_to step)
-                 | Toggle call -> act (Action.Toggle_stack_fold call))
-             | None ->
-               (match Layout.inner_position layout.source position with
-                | Some { x; y } ->
-                  Source_pane.toggle_at
-                    ~width:layout.source.width
-                    ~height:layout.source.height
-                    ~source
-                    ~folds:source_folds
-                    ~active_line:(Location.line_number location)
-                    ~callsite_line
-                    ~char_range:(Location.char_range location)
-                    ~x
-                    ~y
-                  |> Option.map ~f:(fun line ->
-                    act
-                      (Action.Toggle_source_fold
-                         { Source_fold.file = file_path; line }))
-                | None ->
-                  (match Layout.inner_position layout.heap position with
-                   | Some { x; y } ->
-                     (* the panel pads the body one column right of the
-                        border; fold glyphs win over the row under them *)
-                     let x = max 0 (x - 1) in
-                     (match
-                        Heap_pane.toggle_at
-                          ~structures:heap_structures
-                          ~nodes
-                          ~new_addresses
-                          ~folds:heap_folds
-                          ~scroll:model.heap_scroll
-                          ~selection
-                          ~width:layout.heap.width
-                          ~height:layout.heap.height
-                          ~x
-                          ~y
-                      with
-                      | Some fold ->
-                        Some (act (Action.Toggle_heap_fold fold))
-                      | None ->
-                        Heap_pane.spot_at
-                          ~structures:heap_structures
-                          ~nodes
-                          ~new_addresses
-                          ~folds:heap_folds
-                          ~scroll:model.heap_scroll
-                          ~selection
-                          ~width:layout.heap.width
-                          ~height:layout.heap.height
-                          ~x
-                          ~y
-                        |> Option.map ~f:(fun spot ->
-                          act (Action.Select_heap_node spot)))
-                   | None -> None)))))
+            (match Layout.on_title layout.source position with
+             | true -> Some (act Action.Toggle_source_pane)
+             | false -> titleless ())))
   in
   (* The wheel has one axis, so the diagram's sideways rides on a held
      modifier, with [\[]/[\]] for the same thing from the keyboard.
@@ -895,12 +1020,13 @@ let component
   in
   let heat = heat_of_calls ~profile ~calls in
   let model, inject =
-    Bonsai.state_machine
+    Bonsai.state_machine_with_input
       ~sexp_of_model:Model.sexp_of_t
       ~sexp_of_action:Action.sexp_of_t
       ~equal:Model.equal
       ~default_model:Model.initial
       ~apply_action:(apply_action replay ~calls ~births)
+      dimensions
       graph
   in
   let tick =
@@ -985,6 +1111,11 @@ let component
             whatever the focused pane is pointing at *)
          | ASCII 'h', [] -> inject Toggle_focused_fold
          | ASCII 'z', [] -> inject Toggle_accordion
+         | ASCII '.', [] -> inject Focus_latest
+         (* the left column's panes, top to bottom *)
+         | ASCII '1', [] -> inject Toggle_stack_pane
+         | ASCII '2', [] -> inject Toggle_source_pane
+         | ASCII 'o', [] -> inject Toggle_address_order
          | ASCII '/', [] -> inject Begin_filter
          (* clears a committed filter without reopening the prompt *)
          | Escape, [] -> inject Cancel_filter

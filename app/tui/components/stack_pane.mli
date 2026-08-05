@@ -6,9 +6,12 @@
     that line highlighted. Rows on the current step's live chain render
     bright; the selected frame gets the accent bar and wash; everything else
     (already returned, or not reached yet) is dimmed and clicking it jumps
-    the replay there. Long argument lists wrap onto continuation lines, and
-    the pane scrolls to keep the selection centered. Calls with descendants
-    carry a [▾]/[▸] fold glyph; folding hides their whole range (the depth
+    the replay there. Every other visible row wears a faint zebra stripe, so
+    a wall of calls reads as rows; a blank line separates consecutive calls,
+    and it is nobody's — unstriped, unwashed, and a click on it lands
+    nowhere. Long argument lists wrap onto continuation lines, and the pane
+    scrolls to keep the selection centered. Calls with descendants carry a
+    [▾]/[▸] fold glyph; folding hides their whole range (the depth
     bookkeeping's event span) behind a [⋯ n] count without touching any other
     pane. *)
 
@@ -44,6 +47,9 @@ val view
   -> selected:int
   -> folds:Int.Set.t
   -> cursor:int option
+  -> collapsed:bool
+       (** collapsed, the pane renders exactly its title row — [▸] and the
+           counts — which is also the click target that reopens it *)
   -> View.t
 
 (** Where [w]/[s] land from the cursor (or, failing that, the selected

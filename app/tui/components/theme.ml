@@ -23,6 +23,11 @@ let bg = color 0x1d1b19
    as sitting ABOVE the panes rather than among them, so it gets the shade
    that says so. A border alone reads as a pane with an odd frame. *)
 let raised = color 0x272320
+
+(* the call stack's alternating rows: a clearly lighter warm gray — it has to
+   read as a band at a glance, not on inspection, while staying far enough
+   under the text and the picked rows' washes *)
+let stripe_bg = color 0x312c26
 let accent = color 0xd4a24e
 let fresh = color 0x8fd694
 
