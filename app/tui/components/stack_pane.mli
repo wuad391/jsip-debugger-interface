@@ -10,10 +10,17 @@
     a wall of calls reads as rows; a blank line separates consecutive calls,
     and it is nobody's — unstriped, unwashed, and a click on it lands
     nowhere. Long argument lists wrap onto continuation lines, and the pane
-    scrolls to keep the selection centered. Calls with descendants carry a
-    [▾]/[▸] fold glyph; folding hides their whole range (the depth
-    bookkeeping's event span) behind a [⋯ n] count without touching any other
-    pane.
+    scrolls to keep the selection centered — the wheel's offset rides on top
+    of that centering and any step or aim resets it, so the hand wins between
+    moves and the centering wins whenever something moves. Calls with
+    descendants carry a [▾]/[▸] fold glyph; folding hides their whole range
+    (the depth bookkeeping's event span) behind a [⋯ n] count without
+    touching any other pane.
+
+    The call that put a structure into the registry wears its heap name —
+    [· m], [· #826] — so the heap pane's anonymous [#N]s point at a findable
+    row here; committing the heap row was already a jump to this step, and
+    the tag is that correspondence made visible.
 
     Exchange-scale dumps also repeat themselves: thousands of identical leaf
     calls in a row while a book fills. A run of at least four visible leaves
@@ -47,7 +54,10 @@ end
     call the keyboard is aiming at, washed orange over whatever the
     selection's blue is doing, so you can see where [Enter] would go without
     losing where you are; [expanded] the repeat runs (keyed by head index)
-    the user has opened back up. *)
+    the user has opened back up; [registered] what each step's call put into
+    the registry, by heap-pane name, rendered as a [· name] tag on its row
+    ([None] = nothing registered there); [scroll] the wheel's offset over the
+    centering. *)
 val view
   :  width:int
   -> height:int
@@ -58,6 +68,8 @@ val view
   -> folds:Int.Set.t
   -> cursor:int option
   -> expanded:Int.Set.t
+  -> registered:string option array
+  -> scroll:int
   -> collapsed:bool
        (** collapsed, the pane renders exactly its title row — [▸] and the
            counts — which is also the click target that reopens it *)
@@ -104,6 +116,8 @@ val target_at
   -> folds:Int.Set.t
   -> cursor:int option
   -> expanded:Int.Set.t
+  -> registered:string option array
+  -> scroll:int
   -> x:int
   -> row:int
   -> Target.t option

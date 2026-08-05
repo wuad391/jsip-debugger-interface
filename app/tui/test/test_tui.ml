@@ -198,6 +198,10 @@ let calls_of replay =
 (* no profile loaded: every callee keeps its ordinary state color *)
 let no_heat calls = Array.map calls ~f:(fun (_ : Call.t) -> None)
 
+(* most stack tests predate the registration tags; an all-[None] array keeps
+   their pictures about what they were about *)
+let no_registrations calls = Array.map calls ~f:(fun (_ : Call.t) -> None)
+
 let live_of replay ~step =
   let { Replay.Step.frames; _ } = Replay.step_exn replay ~step in
   List.map frames ~f:(fun (frame : Call.t) -> snd frame.range)
@@ -220,6 +224,8 @@ let%expect_test "stack pane: every call visible, the live chain lit" =
        ~folds:Int.Set.empty
        ~cursor:None
        ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
        ~collapsed:false);
   [%expect
     {|
@@ -254,7 +260,8 @@ let%expect_test "heap pane: a faded structure is faded throughout" =
     ├─   "a" → 1   [hairline ghost hairline ghost]
     └─   "b" → 2   [hairline ghost hairline ghost]
     ▾ m  int M.t  1 binding  1 node · 56 B   [faint highlight_deep type_name muted faint]
-    └─   "b" → 2   [border text ghost ident]
+    └─   "b" → 2   [border text ghost value_text]
+       name  type  value  new  ↗ shared  faded=unreachable   [text type_name value_text fresh ghost border]
     |}]
 ;;
 
@@ -277,6 +284,8 @@ let%expect_test "heap pane: rebinding a name fades the versions it left" =
 
     ▾ m  int M.t  1 binding  1 node · 56 B
     └─   "b" → 2
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -327,6 +336,14 @@ let%expect_test "heap pane: a map's l edge is empty, its r edge walked" =
     ▾ m  int M.t  2 bindings  2 nodes · 112 B  new
     ├─   "a" → 1  new
     └─   "b" → 2  new
+
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -343,6 +360,8 @@ let%expect_test "memory: a structure's row sizes it, the meta sums them" =
     HEAP                    1 live · 1 node · 56 B · 1 new
     ▾ m  int M.t  1 binding  1 node · 56 B  new
     └─   "a" → 1  new
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -355,6 +374,17 @@ let%expect_test "heap pane: a queue chains cells off first/next" =
     ▾ q  string Queue.t  length 2  3 nodes · 104 B
     ├─   "x"
     └─   "y"  new
+
+
+
+
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -375,6 +405,9 @@ let%expect_test "heap pane: boxed map data becomes a d→ child" =
         new
     └─ ▾ "pair" →  new
        └─   d  1, "one"  new
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -390,9 +423,19 @@ let%expect_test "heap pane: a collected structure is simply gone" =
     HEAP                    1 live · 1 node · 56 B · 1 new
     ▾ #1  int M.t  1 binding  1 node · 56 B  new
     └─   "dead" → 0  new
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     HEAP                    1 live · 1 node · 56 B · 1 new
     ▾ #2  int M.t  1 binding  1 node · 56 B  new
     └─   "live" → 1  new
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -420,7 +463,7 @@ let%expect_test "heap pane: a Core map is a record over a tagged tree" =
     ▾ m  (string, int) Map.t  3 bindings  3 nodes · 112 B  new
     ├─   "b" → 2  new
     ├─   ↗ "a" → 1
-    └─   "c" → 3  new
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -438,6 +481,22 @@ let%expect_test "heap pane: a Core hash queue chains through its elements" =
     ├─   v  "b" → 2
     ├─   v  "c" → 3  new
     └─   ↗ null
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -456,6 +515,13 @@ let%expect_test "heap pane: a user type is drawn from its derived schema" =
     └─ ▾ hd  t  trade  101  3 nodes · 112 B
        ├─   tags  "buy", "limit"
        └─   span  1, 9
+
+
+
+
+
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -481,7 +547,6 @@ let%expect_test "a wrapped record breaks between its fields, never inside \
         · 24 B
         new
     └─ ▾ hd  t
-           trade
     |}]
 ;;
 
@@ -644,6 +709,8 @@ let%expect_test "the left panes collapse to their title rows" =
        ~folds:Int.Set.empty
        ~cursor:None
        ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
        ~collapsed:true);
   let heights ?stack_collapsed ?source_collapsed () =
     let layout =
@@ -843,7 +910,7 @@ let%expect_test "heap pane: a union's two subtrees share a level" =
     ├─   3  new
     ├─   2  new
     ├─   1  new
-    └─   4  new
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -899,6 +966,15 @@ let%expect_test "heap pane: the map outlives the queue's arrival" =
     └─   "k" → 1
 
       q  int M.t Queue.t  length 0  1 node · 24 B  new
+
+
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -913,6 +989,23 @@ let%expect_test "heap pane: Queue.add links the map into the queue's tree" =
     ▾ q  int M.t Queue.t  length 1  2 nodes · 48 B
     └─ ▾ m  int M.t  1 binding  1 node · 56 B
        └─   "k" → 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -924,6 +1017,20 @@ let%expect_test "heap pane: hashtbl walks record → bucket array → chain" =
     HEAP                      1 live · 3 nodes · 208 B · 1 new
     ▾ tbl  (string, int) Hashtbl.t  size 1  3 nodes · 208 B
     └─   "a" → 1  new
+
+
+
+
+
+
+
+
+
+
+
+
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -966,6 +1073,29 @@ let%expect_test "heap pane: a queue of queues links through Id boundaries" =
     HEAP                       2 live · 3 nodes · 72 B · 1 new
     ▾ qq  'a Queue.t Queue.t  length 1  2 nodes · 48 B
     └─   q1  'a Queue.t  length 0  1 node · 24 B
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -977,6 +1107,16 @@ let%expect_test "heap pane: closures stay opaque" =
     HEAP                       1 live · 2 nodes · 48 B · 2 new
     ▾ q  (int -> int) Queue.t  length 1  2 nodes · 48 B
     └─   ⟨0x7f8238bebce8⟩  new
+
+
+
+
+
+
+
+
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1040,6 +1180,13 @@ let%expect_test "heap fold: a row keeps itself, hides its kids" =
     HEAP                  2 live · 3 nodes · 104 B · 1 new
     ▾ q  int M.t Queue.t  length 1  2 nodes · 48 B
     └─ ▸ m  int M.t  1 binding  1 node · 56 B  ⋯ 1
+
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1068,6 +1215,12 @@ let%expect_test "heap fold: a structure collapses to its header" =
     {|
     HEAP                  2 live · 3 nodes · 104 B · 1 new
     ▸ q  int M.t Queue.t  length 1  2 nodes · 48 B  ⋯ 2
+
+
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1257,6 +1410,8 @@ let%expect_test "stack fold: a call's range tucks behind a count" =
        ~folds:(Int.Set.of_list [ 1 ])
        ~cursor:None
        ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
        ~collapsed:false);
   [%expect
     {|
@@ -1342,7 +1497,7 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
     ▾ #6  S.t  4 elements  4 nodes · 128 B  new
     ├─   3  new
     ├─   2  new
-    ├─   1  new
+           name  type  value  new  ↗ shared  faded=unreachable
     HEAP                      3 live · 9 nodes · 288 B · 4 new
     ▾ a  S.t  3 elements  3 nodes · 96 B
     ├─   1
@@ -1356,6 +1511,7 @@ let%expect_test "heap fold keeps the rest of the diagram still" =
     ├─   2  new
     ├─   1  new
     └─   4  new
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1437,6 +1593,8 @@ let%expect_test "delta wire: a revisit stub replays the earlier shape" =
     ▾ m  int M.t  2 bindings  2 nodes · 112 B  new
     ├─   "a" → 1  new
     └─   "b" → 2  new
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1464,6 +1622,18 @@ let%expect_test "delta wire: a shared payload is drawn once, then pointed at"
     │  └─   d  ↗ x=1  y=2
     └─ ▾ "r" →  new
        └─   d  ↗ x=1  y=2
+
+
+
+
+
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1488,6 +1658,28 @@ let%expect_test "delta wire: one [add] rebuilds a spine and shares the rest" =
     ├─   "h" → 8  new
     ├─   "g" → 7  new
     └─   ↗ "j" → 10
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1499,6 +1691,33 @@ let%expect_test "delta wire: a payload cycle terminates" =
     HEAP                           2 live · 3 nodes · 88 B · 1 new
     ▾ q  cyc Queue.t  length 1  2 nodes · 48 B
     └─   r  cyc  name="loop"  self=0  1 node · 40 B
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1520,6 +1739,13 @@ let%expect_test "delta wire: version chains share their spines" =
     ├─   "c" → 3  new
     ├─   "d" → 4  new
     └─   "e" → 5  new
+
+
+
+
+
+
+               name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1565,6 +1791,18 @@ let%expect_test "selection: only the chosen and aimed rows spell an address" =
     ├─   "h" → 8  new
     ├─   "g" → 7  new
     └─   ↗ "j" → 10
+
+
+
+
+
+
+
+
+
+
+
+                           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1876,6 +2114,8 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
     ├─   "h" → 8  new
     ├─   "g" → 7  new
     └─   ↗ "j" → 10
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}];
   (* [w] to the open structure's header, [w] onto the one before it: the
      arrival opens [m], and [bigger] folds up behind us *)
@@ -1894,6 +2134,8 @@ let%expect_test "accordion: the structure the keyboard is in is the open one"
 
     ▸ bigger  int M.t  5 bindings  3 nodes · 168 B  ⋯ 5  new
                                                 0x7334179fff78
+
+           name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -1937,7 +2179,6 @@ let%expect_test "a step lands the heap on the structure it walked" =
      ▾ bigger  int M.t  5 bindings  3 nodes ·
          168 B  new              0x7334179fff78
      ├─   "f" → 6  new
-     ├─   ↗ "d" → 4
     |}]
 ;;
 
@@ -1983,8 +2224,6 @@ let%expect_test "[o]: address order packs allocation neighbors together" =
      HEAP by address · 2 live · 6 nodes · 336 B
      ▸ bigger  int M.t  6 bindings  3 nodes ·
          168 B  ⋯ 6  new
-
-     ▸ m  int M.t  4 bindings  3 nodes · 168 B
     |}]
 ;;
 
@@ -2021,9 +2260,7 @@ let%expect_test "a row wider than the pane wraps, and is still one row" =
 
     ▾ bigger  int M.t  5 bindings  3
         nodes · 168 B  new
-    ├─   "f" → 6  new
     HEAP 2 live · 6 nodes · 336 B · 3
-    ▾ m  int M.t  5 bindings  3
         nodes · 168 B
     ├─   "f" → 6
     ├─   "d" → 4
@@ -2068,6 +2305,10 @@ let%expect_test "filter: only matching structures stay on the canvas" =
     {|
     HEAP      /queue · 1 of 2 live · 1 node · 24 B · 1 new
       q  int M.t Queue.t  length 0  1 node · 24 B  new
+
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}];
   (* matching is case-insensitive, and the kind is part of the header's
      words, so [/MAP] finds the map *)
@@ -2077,6 +2318,9 @@ let%expect_test "filter: only matching structures stay on the canvas" =
     HEAP        /MAP · 1 of 2 live · 1 node · 56 B · 1 new
     ▾ m  int M.t  1 binding  1 node · 56 B
     └─   "k" → 1
+
+
+       name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -2132,7 +2376,6 @@ let%expect_test "selection: committing a link follows the node to its step" =
     {|
     (birth 5)
      HEAP                          2 live · 6 nodes · 336 B · 3 new
-     ▾ m  int M.t  5 bindings  3 nodes · 168 B
      ├─   "f" → 6
      ├─   "d" → 4
      ├─   "b" → 2
@@ -2145,6 +2388,7 @@ let%expect_test "selection: committing a link follows the node to its step" =
      ├─   "h" → 8  new
      ├─   "g" → 7  new
      └─   ↗ "j" → 10
+                name  type  value  new  ↗ shared  faded=unreachable
     |}]
 ;;
 
@@ -2177,6 +2421,8 @@ let%expect_test "stack pane: the aimed row rides over the selected one" =
        ~folds:Int.Set.empty
        ~cursor
        ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
        ~collapsed:false);
   [%expect
     {|
@@ -2221,6 +2467,8 @@ let%expect_test "stack pane: heat colors the callee names, layout untouched" =
        ~folds:Int.Set.empty
        ~cursor:None
        ~expanded:Int.Set.empty
+       ~registered:(no_registrations (calls_of replay))
+       ~scroll:0
        ~collapsed:false);
   [%expect
     {|
@@ -2331,6 +2579,8 @@ let%expect_test "stack pane: a repeat run collapses behind ×N" =
        ~folds:Int.Set.empty
        ~cursor:None
        ~expanded:Int.Set.empty
+       ~registered:(no_registrations calls)
+       ~scroll:0
        ~collapsed:false);
   [%expect
     {|
@@ -2357,6 +2607,8 @@ let%expect_test "stack pane: an expanded run shows every repeat" =
        ~folds:Int.Set.empty
        ~cursor:None
        ~expanded:(Int.Set.of_list [ 1 ])
+       ~registered:(no_registrations calls)
+       ~scroll:0
        ~collapsed:false);
   [%expect
     {|
@@ -2393,6 +2645,8 @@ let%expect_test "stack pane: a run holding the selection never collapses" =
        ~folds:Int.Set.empty
        ~cursor:None
        ~expanded:Int.Set.empty
+       ~registered:(no_registrations calls)
+       ~scroll:0
        ~collapsed:false);
   [%expect
     {|

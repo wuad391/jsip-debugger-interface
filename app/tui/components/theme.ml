@@ -83,10 +83,15 @@ let tick_density ramp ~density =
 let card_border = color 0x5d8cc2
 let rail = color 0x9c958c
 
-(* a printed type, in the heap pane's type column: leaning crimson rather
-   than toward the accent gold, so a column of them never reads as a column
-   of highlights — and pointedly not green, which the [new] tag owns *)
-let type_name = color 0xe06c75
+(* The heap's two text registers, re-pitched at Robyn's request (2026-08-05):
+   the pane read as busy with values in blue, so the pair swapped. Types are
+   the calm blue now — the same register as the source pane's identifiers —
+   and values the warm one. The value orange sits well under [cursor]'s
+   bright orange and to the red side of [accent]'s gold, so neither the
+   aiming color nor the brand highlight has a twin. Pointedly not green,
+   which the [new] tag owns. *)
+let type_name = color 0x7fb8dc
+let value_text = color 0xd08a54
 
 (* the app's purple, in its syntax-highlighting role *)
 let keyword = app_purple
@@ -143,6 +148,7 @@ module For_testing = struct
     ; "card_border", card_border
     ; "rail", rail
     ; "type_name", type_name
+    ; "value_text", value_text
     ; "text", text
     ; "secondary", secondary
     ; "muted", muted

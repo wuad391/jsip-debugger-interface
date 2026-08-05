@@ -333,7 +333,7 @@ module Palette = struct
     { border : Attr.Color.t (** the pop-out's card outlines *)
     ; dashed : Attr.Color.t (** the [↗] pointer box, the [∅] slot, [null] *)
     ; text : Attr.Color.t (** names and binding keys *)
-    ; value : Attr.Color.t (** plain values — the outline's ident blue *)
+    ; value : Attr.Color.t (** plain values — the warm value orange *)
     ; label : Attr.Color.t (** field labels, counters, and the [#id] *)
     ; arrow : Attr.Color.t (** the [→] of a binding, and [↗] *)
     ; rail : Attr.Color.t
@@ -350,7 +350,7 @@ module Palette = struct
     { border = Theme.card_border
     ; dashed = Theme.ghost
     ; text = Theme.text
-    ; value = Theme.ident
+    ; value = Theme.value_text
     ; label = Theme.muted
     ; arrow = Theme.ghost
     ; rail = Theme.rail
@@ -1326,7 +1326,40 @@ let bring_into_view ~at ~start ~length =
 ;;
 
 let clamp value ~max = Int.max 0 (Int.min max value)
-let body_height ~height = Int.max 1 (height - Panel.header_height)
+
+(* the outline's canvas stops one row short of the pane: the last body row
+   belongs to the legend *)
+let legend_height = 1
+
+let body_height ~height =
+  Int.max 1 (height - Panel.header_height - legend_height)
+;;
+
+(* What the colors mean, in the colors themselves, pinned to the pane's
+   bottom-right — the pane speaks four text registers plus a fade, which is
+   past what a reader carries in from other tools. Each word wears its own
+   color, so the legend needs no arrows; hidden when the pane is too narrow
+   for the whole line, because a truncated legend teaches the wrong thing. *)
+let legend ~width =
+  let words =
+    [ [ Theme.fg Theme.text; Attr.bold ], "name"
+    ; Theme.fg' Theme.type_name, "type"
+    ; Theme.fg' Theme.value_text, "value"
+    ; Theme.fg' Theme.fresh, "new"
+    ; Theme.fg' Theme.ghost, "↗ shared"
+    ; Theme.fg' Theme.border, "faded=unreachable"
+    ]
+  in
+  let line =
+    View.hcat
+      (List.map words ~f:(fun (attrs, word) -> View.text ~attrs word)
+       |> List.intersperse
+            ~sep:(View.text ~attrs:(Theme.fg' Theme.ghost) "  "))
+  in
+  match View.width line + 1 <= width with
+  | false -> View.none
+  | true -> View.pad ~l:(width - View.width line) line
+;;
 
 (* where the row the keyboard is on sits in the outline — by site, or by
    address when that site is gone because its structure has since collapsed *)
@@ -1492,15 +1525,29 @@ let view
   in
   (* the crop's dimensions follow arithmetically from the canvas's, so the
      panel need not measure it — measuring would force the canvas's image
-     under a key the paint pass does not use, rebuilding it every frame *)
+     under a key the paint pass does not use, rebuilding it every frame. The
+     legend rides the last body row, past the canvas's crop, so the outline
+     can never draw under it. *)
+  let inner_width = Panel.inner_width ~width in
+  let outline =
+    Panel.fit
+      ~size:(inner_width, Int.max 0 (Drawn.total_lines drawn - scroll))
+      (View.crop ~t:scroll (canvas drawn ~width:inner_width))
+      ~width:inner_width
+      ~height:(body_height ~height)
+  in
+  (* [zcat]+[pad], not [vcat]: stacking would measure the outline, forcing
+     the canvas image the memo exists to keep unforced *)
   Panel.view
-    ~body_size:
-      (Panel.inner_width ~width, Int.max 0 (Drawn.total_lines drawn - scroll))
+    ~body_size:(inner_width, body_height ~height + legend_height)
     ~title:"heap"
     ~meta
     ~width
     ~height
-    (View.crop ~t:scroll (canvas drawn ~width:(Panel.inner_width ~width)))
+    (View.zcat
+       [ outline
+       ; View.pad ~t:(body_height ~height) (legend ~width:inner_width)
+       ])
 ;;
 
 (* the row a click at pane-body position [(x, y)] is on, and how far into
@@ -1516,10 +1563,15 @@ let hit
   ~height
   ~y
   =
-  let rows = rows ~structures ~nodes ~new_addresses ~folds in
-  let drawn = drawn rows ~width ~selection in
-  let scroll = resolve_scroll drawn ~height ~scroll ~selection in
-  Drawn.at_line drawn ~line:(y + scroll)
+  (* the legend row is the pane's, not the outline's — a click there is a
+     click on nothing *)
+  match y >= body_height ~height with
+  | true -> None
+  | false ->
+    let rows = rows ~structures ~nodes ~new_addresses ~folds in
+    let drawn = drawn rows ~width ~selection in
+    let scroll = resolve_scroll drawn ~height ~scroll ~selection in
+    Drawn.at_line drawn ~line:(y + scroll)
 ;;
 
 let toggle_at

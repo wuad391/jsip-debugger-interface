@@ -75,9 +75,12 @@ val tick_density : Attr.Color.t array -> density:float -> Attr.Color.t
 
 val app_purple : Attr.Color.t
 
-(** A printed type, in the heap pane's type column: a crimson-leaning red, so
-    a column of them never reads as a column of highlights. *)
+(** The heap's two text registers: a printed type in the calm blue (the same
+    register as the source pane's identifiers), a walked value in a warm
+    orange dim enough that {!cursor}'s bright orange keeps meaning "aimed". *)
 val type_name : Attr.Color.t
+
+val value_text : Attr.Color.t
 
 (** A node's box in the diagram pop-out — a calmer blue than {!highlight}. *)
 val card_border : Attr.Color.t

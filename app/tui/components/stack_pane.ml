@@ -111,7 +111,17 @@ let run_head ~calls ~folds ~live ~selected index =
    its range away behind a [⋯ n] count. A collapsed repeat run is one row —
    its head, wearing the [⋯ ×N] — and its members are not rows at all, so the
    zebra bands stay alternating over what is actually drawn. *)
-let build_rows ~width ~calls ~heat ~live ~selected ~folds ~cursor ~expanded =
+let build_rows
+  ~width
+  ~calls
+  ~heat
+  ~live
+  ~selected
+  ~folds
+  ~cursor
+  ~expanded
+  ~registered
+  =
   let spans = run_spans ~calls ~folds ~live ~selected in
   Array.to_list calls
   |> List.filter_mapi ~f:(fun step (call : Call.t) ->
@@ -214,6 +224,15 @@ let build_rows ~width ~calls ~heat ~live ~selected ~folds ~cursor ~expanded =
         [ `Hidden, [%string " ⋯ %{descendants calls step#Int}"] ]
       | (`Expanded_head | `Plain), false -> []
     in
+    (* what this call put into the registry, by the name the heap pane lists
+       it under — [· m], [· #826] — so the heap's anonymous [#N]s point at a
+       findable row here. Committing the heap row already jumps to this step;
+       the tag is that correspondence made visible. *)
+    let registered_note =
+      match registered.(step) with
+      | None -> []
+      | Some label -> [ `Registered, [%string " · %{label}"] ]
+    in
     (* the row is the call and nothing else: where it was written is already
        on screen, highlighted, in the source pane below — a [file.ml:line]
        chip on every row said it a second time and cost the column a third of
@@ -221,7 +240,9 @@ let build_rows ~width ~calls ~heat ~live ~selected ~folds ~cursor ~expanded =
     let available = width - 1 - indent - 2 in
     let wrapped =
       Wrap.spans
-        ([ `Fn, fn; `Args, [%string " %{args}"] ] @ hidden_note)
+        ([ `Fn, fn; `Args, [%string " %{args}"] ]
+         @ registered_note
+         @ hidden_note)
         ~first_width:(max 8 available)
         ~width:(max 8 (available - 2))
     in
@@ -237,6 +258,9 @@ let build_rows ~width ~calls ~heat ~live ~selected ~folds ~cursor ~expanded =
       | `Args -> View.text ~attrs:(Theme.fg' args_color) text
       | `Hidden ->
         View.text ~attrs:[ Theme.fg Theme.muted; Attr.italic ] text
+      (* the same voice the heap pane's names speak in, so [#826] here and
+         [#826] there read as one thing *)
+      | `Registered -> View.text ~attrs:(Theme.fg' Theme.muted) text
     in
     let glyph_x = 1 + indent in
     let lines =
@@ -292,6 +316,7 @@ module Rows_key = struct
     ; folds : Int.Set.t
     ; cursor : int option
     ; expanded : Int.Set.t
+    ; registered : string option array
     }
 
   let equal a b =
@@ -303,27 +328,59 @@ module Rows_key = struct
     && Set.equal a.folds b.folds
     && [%equal: int option] a.cursor b.cursor
     && Set.equal a.expanded b.expanded
+    && phys_equal a.registered b.registered
   ;;
 end
 
 let rows_cache : (Rows_key.t * Row.t list) option ref = ref None
 
-let rows ~width ~calls ~heat ~live ~selected ~folds ~cursor ~expanded =
+let rows
+  ~width
+  ~calls
+  ~heat
+  ~live
+  ~selected
+  ~folds
+  ~cursor
+  ~expanded
+  ~registered
+  =
   let key =
-    { Rows_key.width; calls; heat; live; selected; folds; cursor; expanded }
+    { Rows_key.width
+    ; calls
+    ; heat
+    ; live
+    ; selected
+    ; folds
+    ; cursor
+    ; expanded
+    ; registered
+    }
   in
   match !rows_cache with
   | Some (cached, result) when Rows_key.equal cached key -> result
   | Some _ | None ->
     let result =
-      build_rows ~width ~calls ~heat ~live ~selected ~folds ~cursor ~expanded
+      build_rows
+        ~width
+        ~calls
+        ~heat
+        ~live
+        ~selected
+        ~folds
+        ~cursor
+        ~expanded
+        ~registered
     in
     rows_cache := Some (key, result);
     result
 ;;
 
-(* keep the row the eye is on centered among the wrapped rows: the cursor
-   while one is aimed, otherwise the selected call — or the fold hiding it *)
+(* Keep the row the eye is on centered among the wrapped rows: the cursor
+   while one is aimed, otherwise the selected call — or the fold hiding it.
+   [scroll] is the wheel's say on top of that centering, clamped to the run
+   of rows; stepping and aiming reset it, so the centering wins whenever
+   something moves and the hand wins between moves. *)
 let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
   let target_step =
     match cursor with
@@ -359,6 +416,18 @@ let scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor =
     (Int.max 0 (total - height))
 ;;
 
+(* the wheel's offset laid over the centering, kept inside the rows *)
+let resolve_offset rows ~height ~calls ~live ~selected ~folds ~cursor ~scroll
+  =
+  let centered =
+    scroll_offset rows ~height ~calls ~live ~selected ~folds ~cursor
+  in
+  let total =
+    List.sum (module Int) rows ~f:(fun (row : Row.t) -> row.height)
+  in
+  Int.max 0 (Int.min (centered + scroll) (Int.max 0 (total - height)))
+;;
+
 let view
   ~width
   ~height
@@ -369,6 +438,8 @@ let view
   ~folds
   ~cursor
   ~expanded
+  ~registered
+  ~scroll
   ~collapsed
   =
   (* collapsed, the pane is its title row — the [▸] is the way back in *)
@@ -398,9 +469,10 @@ let view
         ~folds
         ~cursor
         ~expanded
+        ~registered
     in
     let offset =
-      scroll_offset
+      resolve_offset
         rows
         ~height:inner_height
         ~calls
@@ -408,6 +480,7 @@ let view
         ~selected
         ~folds
         ~cursor
+        ~scroll
     in
     let body =
       (* a row's gap stays plain — unwashed, unstriped background is what
@@ -431,6 +504,8 @@ let target_at
   ~folds
   ~cursor
   ~expanded
+  ~registered
+  ~scroll
   ~x
   ~row
   =
@@ -446,9 +521,10 @@ let target_at
       ~folds
       ~cursor
       ~expanded
+      ~registered
   in
   let offset =
-    scroll_offset
+    resolve_offset
       rows
       ~height:inner_height
       ~calls
@@ -456,6 +532,7 @@ let target_at
       ~selected
       ~folds
       ~cursor
+      ~scroll
   in
   let target_line = row + offset in
   let rec find rows ~line =

@@ -62,6 +62,13 @@ divider line along each seam:
   a run of four or more collapses to one `fn args ⋯ ×N` row whose glyph
   expands it; a run holding the selection or a live frame never
   collapses.
+
+  The call that put a structure into the registry wears its heap name —
+  `· m`, `· #826` — so the heap's anonymous `#N`s point at a findable row
+  here (committing the heap row was already a jump to this very step).
+  The pane centers itself on the selection; the wheel scrolls on top of
+  that centering, and any step or aim resets the offset, so the hand
+  wins between moves and the centering wins whenever something moves.
 - **Source** — syntax-highlighted, the active line washed in the accent
   color, the event's character range underlined; long lines wrap under a
   blank gutter, and top-level definitions fold to their first line plus
@@ -117,7 +124,12 @@ divider line along each seam:
   `⟨0x…⟩`, and a row the wire left with nothing at all to say — an empty
   container's one entry, a revisit stub the registry could not resolve —
   reads `null`, spelled out so it cannot be mistaken for a value. A row
-  allocated *at this step* carries a green `new` tag.
+  allocated *at this step* carries a green `new` tag. The pane speaks
+  four text registers — names bright, types in the calm blue, values in
+  the warm orange, sizes faint — plus the fade, which is more than a
+  reader carries in from other tools, so a legend sits in the pane's
+  bottom-right corner with each word wearing its own color. It hides
+  when the pane is too narrow for the whole line.
 
   A structure the program can no longer name **fades** — guides, glyph,
   name (which loses its bold), type, values and stats, every row of its
@@ -299,7 +311,8 @@ filter (so `wasd`, `space` and `q` type instead of acting), the pane
 narrows live as you type, and only structures matching — name, kind or
 type, case-insensitive, so `/order`, `/hashtbl` and `/string` all work —
 stay on it. `Enter` keeps the filter,
-`Escape` drops it (also from outside the prompt), and the meta line
+`Escape` drops it (also from outside the prompt), backspacing past the
+last character backs out of the prompt itself, and the meta line
 owns up to the cut: `/order · 42 of 1223 live`. A fresh `/` always
 starts empty.
 

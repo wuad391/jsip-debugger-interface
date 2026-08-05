@@ -56,6 +56,10 @@ module Model = struct
         the pane highlighted before selection existed *)
     ; heap_cursor : Heap_pane.Spot.t option
     ; stack_cursor : int option (** a call index *)
+    ; stack_scroll : int
+    (** the wheel's offset over the stack's own centering; any step or aim
+        resets it, so the hand wins between moves and the centering wins
+        whenever something moves *)
     ; accordion : bool
     (** [z]: every structure collapsed but the one the keyboard is in *)
     ; heap_filter : string
@@ -94,6 +98,7 @@ module Model = struct
     ; heap_selected = None
     ; heap_cursor = None
     ; stack_cursor = None
+    ; stack_scroll = 0
     ; accordion = false
     ; heap_filter = ""
     ; typing_filter = false
@@ -115,6 +120,7 @@ module Action = struct
     | Toggle_play
     | Select_frame of int
     | Scroll_heap of int
+    | Scroll_stack of int
     | Toggle_heap_fold of Heap_pane.Fold.t
     | Toggle_stack_fold of int
     | Toggle_stack_run of int
@@ -291,6 +297,7 @@ let apply_action
       ; heap_selected = None
       ; heap_cursor = None
       ; stack_cursor = None
+      ; stack_scroll = 0
       }
     in
     (* land the eye on what the step walked, not on the canvas top *)
@@ -397,7 +404,9 @@ let apply_action
          in
          (match moved with
           | None -> model
-          | Some call -> { model with stack_cursor = Some call }))
+          (* aiming re-centers on the cursor; the wheel's offset yields *)
+          | Some call ->
+            { model with stack_cursor = Some call; stack_scroll = 0 }))
   in
   (* while the accordion is driving, structure folds are its to decide — a
      manual toggle would vanish under the override now and pop back as a
@@ -422,9 +431,16 @@ let apply_action
        move ~playing:(step < last) step)
   | Toggle_play -> { model with playing = not model.playing }
   | Select_frame index ->
-    { model with selected_frame = Some (clamp_frame index) }
+    { model with
+      selected_frame = Some (clamp_frame index)
+    ; stack_scroll = 0
+    }
   | Scroll_heap delta ->
     { model with heap_scroll = Int.max 0 (model.heap_scroll + delta) }
+  (* unclamped here — the pane clamps against the rows it actually drew, and
+     it is the one place that knows their heights *)
+  | Scroll_stack delta ->
+    { model with stack_scroll = model.stack_scroll + delta }
   | Toggle_heap_fold fold -> toggle_heap_fold model fold
   | Toggle_stack_fold call ->
     { model with stack_folds = toggle model.stack_folds call }
@@ -514,8 +530,15 @@ let apply_action
   | Begin_filter -> { model with typing_filter = true; heap_filter = "" }
   | Filter_input char ->
     { model with heap_filter = model.heap_filter ^ String.of_char char }
+  (* backspacing past the last character backs out of the prompt itself — the
+     natural exit when your hands are already on that key. [Escape] still
+     quits from anywhere, but a prompt you can only leave with a key you were
+     not using is a trap. *)
   | Filter_backspace ->
-    { model with heap_filter = String.drop_suffix model.heap_filter 1 }
+    (match String.is_empty model.heap_filter with
+     | true -> { model with typing_filter = false }
+     | false ->
+       { model with heap_filter = String.drop_suffix model.heap_filter 1 })
   | Commit_filter -> { model with typing_filter = false }
   | Cancel_filter -> { model with typing_filter = false; heap_filter = "" }
   | Focus_next_pane -> { model with focus = Pane.other model.focus }
@@ -592,6 +615,40 @@ let density_of_steps replay =
     Float.of_int count /. Float.of_int busiest)
 ;;
 
+(* What each step's call put into the registry, by the name the heap pane
+   lists it under — the [· m] / [· #826] tag on that call's row. A step
+   registers whatever its registry carries that the previous step's did not;
+   step 0 owns everything registered before the first event, which on a real
+   program is the module-init flood, so several names compress to a
+   first…last range. *)
+let registrations replay =
+  let ids ~step =
+    List.map
+      (Replay.step_exn replay ~step).structures
+      ~f:(fun (structure : Replay.Structure.t) -> structure.id)
+    |> Int.Set.of_list
+  in
+  Array.init (Replay.length replay) ~f:(fun step ->
+    let before =
+      match step with 0 -> Int.Set.empty | step -> ids ~step:(step - 1)
+    in
+    let fresh =
+      List.filter
+        (Replay.step_exn replay ~step).structures
+        ~f:(fun (structure : Replay.Structure.t) ->
+          not (Set.mem before structure.id))
+    in
+    match fresh with
+    | [] -> None
+    | [ structure ] -> Some (Replay.Structure.display structure)
+    | first :: (_ :: _ as rest) ->
+      let last = List.last_exn rest in
+      Some
+        [%string
+          "%{Replay.Structure.display first}…%{Replay.Structure.display \
+           last}"])
+;;
+
 (* where each address was first seen — what a click on a heap node jumps to *)
 let birth_steps replay =
   List.fold
@@ -621,6 +678,7 @@ let render
   ~heat
   ~heat_source
   ~density
+  ~registered
   ~(model : Model.t)
   ~dimensions
   =
@@ -833,6 +891,8 @@ let render
                 ~folds:model.stack_folds
                 ~cursor:model.stack_cursor
                 ~expanded:model.stack_expanded
+                ~registered
+                ~scroll:model.stack_scroll
                 ~collapsed:model.stack_collapsed)
          ; place
              layout.source
@@ -945,6 +1005,8 @@ let render
              ~folds:model.stack_folds
              ~cursor:model.stack_cursor
              ~expanded:model.stack_expanded
+             ~registered
+             ~scroll:model.stack_scroll
              ~x
              ~row:y
            |> Option.map ~f:(fun target ->
@@ -1055,12 +1117,16 @@ let render
     | true, false -> Some (Action.Scroll_pop_out delta)
     (* four columns a tick, roughly a wheel notch's share of a box *)
     | true, true -> Some (Action.Pan_pop_out (delta * 4))
-    (* the outline has nothing sideways to reach — its rows wrap — so a held
-       modifier over it changes nothing *)
+    (* neither pane has anything sideways to reach — the outline's rows wrap
+       and the stack centers itself — so a held modifier changes nothing *)
     | false, (true | false) ->
-      (match Region.contains layout.heap position with
-       | false -> None
-       | true -> Some (Action.Scroll_heap delta))
+      (match
+         ( Region.contains layout.heap position
+         , Region.contains layout.stack position )
+       with
+       | true, (_ : bool) -> Some (Action.Scroll_heap delta)
+       | false, true -> Some (Action.Scroll_stack delta)
+       | false, false -> None)
   in
   { Computed.view; on_click; on_scroll }
 ;;
@@ -1081,6 +1147,7 @@ let component
   in
   let heat, heat_source = heat_of_calls ~profile ~calls in
   let density = density_of_steps replay in
+  let registered = registrations replay in
   let model, inject =
     Bonsai.state_machine_with_input
       ~sexp_of_model:Model.sexp_of_t
@@ -1112,6 +1179,7 @@ let component
       ~heat
       ~heat_source
       ~density
+      ~registered
       ~model
       ~dimensions
   in
