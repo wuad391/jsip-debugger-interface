@@ -107,7 +107,7 @@ let hints
          | true -> "[space] pause"
          | false -> "[space] play")
         Action.Toggle_play
-    ; chip ". latest" Action.Focus_latest
+    ; chip ". focus" Action.Focus_latest
     ; chip ~lit:accordion "z accordion" Action.Toggle_accordion
     ; chip ~lit:sort_by_address "o by address" Action.Toggle_address_order
     ; chip ~lit:typing_filter "/ filter" Action.Begin_filter

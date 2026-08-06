@@ -56,7 +56,7 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
     tier 0: 8 boxes · 32.×256.
     tier 1: 8 boxes · 252.×690.
     tier 2: 8 boxes · 279.×970.
-    tier 3: 8 boxes · 283.×1774.
+    tier 3: 8 boxes · 319.×1882.
     same boxes true · growing true
     |}]
 ;;
@@ -122,13 +122,13 @@ let%expect_test "zoom stops and tiers round-trip through each other" =
          k=%{sprintf \"%.2f\" back}"]);
   [%expect
     {|
-    k=0.20 → tier 0.00 → k=0.20
-    k=0.45 → tier 1.00 → k=0.45
-    k=0.85 → tier 2.00 → k=0.85
-    k=1.00 → tier 2.29 → k=1.00
-    k=1.38 → tier 2.85 → k=1.38
-    k=1.50 → tier 3.00 → k=1.50
-    k=2.00 → tier 3.00 → k=1.50
+    k=0.20 → tier 0.60 → k=0.20
+    k=0.45 → tier 1.82 → k=0.45
+    k=0.85 → tier 2.90 → k=0.85
+    k=1.00 → tier 3.00 → k=0.90
+    k=1.38 → tier 3.00 → k=0.90
+    k=1.50 → tier 3.00 → k=0.90
+    k=2.00 → tier 3.00 → k=0.90
     |}]
 ;;
 

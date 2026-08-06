@@ -15,8 +15,9 @@ module Input = struct
     (** bumped by stepping: the cue to bring the walked structure back into
         view if it slipped off *)
     ; focus_seq : int
-    (** bumped by [.] and the header's [⌖ latest]: zoom to the walked
-        structure, wherever the view was *)
+    (** bumped by [.] and the header's [⌖]: zoom to whichever mark
+        {!focus_target} names, wherever the view was *)
+    ; focus_target : Action.Focus_target.t
     ; pulse_ids : string list
     (** boxes allocated at this step — ringed as the step arrives *)
     ; columns : int
@@ -117,10 +118,11 @@ module State = struct
     }
 end
 
-(* the wheel stops a third past full detail (tier 3 is fully grown at 1.5×):
-   past that, zoom only magnifies pixels *)
+(* the wheel stops well past full detail (tier 3 is fully grown at 0.9×):
+   past that, zoom only magnifies pixels. The floor is low enough to hold a
+   whole grid of structures at once — that view is a map, not a reading. *)
 let max_zoom = 2.0
-let min_zoom = 0.08
+let min_zoom = 0.035
 
 let font ?(italic = false) ?(bold = false) size =
   let italic = match italic with true -> "italic " | false -> "" in
@@ -336,12 +338,29 @@ let current_subtree_ids (state : State.t) =
         Heap_layout.key_id child.key :: ids))
 ;;
 
-(* [.]: the walked structure filling the pane at reading detail — pan AND
+(* the pinned box's own drawing — a single box, so focusing it is a close
+   read of one node rather than a survey of a structure *)
+let selected_ids (state : State.t) =
+  match state.input.selected_address with
+  | None -> None
+  | Some selected ->
+    (match
+       List.filter_map (visible_placed state) ~f:(fun placed ->
+         match placed.Heap_layout.Placed.node.address with
+         | Some address when Snapshot.Address.equal address selected ->
+           Some placed.id
+         | Some (_ : Snapshot.Address.t) | None -> None)
+     with
+     | [] -> None
+     | ids -> Some ids)
+;;
+
+(* [.] and [⌖]: the chosen marks filling the pane at reading detail — pan AND
    zoom, unconditionally *)
-let focus_on_current (state : State.t) =
-  match current_subtree_ids state with
-  | None | Some [] -> ()
-  | Some ids ->
+let focus_on_ids (state : State.t) ids =
+  match ids with
+  | [] -> ()
+  | ids ->
     (* measured at the fields tier, which is where focusing lands *)
     let layout = (layouts state).(2) in
     let bounds =
@@ -399,6 +418,22 @@ let focus_on_current (state : State.t) =
        state.view.y <- (state.height /. 2.) -. (cy *. k);
        state.anchor <- None;
        state.dirty <- true)
+;;
+
+(* The two marks the pane carries, and what [⌖] alternates between: the blue
+   box you pinned, and the orange structure this step walked. Asking for the
+   selection when nothing is pinned falls through to the walked one rather
+   than doing nothing — an inert button reads as broken. *)
+let focus_on_target (state : State.t) =
+  let current () =
+    focus_on_ids state (Option.value (current_subtree_ids state) ~default:[])
+  in
+  match state.input.focus_target with
+  | Action.Focus_target.Current -> current ()
+  | Action.Focus_target.Selection ->
+    (match selected_ids state with
+     | Some ids -> focus_on_ids state ids
+     | None -> current ())
 ;;
 
 (* stepping lands the eye on the walked structure — pan, never rezoom, and
@@ -1512,7 +1547,7 @@ let update
      land_on_current previous);
   (match old.focus_seq = input.focus_seq with
    | true -> ()
-   | false -> focus_on_current previous);
+   | false -> focus_on_target previous);
   (* the slider moved every structure, so the view it was framing is gone —
      refit rather than leave the eye somewhere arbitrary in the new grid *)
   (match old.columns = input.columns with

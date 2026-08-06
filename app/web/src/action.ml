@@ -30,6 +30,24 @@ module Edge_style = struct
   ;;
 end
 
+(* The two marks the heap pane carries, and what [⌖] alternates between: the
+   box you pinned (blue) and the structure this step walked (orange). One
+   button rather than two, because they are the same question — "take me back
+   to the thing I care about" — asked of whichever of them you last meant. *)
+module Focus_target = struct
+  type t =
+    | Selection
+    | Current
+  [@@deriving sexp_of, equal]
+
+  let toggle t = match t with Selection -> Current | Current -> Selection
+
+  (* named for where a press GOES, not where it has been *)
+  let display t =
+    match t with Selection -> "⌖ pinned" | Current -> "⌖ latest"
+  ;;
+end
+
 module Theme_mode = struct
   type t =
     | Dark

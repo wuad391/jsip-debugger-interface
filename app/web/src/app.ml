@@ -24,8 +24,10 @@ module Model = struct
     (** bumped by stepping: brings the walked structure back into the
         canvas's view if it slipped off *)
     ; focus_seq : int
-    (** bumped by [.] and the heap header's [⌖ latest]: the canvas zooms to
-        the walked structure *)
+    (** bumped by [.] and the heap header's [⌖]: the canvas zooms to
+        {!focus_target} *)
+    ; focus_target : Action.Focus_target.t
+    (** which mark the next [⌖] goes to; each press alternates *)
     ; stack_folds : Int.Set.t
     ; stack_expanded : Int.Set.t
     ; source_folds : Set.M(Action.Source_fold).t
@@ -56,6 +58,7 @@ module Model = struct
     ; playing = false
     ; land_seq = 0
     ; focus_seq = 0
+    ; focus_target = Action.Focus_target.Selection
     ; stack_folds = Int.Set.empty
     ; stack_expanded = Int.Set.empty
     ; source_folds = Set.empty (module Action.Source_fold)
@@ -166,10 +169,15 @@ let apply_action
     { model with
       heap_columns = Int.clamp_exn columns ~min:1 ~max:max_columns
     }
-  (* [.]: back to the latest change — the pinned box cleared so blue follows
-     the walked structure again, and the canvas zooms to it *)
+  (* [.] and [⌖]: back to a mark, alternating between the pinned box and the
+     walked structure. The pin is NOT cleared — it is half of what this
+     button navigates between, and clearing it would delete the destination
+     on the way there. *)
   | Focus_latest ->
-    { model with heap_selected = None; focus_seq = model.focus_seq + 1 }
+    { model with
+      focus_seq = model.focus_seq + 1
+    ; focus_target = Action.Focus_target.toggle model.focus_target
+    }
   (* [/] always starts from empty: the old filter was shaped around whatever
      you were hunting last time *)
   | Begin_filter -> { model with typing_filter = true; heap_filter = "" }
@@ -448,6 +456,7 @@ let component
         ; heap_columns
         ; land_seq
         ; focus_seq
+        ; focus_target
         ; heap_selected
         ; heap_filter
         ; typing_filter
@@ -475,6 +484,7 @@ let component
       ; step
       ; land_seq
       ; focus_seq
+      ; focus_target
       ; columns = heap_columns
       ; pulse_ids
       ; current_root_id =
@@ -544,6 +554,7 @@ let component
         ; accordion
         ; sort_by_address
         ; heap_columns
+        ; focus_target
         ; heap_filter
         ; typing_filter
         ; stack_folds
@@ -814,7 +825,7 @@ let component
               <span %{Styles.pane_title theme}>HEAP</span>
               <span>
                 <span %{Styles.hint_chip theme.accent}
-                      on_click=%{fun _ -> inject Action.Focus_latest}>⌖ latest</span>
+                      on_click=%{fun _ -> inject Action.Focus_latest}>#{Action.Focus_target.display focus_target}</span>
                 <span %{Styles.pane_meta theme}>#{heap_meta}</span>
               </span>
             </div>

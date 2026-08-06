@@ -277,10 +277,12 @@ let all roots ~columns =
    nearly finished growing — so text never draws into a box that cannot hold
    it. *)
 
-(* where each detail tier begins, as scale factors: labels arrive well under
-   1:1, fields around half scale, and the machine-word tier is fully grown by
-   150% — deep detail should not cost deep zoom *)
-let stops = [| 0.2; 0.45; 0.85; 1.5 |]
+(* Where each detail tier begins, as scale factors. Every one of them is
+   lower than it looks like it should be, because the boxes underneath are
+   drawn at a size that reads at HALF scale: the machine-word tier is fully
+   grown by 90%, and a box carrying its fields arrives at half that. Deep
+   detail should not cost deep zoom. *)
+let stops = [| 0.12; 0.28; 0.5; 0.9 |]
 
 let tier_for ~k =
   let lk = Float.log k in

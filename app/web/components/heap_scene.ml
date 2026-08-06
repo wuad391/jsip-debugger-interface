@@ -371,15 +371,25 @@ let raw_rows (node : Snapshot.Node.t) ~(context : Context.t) =
       Some "boxed word"
     | Address address -> Some (Snapshot.Address.display address)
   in
-  [ "@", Snapshot.Address.display node.virtual_address
-  ; "hd", [%string "%{arity + 1#Int}w · %{(arity + 1) * 8#Int}B"]
+  (* Labels that say what they are. These read as machine facts and were
+     spelled like them — [@], [hd], [0] — which is fine on a whiteboard and
+     unreadable in a pane you meet for the first time. A slot is named for
+     the FIELD it holds as well as its index, so the word here and the value
+     in the fields above are visibly the same slot. *)
+  [ "addr", Snapshot.Address.display node.virtual_address
+  ; "id", [%string "#%{node.id#Int}"]
+  ; ( "header"
+    , [%string
+        "%{arity#Int} field%{match arity with 1 -> \"\" | _ -> \"s\"} · \
+         %{arity + 1#Int}w · %{(arity + 1) * 8#Int}B"] )
   ]
-  @ List.filter_mapi node.block ~f:(fun index field ->
-    match index < 6 with
+  @ List.filter_mapi node.block ~f:(fun index (label, block) ->
+    match index < 12 with
     | false -> None
     | true ->
-      Option.map (field_word field) ~f:(fun word ->
-        [%string "[%{index#Int}]"], word))
+      Option.map
+        (field_word (label, block))
+        ~f:(fun word -> [%string "%{label}·%{index#Int}"], word))
 ;;
 
 (* One structure's tree of boxes, in the diagram's reading: every walked
