@@ -23,14 +23,14 @@ let fraction_of_click (event : Dom_html.mouseEvent Js.t) =
           | true -> Some ((Js.to_float event##.clientX -. left) /. width)))
 ;;
 
-(* Position is the bright/dim boundary itself, capped by the segment it
-   stands in — a separate needle floating over that read as a second,
-   disagreeing cursor.
+(* Position is the boundary between the two halves of the strip, capped by
+   the segment it stands in — a separate needle floating over that read as a
+   second, disagreeing cursor.
 
-   The played span has to read as a BAR, not as shading, so a segment behind
-   the position fills to at least [played_floor] however quiet its steps
-   were; ahead of it the density shape survives but sinks toward the strip. *)
-let played_floor = 0.34
+   Behind the position the strip is one flat blue: how far in you are is a
+   LENGTH, and shading it by density made the answer depend on what the run
+   happened to allocate. Ahead of it the density shape survives, sunk toward
+   the strip — that is the part worth previewing. *)
 let future_sink = 0.74
 
 let ticks ~(theme : Theme.t) ~segments ~step ~total ~inject =
@@ -43,8 +43,7 @@ let ticks ~(theme : Theme.t) ~segments ~step ~total ~inject =
       let color =
         match index = cursor, index < played with
         | true, (true | false) -> theme.accent_bright
-        | false, true ->
-          Theme.heat_color theme (Float.max value played_floor)
+        | false, true -> theme.progress
         | false, false ->
           Theme.mix
             (Theme.heat_color theme value)

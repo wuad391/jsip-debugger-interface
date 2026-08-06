@@ -61,10 +61,15 @@ let line_width (line : Heap_scene.Line.t) =
   label_width (Heap_scene.Line.text line)
 ;;
 
+(* Boxes are sized for the text at ONE-TO-ONE, but the tiers they belong to
+   arrive well under that ([stops]), so a box at its own tier is drawn at
+   roughly half scale — 11px type landing at six. Everything here and the
+   font sizes in the canvas widget are a fifth larger than the mockup's for
+   that reason: the mockup was a picture at 100%, this is a viewport. *)
 let size (node : Heap_scene.Node.t) ~tier =
   match node.kind with
   | Heap_scene.Kind.Nil ->
-    (match tier with 0 -> 8., 7. | (_ : int) -> 30., 23.)
+    (match tier with 0 -> 8., 7. | (_ : int) -> 44., 34.)
   | Heap_scene.Kind.Shared (_ : int) | Heap_scene.Kind.Block ->
     let lines_w =
       List.fold node.lines ~init:0. ~f:(fun widest line ->
@@ -72,20 +77,20 @@ let size (node : Heap_scene.Node.t) ~tier =
     in
     let raw_w =
       List.fold node.raw ~init:0. ~f:(fun widest ((_ : string), value) ->
-        Float.max widest (40. +. (label_width value *. 6.1) +. 14.))
+        Float.max widest (54. +. (label_width value *. 8.5) +. 18.))
     in
-    let w1 = Float.min 320. ((label_width node.label *. 7.4) +. 20.) in
+    let w1 = Float.min 460. ((label_width node.label *. 11.) +. 32.) in
     let w2 =
       Float.min
-        340.
-        ((Float.max (label_width node.label) (lines_w +. 8.) *. 7.1) +. 24.)
+        520.
+        ((Float.max (label_width node.label) (lines_w +. 8.) *. 10.5) +. 36.)
     in
-    let h2 = 24. +. (Float.of_int (List.length node.lines) *. 15.) in
-    let w3 = Float.min 380. (Float.max w2 raw_w) in
-    let h3 = h2 +. 9. +. (Float.of_int (List.length node.raw) *. 13.) in
+    let h2 = 43. +. (Float.of_int (List.length node.lines) *. 22.) in
+    let w3 = Float.min 560. (Float.max w2 raw_w) in
+    let h3 = h2 +. 13. +. (Float.of_int (List.length node.raw) *. 18.) in
     (match tier with
      | 0 -> 9. +. (Float.of_int (Int.min node.words 7) *. 1.6), 7.
-     | 1 -> w1, 23.
+     | 1 -> w1, 34.
      | 2 -> w2, h2
      | (_ : int) -> w3, h3)
 ;;
@@ -98,10 +103,14 @@ let size (node : Heap_scene.Node.t) ~tier =
 
 let gaps ~tier =
   let pick a b c d = match tier with 0 -> a | 1 -> b | 2 -> c | _ -> d in
-  ( pick 7. 24. 30. 38. (* gx: between siblings *)
-  , pick 16. 54. 66. 78. (* gy: between depth rows *)
+  (* Tighter than the mockup's, and much tighter than the boxes are big. Air
+     between nodes buys nothing once the boxes carry borders and headers of
+     their own — it just pushes the tree past the viewport, which costs zoom,
+     which costs legibility. Spend the pixels on the boxes. *)
+  ( pick 7. 16. 20. 24. (* gx: between siblings *)
+  , pick 16. 34. 42. 50. (* gy: between depth rows *)
   , pick 10. 30. 34. 34. (* hdr: header line above a root *)
-  , pick 26. 80. 96. 110. (* root gap: between structures *) )
+  , pick 26. 54. 64. 74. (* root gap: between structures *) )
 ;;
 
 (* One structure's tree in its OWN coordinates — header line at [y = 0], the

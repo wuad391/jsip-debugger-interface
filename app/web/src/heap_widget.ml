@@ -633,42 +633,43 @@ let draw_node
    | Heap_scene.Kind.Nil, (_ : int) -> ()
    | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), 1 ->
      set_fill context style.ink;
-     context##.font := Js.string (font 12.);
+     context##.font := Js.string (font ~bold:true 17.);
      context##.textAlign := Js.string "center";
      context##fillText
-       (Js.string (fit_text node.label ~size:12. ~room:(box.w -. 10.)))
+       (Js.string (fit_text node.label ~size:17. ~room:(box.w -. 14.)))
        (Js.float (box.x +. (box.w /. 2.)))
-       (Js.float (box.y +. ((box.h -. 12.) /. 2.) -. 1.));
+       (Js.float (box.y +. ((box.h -. 17.) /. 2.) -. 1.));
      context##.textAlign := Js.string "left"
    | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), (2 | 3) ->
+     (* the node's own name reads as a header: white, bold, over a rule *)
      set_fill context style.ink;
-     context##.font := Js.string (font 11.5);
+     context##.font := Js.string (font ~bold:true 16.);
      context##fillText
-       (Js.string (fit_text node.label ~size:11.5 ~room:(box.w -. 16.)))
-       (Js.float (box.x +. 8.))
-       (Js.float (box.y +. 5.));
+       (Js.string (fit_text node.label ~size:16. ~room:(box.w -. 20.)))
+       (Js.float (box.x +. 10.))
+       (Js.float (box.y +. 7.));
      set_stroke context (Theme.mix style.stroke theme.bg ~amount:0.45);
      context##.lineWidth := Js.float (1. /. k);
      context##beginPath;
-     context##moveTo (Js.float box.x) (Js.float (box.y +. 21.));
-     context##lineTo (Js.float (box.x +. box.w)) (Js.float (box.y +. 21.));
+     context##moveTo (Js.float box.x) (Js.float (box.y +. 31.));
+     context##lineTo (Js.float (box.x +. box.w)) (Js.float (box.y +. 31.));
      context##stroke;
-     let y = ref (box.y +. 25.) in
+     let y = ref (box.y +. 37.) in
      List.iter node.lines ~f:(fun line ->
-       let x = ref (box.x +. 8.) in
+       let x = ref (box.x +. 10.) in
        List.iter
          (line_parts theme line ~style)
          ~f:(fun (text, color, italic) ->
-           context##.font := Js.string (font ~italic 11.);
+           context##.font := Js.string (font ~italic 15.);
            set_fill context color;
-           let room = box.x +. box.w -. 8. -. !x in
+           let room = box.x +. box.w -. 10. -. !x in
            match Float.( > ) room 8. with
            | false -> ()
            | true ->
-             let fitted = fit_text text ~size:11. ~room in
+             let fitted = fit_text text ~size:15. ~room in
              context##fillText (Js.string fitted) (Js.float !x) (Js.float !y);
-             x := !x +. (Float.of_int (String.length fitted) *. 6.6));
-       y := !y +. 15.);
+             x := !x +. (Float.of_int (String.length fitted) *. 9.));
+       y := !y +. 22.);
      (match ct = 3 && not (List.is_empty node.raw) with
       | false -> ()
       | true ->
@@ -680,20 +681,20 @@ let draw_node
         context##lineTo (Js.float (box.x +. box.w -. 6.)) (Js.float y0);
         context##stroke;
         set_dash context [];
-        context##.font := Js.string (font 9.5);
-        let ry = ref (y0 +. 5.) in
+        context##.font := Js.string (font 13.);
+        let ry = ref (y0 +. 7.) in
         List.iter node.raw ~f:(fun (key, value) ->
           set_fill context theme.raw_key;
           context##fillText
             (Js.string key)
-            (Js.float (box.x +. 8.))
+            (Js.float (box.x +. 10.))
             (Js.float !ry);
           set_fill context theme.raw_value;
           context##fillText
-            (Js.string (fit_text value ~size:9.5 ~room:(box.w -. 46.)))
-            (Js.float (box.x +. 8. +. 26.))
+            (Js.string (fit_text value ~size:13. ~room:(box.w -. 62.)))
+            (Js.float (box.x +. 10. +. 36.))
             (Js.float !ry);
-          ry := !ry +. 13.))
+          ry := !ry +. 18.))
    | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), (_ : int) -> ());
   context##restore;
   match raised with true -> context##restore | false -> ()
@@ -782,7 +783,7 @@ let draw_heads (state : State.t) =
   match Heap_layout.content_tier state.tier_f >= 1 with
   | false -> ()
   | true ->
-    context##.font := Js.string (font 13.);
+    context##.font := Js.string (font ~bold:true 15.);
     context##.textBaseline := Js.string "alphabetic";
     List.iter
       (Heap_layout.heads_now (layouts state) ~tier_f:state.tier_f)

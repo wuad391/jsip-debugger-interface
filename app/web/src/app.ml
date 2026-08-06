@@ -205,6 +205,25 @@ let apply_action
 
 (* ── once-per-run data, ported from the TUI app ──────────────────────── *)
 
+(* Every share this interface colors is RELATIVE TO THE RUN: divided by the
+   busiest call rather than left as a fraction of the machine. Absolute
+   shares are calibrated for a profile of one program's hot loop, and neither
+   input here looks like that — a real profile of this exchange spends most
+   of its samples inside Base and Bin_prot, and a call-frequency fallback
+   spreads a long trace over hundreds of names. Both put every row on the
+   ramp's cold stop, which is a picture of the denominator, not of the run.
+   {!Theme.heat_thresholds} is spaced for this convention. *)
+let normalize shares =
+  let busiest =
+    Array.fold shares ~init:0. ~f:(fun hottest share ->
+      Float.max hottest (Option.value share ~default:0.))
+  in
+  match Float.( > ) busiest 0. with
+  | false -> shares
+  | true ->
+    Array.map shares ~f:(Option.map ~f:(fun share -> share /. busiest))
+;;
+
 (* each call's share, joined once up front — the color its name renders in.
    With a perf profile the share is sampled compute; without one it falls
    back to the trace itself, so a replay with no [-perf-file] still reads
@@ -213,10 +232,21 @@ let heat_of_calls ~profile ~(calls : Call.t array) =
   match (profile : Heat_profile.t option) with
   | Some profile ->
     ( Array.map calls ~f:(fun (call : Call.t) ->
-        Heat_profile.share
-          profile
-          ~function_info:call.info.function_info
-          ~location:call.info.location)
+        match
+          Heat_profile.share
+            profile
+            ~function_info:call.info.function_info
+            ~location:call.info.location
+        with
+        | Some share -> Some share
+        (* The instrumentation fires on bindings inside functions, so most
+           callees arrive as expressions located mid-function: perf can name
+           the enclosing function but the trace cannot, and a whole replay
+           comes back neutral with a good profile loaded. Falling back to
+           what the FILE cost keeps the reading true — coarser, not wrong. *)
+        | None ->
+          Heat_profile.file_share profile ~location:call.info.location)
+      |> normalize
     , `Compute )
   | None ->
     let counts =
@@ -226,20 +256,11 @@ let heat_of_calls ~profile ~(calls : Call.t array) =
           (Function_info.display call.info.function_info)
           ~f:(fun count -> 1 + Option.value count ~default:0))
     in
-    let busiest =
-      Float.of_int
-        (Map.fold counts ~init:1 ~f:(fun ~key:_ ~data -> Int.max data))
-    in
-    (* Scaled to the BUSIEST function, not to the whole trace. The ramp's
-       thresholds are calibrated for compute share, where one function really
-       can own a fifth of the samples; a share of the events is spread over
-       every call the dump recorded, so on a long run the same numbers put
-       the entire stack on the ramp's cold stop and the pane reads as having
-       no heat at all. Relative is also the truer claim here: this is the
-       busiest function in THIS run, not a fraction of a machine. *)
+    let total = Float.of_int (Array.length calls) in
     ( Array.map calls ~f:(fun (call : Call.t) ->
         Map.find counts (Function_info.display call.info.function_info)
-        |> Option.map ~f:(fun count -> Float.of_int count /. busiest))
+        |> Option.map ~f:(fun count -> Float.of_int count /. total))
+      |> normalize
     , `Calls )
 ;;
 

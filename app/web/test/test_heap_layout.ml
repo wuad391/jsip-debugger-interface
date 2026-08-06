@@ -54,9 +54,9 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
   [%expect
     {|
     tier 0: 8 boxes · 32.×256.
-    tier 1: 8 boxes · 168.×822.
-    tier 2: 8 boxes · 205.×1054.
-    tier 3: 8 boxes · 220.×1690.
+    tier 1: 8 boxes · 252.×690.
+    tier 2: 8 boxes · 279.×970.
+    tier 3: 8 boxes · 283.×1774.
     same boxes true · growing true
     |}]
 ;;
@@ -86,9 +86,9 @@ let%expect_test "structures pack across into a grid" =
   [%expect
     {|
     2 structures
-    1 across: 170.×371. · (0.,0.) (0.,187.)
-    2 across: 451.×184. · (0.,0.) (281.,0.)
-    3 across: 451.×184. · (0.,0.) (281.,0.)
+    1 across: 241.×318. · (0.,0.) (0.,152.)
+    2 across: 563.×166. · (0.,0.) (322.,0.)
+    3 across: 563.×166. · (0.,0.) (322.,0.)
     |}]
 ;;
 
@@ -105,10 +105,10 @@ let%expect_test "a parent's box is centered over the spread of its children" =
          box.y#Float} w=%{Float.round_nearest box.w#Float}"]);
   [%expect
     {|
-    1: d0  → x=0. y=30. w=161.
-    2: d0  → x=5. y=217. w=161.
-    2:0 d1 l → x=0. y=294. w=30.
-    2:1 d1 r → x=54. y=294. w=116.
+    1: d0  → x=0. y=30. w=241.
+    2: d0  → x=0. y=182. w=241.
+    2:0 d1 l → x=3. y=250. w=44.
+    2:1 d1 r → x=63. y=250. w=175.
     |}]
 ;;
 
@@ -170,8 +170,8 @@ let%expect_test "interpolated boxes sit between their two tier homes" =
            box.w#Float} h=%{Float.round_nearest box.h#Float}"]);
   [%expect
     {|
-    tier_f 1.00: w=161. h=23.
-    tier_f 1.40: w=166. h=31.
-    tier_f 1.85: w=173. h=39.
+    tier_f 1.00: w=241. h=34.
+    tier_f 1.40: w=248. h=49.
+    tier_f 1.85: w=257. h=65.
     |}]
 ;;

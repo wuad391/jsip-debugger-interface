@@ -69,3 +69,16 @@ val share
   -> function_info:Function_info.t
   -> location:Location.t
   -> float option
+
+(** Fraction of {!total_samples} spent anywhere in the source file the call
+    came from — its module's named entries plus lambdas defined in it.
+
+    The coarse reading, for when {!share} declines. Instrumented events fire
+    on bindings inside functions, so a callee often arrives as an expression
+    ({!Function_info.Unnamed}) located mid-function: no name to match and no
+    lambda defined there, and a whole replay can come back neutral even with
+    a good profile loaded. The file is still known, and "this call is in the
+    module the run spends its time in" is worth saying. Per-file, so every
+    call in one file shares a value — use it as a fallback behind {!share},
+    never instead of it. [None] when the profile sampled nothing there. *)
+val file_share : t -> location:Location.t -> float option

@@ -43,12 +43,21 @@ module Row = struct
   [@@deriving sexp_of]
 end
 
-(* [width] px shared among a node's children (by inclusive weight, in the
-   order given) and its own calls. From the first child too narrow to draw,
-   the TAIL pools into one marker — pooling the middle would tear the row's
-   tiling — and the marker's floor is paid for by scaling the drawn bars
+(* [width] px shared among a node's children (by inclusive weight) and its
+   own calls. Every child too narrow to read pools into one marker at the end
+   of the row, and the marker's floor is paid for by scaling the drawn bars
    down, so the segments still tile the parent exactly. The parent's own
-   share needs no floor: a gap is what self time looks like. *)
+   share needs no floor: a gap is what self time looks like.
+
+   The narrow ones pool WHEREVER they sit, not "everything after the first
+   narrow one". Siblings are in name order, so a tail rule threw away every
+   subtree that happened to sort after a thin one — on a real trace that
+   pooled the widest bar on the row and left the drawer looking like it held
+   a single call. The drawn bars keep their relative order, so the picture is
+   still a function of the program rather than of the run.
+
+   Results are [(index, width)] into [children]: the caller needs to know
+   WHICH children survived, now that they are no longer a prefix. *)
 let apportion ~width ~self ~children =
   let total = Float.of_int (self + List.fold children ~init:0 ~f:( + )) in
   match Float.( <= ) total 0. || Float.( <= ) width 0. with
@@ -56,29 +65,33 @@ let apportion ~width ~self ~children =
   | false ->
     let scale = width /. total in
     let widths =
-      List.map children ~f:(fun weight -> Float.of_int weight *. scale)
+      List.mapi children ~f:(fun index weight ->
+        index, Float.of_int weight *. scale)
     in
     let drawn, pooled =
-      match
-        List.findi widths ~f:(fun (_ : int) w -> Float.( < ) w min_child)
-      with
-      | None -> widths, []
-      | Some (at, (_ : float)) -> List.take widths at, List.drop widths at
+      List.partition_tf widths ~f:(fun ((_ : int), w) ->
+        Float.( >= ) w min_child)
     in
     (match pooled with
      | [] -> drawn, None
      | pooled ->
        let count = List.length pooled in
-       let natural = List.fold pooled ~init:0. ~f:( +. ) in
+       let natural =
+         List.fold pooled ~init:0. ~f:(fun total ((_ : int), w) ->
+           total +. w)
+       in
        let pool = Float.min (Float.max natural min_pool) (width /. 2.) in
-       let drawn_total = List.fold drawn ~init:0. ~f:( +. ) in
+       let drawn_total =
+         List.fold drawn ~init:0. ~f:(fun total ((_ : int), w) -> total +. w)
+       in
        let squeeze =
          match Float.( > ) drawn_total 0. with
          | false -> 1.
          | true ->
            Float.max 0. (drawn_total -. (pool -. natural)) /. drawn_total
        in
-       List.map drawn ~f:(fun w -> w *. squeeze), Some (pool, count))
+       ( List.map drawn ~f:(fun (index, w) -> index, w *. squeeze)
+       , Some (pool, count) ))
 ;;
 
 let bars tree ~zoom ~width ~live =
@@ -128,19 +141,17 @@ let bars tree ~zoom ~width ~live =
           (List.map node.children ~f:(fun (child : Flame_tree.Node.t) ->
              child.inclusive))
     in
+    let children = Array.of_list node.children in
     let end_x =
-      List.fold
-        (List.zip_exn (List.take node.children (List.length drawn)) drawn)
-        ~init:x
-        ~f:(fun cx ((child : Flame_tree.Node.t), w) ->
-          walk
-            child
-            ~rev_path:(node.key :: rev_path)
-            ~x:cx
-            ~width:w
-            ~depth:(depth + 1)
-            ~live:(match lit with true -> rest | false -> []);
-          cx +. w)
+      List.fold drawn ~init:x ~f:(fun cx (index, w) ->
+        walk
+          children.(index)
+          ~rev_path:(node.key :: rev_path)
+          ~x:cx
+          ~width:w
+          ~depth:(depth + 1)
+          ~live:(match lit with true -> rest | false -> []);
+        cx +. w)
     in
     match pool with
     | None -> ()
@@ -166,13 +177,11 @@ let bars tree ~zoom ~width ~live =
            (List.map tree.roots ~f:(fun (node : Flame_tree.Node.t) ->
               node.inclusive))
      in
+     let roots = Array.of_list tree.roots in
      ignore
-       (List.fold
-          (List.zip_exn (List.take tree.roots (List.length drawn)) drawn)
-          ~init:0.
-          ~f:(fun cx ((node : Flame_tree.Node.t), w) ->
-            walk node ~rev_path:[] ~x:cx ~width:w ~depth:0 ~live;
-            cx +. w)
+       (List.fold drawn ~init:0. ~f:(fun cx (index, w) ->
+          walk roots.(index) ~rev_path:[] ~x:cx ~width:w ~depth:0 ~live;
+          cx +. w)
         : float)
    | zoom ->
      (match Flame_tree.find tree ~path:zoom with
