@@ -632,6 +632,14 @@ let draw_node
        (Js.float (box.x +. box.w -. 5.))
        (Js.float (box.y +. 4.));
      context##.textAlign := Js.string "left");
+  (* The corner marks — the fold count and the [new] badge — are drawn
+     right-aligned over the same top strip the node's name occupies, so the
+     name has to stop short of them or the two overprint. *)
+  let badge_room =
+    match (node.folded && ct >= 1) || (node.is_new && ct >= 2) with
+    | true -> 38.
+    | false -> 0.
+  in
   (* clipped content *)
   context##save;
   context##beginPath;
@@ -671,7 +679,11 @@ let draw_node
      context##.font := Js.string (font ~bold:true 17.);
      context##.textAlign := Js.string "center";
      context##fillText
-       (Js.string (fit_text node.label ~size:17. ~room:(box.w -. 14.)))
+       (Js.string
+          (fit_text
+             node.label
+             ~size:17.
+             ~room:(box.w -. 14. -. (badge_room *. 2.))))
        (Js.float (box.x +. (box.w /. 2.)))
        (Js.float (box.y +. ((box.h -. 17.) /. 2.) -. 1.));
      context##.textAlign := Js.string "left"
@@ -680,7 +692,8 @@ let draw_node
      set_fill context style.ink;
      context##.font := Js.string (font ~bold:true 16.);
      context##fillText
-       (Js.string (fit_text node.label ~size:16. ~room:(box.w -. 20.)))
+       (Js.string
+          (fit_text node.label ~size:16. ~room:(box.w -. 20. -. badge_room)))
        (Js.float (box.x +. 10.))
        (Js.float (box.y +. 7.));
      set_stroke context (Theme.mix style.stroke theme.bg ~amount:0.45);
@@ -703,7 +716,15 @@ let draw_node
            | true ->
              let fitted = fit_text text ~size:15. ~room in
              context##fillText (Js.string fitted) (Js.float !x) (Js.float !y);
-             x := !x +. (Float.of_int (String.length fitted) *. 9.));
+             (* MEASURED, not counted. A line is drawn part by part, and the
+                cursor between them was advanced by character count times an
+                assumed 0.6em — which is right only while the canvas has the
+                monospace font we asked for. Fall back to anything wider and
+                every part after the first overprints the one before it. *)
+             x
+             := !x
+                +. Js.to_float
+                     (context##measureText (Js.string fitted))##.width);
        y := !y +. 22.);
      (match ct = 3 && not (List.is_empty node.raw) with
       | false -> ()

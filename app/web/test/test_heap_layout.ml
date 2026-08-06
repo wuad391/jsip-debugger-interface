@@ -87,8 +87,8 @@ let%expect_test "structures pack across into a grid" =
     {|
     2 structures
     1 across: 241.×318. · (0.,0.) (0.,152.)
-    2 across: 563.×166. · (0.,0.) (322.,0.)
-    3 across: 563.×166. · (0.,0.) (322.,0.)
+    2 across: 512.×166. · (0.,0.) (271.,0.)
+    3 across: 512.×166. · (0.,0.) (271.,0.)
     |}]
 ;;
 

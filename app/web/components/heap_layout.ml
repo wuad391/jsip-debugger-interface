@@ -212,57 +212,78 @@ let empty_layout =
 
 let compute (roots : Heap_scene.Root.t list) ~tier ~columns =
   let (_ : float), (_ : float), (_ : float), root_gap = gaps ~tier in
-  (* structures sit further apart across than down: two trees side by side
-     have nothing between them but air, where stacked ones are separated by a
-     header line as well *)
-  let column_gap = root_gap *. 1.5 in
+  (* Structures sit CLOSER across than down. Stacked ones are separated by a
+     header line as well as the gap; side by side there is only the gap, and
+     every pixel of it is paid for in zoom. *)
+  let column_gap = root_gap *. 0.55 in
   let columns = Int.max 1 columns in
   match List.map roots ~f:(layout_root ~tier) with
   | [] -> empty_layout
   | placements ->
-    let rows = (List.length placements + columns - 1) / columns in
-    let column_w = Array.create ~len:columns 0. in
-    let row_h = Array.create ~len:rows 0. in
-    List.iteri placements ~f:(fun index (placement : Placement.t) ->
-      let column = index % columns in
-      let row = index / columns in
-      column_w.(column) <- Float.max column_w.(column) placement.width;
-      row_h.(row) <- Float.max row_h.(row) placement.height);
-    let column_x = Array.create ~len:columns 0. in
-    for column = 1 to columns - 1 do
-      column_x.(column)
-      <- column_x.(column - 1) +. column_w.(column - 1) +. column_gap
-    done;
-    let row_y = Array.create ~len:rows 0. in
-    for row = 1 to rows - 1 do
-      row_y.(row) <- row_y.(row - 1) +. row_h.(row - 1) +. root_gap
-    done;
+    (* A row is a WIDTH BUDGET, not a count of slots: the slider says how
+       many average-sized structures should fit across, and each one then
+       takes the room it actually needs. A fixed grid is the wrong shape for
+       this data — heap trees differ in width by an order of magnitude, so
+       one wide tree set the width of a column that every narrow one below it
+       then swam in. Here a tree twice the average simply spans two slots'
+       worth and its row wraps sooner. *)
+    let average =
+      List.fold
+        placements
+        ~init:0.
+        ~f:(fun total (placement : Placement.t) -> total +. placement.width)
+      /. Float.of_int (List.length placements)
+    in
+    let budget = Float.of_int columns *. (average +. column_gap) in
+    let shelved, last, (_ : float) =
+      List.fold
+        placements
+        ~init:([], [], 0.)
+        ~f:(fun (shelves, current, used) (placement : Placement.t) ->
+          let gap = match current with [] -> 0. | _ :: _ -> column_gap in
+          let next = used +. gap +. placement.width in
+          (* one per row at minimum: a structure wider than the whole budget
+             still has to go somewhere *)
+          match List.is_empty current || Float.( <= ) next budget with
+          | true -> shelves, placement :: current, next
+          | false ->
+            List.rev current :: shelves, [ placement ], placement.width)
+    in
+    let shelves =
+      List.rev
+        (match last with [] -> shelved | _ :: _ -> List.rev last :: shelved)
+    in
     let pos = ref String.Map.empty in
     let placed = Queue.create () in
     let heads = Queue.create () in
     let width = ref 0. in
-    let height = ref 0. in
-    List.iteri placements ~f:(fun index (placement : Placement.t) ->
-      let dx = column_x.(index % columns) in
-      let dy = row_y.(index / columns) in
-      Map.iteri placement.pos ~f:(fun ~key ~data:(box : Box.t) ->
-        pos
-        := Map.set
-             !pos
-             ~key
-             ~data:{ box with x = box.x +. dx; y = box.y +. dy });
-      List.iter placement.placed ~f:(fun placed_node ->
-        Queue.enqueue placed placed_node);
-      Queue.enqueue heads { Head.root = placement.root; x = dx; y = dy };
-      (* the extent is measured off the structures themselves, so trailing
-         empty columns cost nothing *)
-      width := Float.max !width (dx +. placement.width);
-      height := Float.max !height (dy +. placement.height));
+    let y = ref 0. in
+    List.iter shelves ~f:(fun shelf ->
+      let x = ref 0. in
+      let tallest =
+        List.fold shelf ~init:0. ~f:(fun tallest (placement : Placement.t) ->
+          Float.max tallest placement.height)
+      in
+      List.iter shelf ~f:(fun (placement : Placement.t) ->
+        let dx = !x in
+        let dy = !y in
+        Map.iteri placement.pos ~f:(fun ~key ~data:(box : Box.t) ->
+          pos
+          := Map.set
+               !pos
+               ~key
+               ~data:{ box with x = box.x +. dx; y = box.y +. dy });
+        List.iter placement.placed ~f:(fun placed_node ->
+          Queue.enqueue placed placed_node);
+        Queue.enqueue heads { Head.root = placement.root; x = dx; y = dy };
+        x := !x +. placement.width +. column_gap);
+      width := Float.max !width (!x -. column_gap);
+      y := !y +. tallest +. root_gap);
     { Tier_layout.placed = Queue.to_list placed
     ; pos = !pos
     ; heads = Queue.to_list heads
     ; width = !width
-    ; height = !height
+    ; height = Float.max 0. (!y -. root_gap)
     }
 ;;
 

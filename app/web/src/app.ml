@@ -11,9 +11,10 @@ module Effect = Bonsai_web.Effect
 
 let play_interval = Time_ns.Span.of_int_ms 850
 
-(* how far the heap's corner slider goes. Past six across, a structure's
-   header no longer fits over its own tree at any readable zoom. *)
-let max_columns = 6
+(* how far the heap's corner slider goes. It counts AVERAGE-sized structures
+   across, not columns, so the top of the range is a survey of a whole
+   registry at once rather than a grid nobody could read. *)
+let max_columns = 16
 
 module Model = struct
   type t =
