@@ -1,0 +1,23 @@
+(executable
+ (name serve)
+ (libraries
+  core
+  async
+  cohttp
+  cohttp-async
+  core_unix.command_unix
+  core_unix.filename_unix
+  uri)
+ (preprocess
+  (pps ppx_jane)))
+
+; the compiled client and its page, baked into the server binary so
+; [serve.exe] is self-contained wherever it is run from
+
+(rule
+ (targets embedded_assets.ml embedded_assets.mli)
+ (deps
+  (:page ../client/index.html)
+  (:client ../client/main.bc.js))
+ (action
+  (run ocaml-embed-file %{page} %{client} -output embedded_assets)))

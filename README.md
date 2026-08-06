@@ -304,7 +304,46 @@ dune exec app/bin/main.exe -- -dump-file testing/expected/multi_file.dump
 live (default: the current directory; the golden dumps' paths resolve
 from the repo root).
 
-### Selecting
+### The web interface
+
+The same replay in a browser, where the heap finally gets real zoom:
+
+```sh
+dune exec app/web/server/serve.exe -- -dump-file testing/expected/map_spine_sharing.dump
+# → http://localhost:8080
+```
+
+`serve.exe` takes the TUI's flags (`-dump-file`, `-source-root`,
+`-perf-file`) plus `-port`, binds to localhost, and serves a
+js_of_ocaml build of the app; the browser fetches the dump and parses it
+with exactly the readers the TUI uses.
+
+The stack, source, timeline and flame drawer are the TUI's panes in HTML.
+The heap pane replaces the outline with the diagram itself — every live
+structure as its physical tree of boxes, `∅` boxes for empty slots,
+dashed `↗` boxes where a node is already drawn — on a canvas with
+**semantic zoom**: the wheel moves through four detail tiers (postage
+stamp → label → fields → machine words, `@` address, header word, tagged
+ints) and geometry crossfades between tier layouts while content
+switches only once its box has grown. Zoom anchors under the pointer,
+double-click dives into a box, double-click on empty space refits, drag
+pans, and the minimap in the corner drags too. `m` flips between uniform
+detail and a focal mode where boxes near the pointer grow while the rest
+stay small.
+
+Everything from the terminal carries over: `←`/`→` step (`space` plays,
+the strip up top scrubs), clicking a box jumps to its allocation step
+and pins it blue, hovering shows the tooltip the outline's rows carried
+(address, words, contents, visibility), `h` folds the hovered box's
+subtree, `z` accordions to the walked structure, `/` filters (matches
+stay lit, the rest sink), `o` re-stacks structures by address, `f` opens
+the flame drawer (click a bar to jump, double-click to zoom it, `Z`
+resets), `1`/`2` collapse the left panes, `.` re-lands on the walked
+structure, and `t` flips the whole surface between dark and light.
+
+There is no pop-out diagram and no `Tab` focus: the canvas *is* the
+diagram, and the keys work globally with hover standing in for the
+outline's orange cursor.
 
 `Tab` moves focus between the call stack, the heap, and — while it is
 open — the flame drawer; the focused pane's seams turn orange. Inside

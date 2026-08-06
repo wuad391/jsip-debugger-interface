@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jsip web debugger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;height:100%;background:#101216;overflow:hidden}
+*{box-sizing:border-box}
+a{color:#5f9fd6;text-decoration:none}
+a:hover{color:#8ec0ea}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:#14161b}
+::-webkit-scrollbar-thumb{background:#2c313c}
+::-webkit-scrollbar-thumb:hover{background:#3d4757}
+input{font:inherit;color:inherit;background:transparent;border:0;outline:0}
+</style>
+<script>
+/* a startup crash must say so — this machine's only debugger is the page */
+window.addEventListener('error', function (event) {
+  var app = document.getElementById('app');
+  if (app && !app.hasChildNodes()) {
+    var pre = document.createElement('pre');
+    pre.style.cssText =
+      'color:#e05545;background:#101216;padding:24px;white-space:pre-wrap;' +
+      "font:13px 'JetBrains Mono',monospace";
+    pre.textContent = 'jsip web debugger crashed on startup:\n\n' +
+      (event.error && event.error.stack ? event.error.stack : event.message);
+    app.appendChild(pre);
+  }
+});
+</script>
+<script defer src="main.bc.js"></script>
+</head>
+<body>
+<div id="app">
+<!-- replaced the moment Bonsai mounts; a 20MB exchange dump parses for a
+     few seconds first, and an empty page reads as a crash -->
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#7f8899;font:13px 'JetBrains Mono',ui-monospace,monospace">
+fetching and parsing the dump…
+</div>
+</div>
+</body>
+</html>

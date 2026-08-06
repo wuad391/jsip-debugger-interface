@@ -1,6 +1,7 @@
 open! Core
 open Jsip_types
 module Attr = Bonsai_term.Attr
+module Syntax = Jsip_parsing.Syntax
 module View = Bonsai_term.View
 
 module Loaded = struct

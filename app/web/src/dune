@@ -1,0 +1,15 @@
+(library
+ (name jsip_web)
+ (public_name jsip-debugger-interface.jsip_web)
+ (libraries
+  core
+  bonsai
+  bonsai_web
+  virtual_dom
+  js_of_ocaml
+  jsip_types
+  jsip_parsing
+  jsip_replay
+  jsip_web_components)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai ppx_html js_of_ocaml-ppx)))

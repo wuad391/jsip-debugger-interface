@@ -1,0 +1,18 @@
+(executable
+ (name main)
+ (modes js)
+ (js_of_ocaml
+  (flags
+   (:standard --effects=cps)))
+ (libraries
+  core
+  async_js
+  async_kernel
+  bonsai_web
+  jsip_types
+  jsip_parsing
+  jsip_replay
+  jsip_web_components
+  jsip_web)
+ (preprocess
+  (pps ppx_jane js_of_ocaml-ppx)))

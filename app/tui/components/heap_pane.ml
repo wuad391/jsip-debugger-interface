@@ -928,7 +928,7 @@ and pointer_entry ~id ~target ~field ~ds_type ~palette ~structure_id ~path =
   ; address =
       (match target with
        | Some (node : Snapshot.Node.t) -> node.virtual_address
-       | None -> 0n)
+       | None -> 0L)
   ; is_new = false
   ; is_current = false
   ; is_binding = false
