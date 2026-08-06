@@ -15,6 +15,22 @@ module Lod = struct
   ;;
 end
 
+(* The heap pane's two readings of the same step, as tabs. The canvas draws
+   every structure as the tree of blocks it physically is; the outline
+   ({!Jsip_web_components.Heap_outline}) names what each one HOLDS, one
+   indented row per binding or element — the TUI pane's reading. Both are
+   built from the same scene inputs, so the folds, the [/] filter, the [o]
+   address order and the [z] accordion carry across the tab. *)
+module Heap_view = struct
+  type t =
+    | Diagram
+    | Outline
+  [@@deriving sexp_of, equal]
+
+  let toggle t = match t with Diagram -> Outline | Outline -> Diagram
+  let display t = match t with Diagram -> "DIAGRAM" | Outline -> "OUTLINE"
+end
+
 module Edge_style = struct
   type t =
     | Angled
@@ -96,6 +112,8 @@ type t =
   | Cancel_filter
   | Select_heap_address of Snapshot.Address.t
   (** a click on a box: pin it blue and jump to its allocation step *)
+  | Set_heap_view of Heap_view.t (** a click on the heap pane's tabs *)
+  | Toggle_heap_view (** [v]: the same, from the keyboard *)
   | Toggle_lod
   | Cycle_edge_style
   | Toggle_theme (** [t]: light and dark, the whole surface at once *)

@@ -208,6 +208,80 @@ let heap_header (theme : Theme.t) =
 
 let heap_body = style "position:relative;min-height:0;overflow:hidden"
 
+(* the pane header's two readings of the same heap, side by side with the
+   title: one is always chosen, so they are tabs rather than a toggle *)
+let heap_title_group = style "display:flex;align-items:baseline;gap:14px"
+let heap_tabs = style "display:flex;align-items:baseline;gap:2px"
+
+let heap_tab (theme : Theme.t) ~selected =
+  let color, border =
+    match selected with
+    | true -> theme.accent, theme.accent
+    | false -> theme.faint, "transparent"
+  in
+  style
+    [%string
+      "padding:0 7px 2px;color:%{color};border-bottom:1px solid \
+       %{border};cursor:pointer;user-select:none;letter-spacing:.08em;font-size:12px"]
+;;
+
+(* ── heap outline ── *)
+
+(* over the canvas rather than instead of it: the widget owns the pane's
+   keyboard, so it stays mounted (and idle, since nothing marks it dirty)
+   under an opaque panel *)
+let outline_panel (theme : Theme.t) =
+  style
+    [%string
+      "position:absolute;inset:0;background:%{theme.bg};overflow:auto;padding:4px \
+       0 0;scrollbar-width:thin;scrollbar-color:%{theme.separator} \
+       transparent"]
+;;
+
+let outline_row (theme : Theme.t) ~selected ~current ~lead =
+  let background =
+    match selected with true -> theme.selection_bg | false -> "transparent"
+  in
+  let border =
+    match selected, current with
+    | true, (true | false) -> theme.selection_border
+    | false, true -> theme.accent
+    | false, false -> "transparent"
+  in
+  (* the breathing room between top-level structures, and never inside one *)
+  let lead = match lead with true -> "8px" | false -> "0" in
+  style
+    [%string
+      "display:flex;align-items:baseline;gap:8px;padding:0 12px 0 \
+       10px;margin-top:%{lead};border-left:3px solid \
+       %{border};background:%{background};cursor:pointer"]
+;;
+
+let outline_line = style "flex:1;min-width:0;white-space:pre-wrap"
+
+let outline_address (theme : Theme.t) =
+  style [%string "flex:none;color:%{theme.dim};font-size:12px"]
+;;
+
+let outline_glyph color =
+  style [%string "color:%{color};cursor:pointer;user-select:none"]
+;;
+
+let outline_empty (theme : Theme.t) =
+  style [%string "padding:10px 16px;color:%{theme.faint}"]
+;;
+
+(* what the colors mean, in the colors themselves — the outline speaks four
+   text registers plus a fade, which is past what a reader carries in from
+   other tools *)
+let outline_legend (theme : Theme.t) =
+  style
+    [%string
+      "position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:14px;padding:5px \
+       14px 6px;margin-top:8px;background:%{theme.bg};border-top:1px solid \
+       %{theme.border};font-size:11.5px"]
+;;
+
 let hud (theme : Theme.t) =
   style
     [%string

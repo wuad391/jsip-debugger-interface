@@ -34,6 +34,9 @@ module Model = struct
     ; source_folds : Set.M(Action.Source_fold).t
     ; stack_collapsed : bool
     ; source_collapsed : bool
+    ; heap_view : Action.Heap_view.t
+    (** which reading the heap pane's tabs are showing — the canvas diagram
+        or the outline over the same scene *)
     ; heap_folds : Set.M(Heap_scene.Fold_key).t
     ; accordion : bool
     ; sort_by_address : bool
@@ -65,6 +68,7 @@ module Model = struct
     ; source_folds = Set.empty (module Action.Source_fold)
     ; stack_collapsed = false
     ; source_collapsed = false
+    ; heap_view = Action.Heap_view.Diagram
     ; heap_folds = Set.empty (module Heap_scene.Fold_key)
     ; accordion = false
     ; sort_by_address = false
@@ -161,6 +165,9 @@ let apply_action
     { model with stack_collapsed = not model.stack_collapsed }
   | Toggle_source_pane ->
     { model with source_collapsed = not model.source_collapsed }
+  | Set_heap_view heap_view -> { model with heap_view }
+  | Toggle_heap_view ->
+    { model with heap_view = Action.Heap_view.toggle model.heap_view }
   | Toggle_heap_fold fold ->
     { model with heap_folds = toggle model.heap_folds fold }
   | Toggle_accordion -> { model with accordion = not model.accordion }
@@ -344,10 +351,13 @@ let scroll_into_center id =
       |]
 ;;
 
+(* the outline's walked-structure row rides along: it is the pane's landing
+   place while the OUTLINE tab is up, and it is simply absent otherwise *)
 let scroll_panes_effect =
   Effect.of_sync_fun (fun (stack_id, source_id) ->
     scroll_into_center stack_id;
-    scroll_into_center source_id)
+    scroll_into_center source_id;
+    scroll_into_center Outline_view.current_row_id)
 ;;
 
 let close_window_effect =
@@ -442,6 +452,37 @@ let component
       ~sort_by_address
       ~accordion
   in
+  (* The pane's other reading of the same step: the outline's rows, built
+     only while its tab is the one showing. They read the scene's inputs
+     rather than the scene, so the two tabs claim and fold identically —
+     {!Heap_outline}'s contract. *)
+  let outline =
+    let%arr { Model.step
+            ; heap_view
+            ; heap_folds
+            ; heap_filter
+            ; sort_by_address
+            ; accordion
+            ; _
+            }
+      =
+      model
+    in
+    match heap_view with
+    | Action.Heap_view.Diagram -> []
+    | Outline ->
+      let { Replay.Step.structures; nodes; new_addresses; _ } =
+        Replay.step_exn replay ~step
+      in
+      Heap_outline.rows
+        ~structures
+        ~nodes
+        ~new_addresses
+        ~folds:heap_folds
+        ~filter:heap_filter
+        ~sort_by_address
+        ~accordion
+  in
   (* the four tier layouts, kept off the scene's own computation so that
      moving the columns slider re-places the same scene rather than
      rebuilding it — the canvas keeps its zoom anchor across the reflow *)
@@ -450,7 +491,7 @@ let component
     and { Model.heap_columns; _ } = model in
     Heap_layout.all roots ~columns:heap_columns
   in
-  let heap_view =
+  let heap_canvas =
     let%arr roots, (_ : Heap_scene.Stats.t) = scene
     and layouts
     and { Model.step
@@ -548,10 +589,13 @@ let component
   let view =
     let%arr model
     and (_ : Heap_scene.Root.t list), stats = scene
-    and heap_canvas = heap_view
+    and heap_canvas
+    and outline
     and inject in
     let { Model.step
         ; playing
+        ; heap_view
+        ; heap_selected
         ; accordion
         ; sort_by_address
         ; heap_columns
@@ -766,6 +810,47 @@ let component
           </div>
         |}
     in
+    let showing_outline =
+      match heap_view with
+      | Action.Heap_view.Outline -> true
+      | Diagram -> false
+    in
+    (* The two readings of the same scene. The canvas stays mounted under the
+       outline rather than being swapped out for it: the widget owns the
+       pane's keyboard, and an idle canvas costs nothing to leave behind an
+       opaque panel. *)
+    let outline_panel =
+      match showing_outline with
+      | false -> Vdom.Node.none
+      | true ->
+        Outline_view.view
+          ~theme
+          ~rows:outline
+          ~selected:heap_selected
+          ~inject
+    in
+    let tabs =
+      let tab view =
+        let selected = Action.Heap_view.equal view heap_view in
+        let label = Action.Heap_view.display view in
+        {%html|
+          <span %{Styles.heap_tab theme ~selected}
+                on_click=%{fun _ -> inject (Action.Set_heap_view view)}>#{label}</span>
+        |}
+      in
+      {%html|
+        <span %{Styles.heap_tabs}>
+          %{tab Action.Heap_view.Diagram}
+          %{tab Action.Heap_view.Outline}
+        </span>
+      |}
+    in
+    (* the zoom readout, the columns slider and the [⌖] mark are the canvas's
+       own controls; none of them means anything over the outline, which is a
+       list you scroll *)
+    let canvas_only node =
+      match showing_outline with true -> Vdom.Node.none | false -> node
+    in
     let hud =
       let zoom = [%string "zoom %{hud_zoom_percent#Int}%"] in
       let tier = sprintf "detail %.1f / 3" hud_tier in
@@ -806,6 +891,13 @@ let component
         </div>
       |}
     in
+    let focus_chip =
+      let label = Action.Focus_target.display focus_target in
+      {%html|
+        <span %{Styles.hint_chip theme.accent}
+              on_click=%{fun _ -> inject Action.Focus_latest}>#{label}</span>
+      |}
+    in
     let session =
       Session_view.view
         ~theme
@@ -823,17 +915,20 @@ let component
           </div>
           <div %{Styles.heap_pane theme}>
             <div %{Styles.heap_header theme}>
-              <span %{Styles.pane_title theme}>HEAP</span>
+              <span %{Styles.heap_title_group}>
+                <span %{Styles.pane_title theme}>HEAP</span>
+                %{tabs}
+              </span>
               <span>
-                <span %{Styles.hint_chip theme.accent}
-                      on_click=%{fun _ -> inject Action.Focus_latest}>#{Action.Focus_target.display focus_target}</span>
+                %{canvas_only focus_chip}
                 <span %{Styles.pane_meta theme}>#{heap_meta}</span>
               </span>
             </div>
             <div %{Styles.heap_body}>
               %{heap_canvas}
-              %{hud}
-              %{columns_slider}
+              %{canvas_only hud}
+              %{canvas_only columns_slider}
+              %{outline_panel}
               %{filter_overlay}
             </div>
             %{flame_drawer}
