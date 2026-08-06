@@ -111,7 +111,11 @@ type t =
   | Commit_filter
   | Cancel_filter
   | Select_heap_address of Snapshot.Address.t
-  (** a click on a box: pin it blue and jump to its allocation step *)
+  (** cmd/ctrl-click on a box: pin it blue and jump to its allocation step *)
+  | Aim_heap_address of Snapshot.Address.t
+  (** a plain click on a box: mark it orange and stay where you are. The
+      cheap gesture does the harmless thing — a bare click used to move the
+      replay, which is a lot to have happen because you pointed at something. *)
   | Set_heap_view of Heap_view.t (** a click on the heap pane's tabs *)
   | Toggle_heap_view (** [v]: the same, from the keyboard *)
   | Toggle_lod

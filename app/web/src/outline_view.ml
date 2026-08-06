@@ -3,6 +3,8 @@ open Jsip_types
 open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
 open Vdom.Html_syntax
+module Js = Js_of_ocaml.Js
+module Dom_html = Js_of_ocaml.Dom_html
 
 (* The heap pane's OUTLINE tab: {!Heap_outline}'s rows, drawn. One line per
    row — guides, fold glyph, then the columns two spaces apart, the way the
@@ -136,10 +138,17 @@ let row_view
       {%html|<span %{Styles.outline_address theme}>#{text}</span>|}
     | (true | false), (None | Some _) -> Vdom.Node.none
   in
-  let on_click (_ : _) =
+  (* the same two weights of click the canvas takes: plain marks the row
+     orange and moves nothing, cmd/ctrl commits — pin it blue and jump to
+     where it was allocated *)
+  let on_click (event : Dom_html.mouseEvent Js.t) =
     match row.address with
     | None -> Vdom.Effect.Ignore
-    | Some address -> inject (Action.Select_heap_address address)
+    | Some address ->
+      inject
+        (match Js.to_bool event##.metaKey || Js.to_bool event##.ctrlKey with
+         | true -> Action.Select_heap_address address
+         | false -> Action.Aim_heap_address address)
   in
   let id =
     match row.is_current && row.depth = 0 with

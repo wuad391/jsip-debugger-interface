@@ -45,7 +45,12 @@ module Model = struct
     ; heap_filter : string
     ; typing_filter : bool
     ; heap_selected : Snapshot.Address.t option
-    (** [None] falls back to the structure this step walked *)
+    (** the BLUE pin — cmd/ctrl-click. [None] falls back to the structure
+        this step walked *)
+    ; heap_aimed : Snapshot.Address.t option
+    (** the ORANGE mark — a plain click. Purely where you are looking; it
+        moves nothing. [None] means the orange belongs to the structure this
+        step walked, which is where it started. *)
     ; lod : Action.Lod.t
     ; edge_style : Action.Edge_style.t
     ; theme_mode : Action.Theme_mode.t
@@ -76,6 +81,7 @@ module Model = struct
     ; heap_filter = ""
     ; typing_filter = false
     ; heap_selected = None
+    ; heap_aimed = None
     ; lod = Action.Lod.Uniform
     ; edge_style = Action.Edge_style.Angled
     ; theme_mode = Action.Theme_mode.Dark
@@ -135,6 +141,7 @@ let apply_action
     ; selected_frame = None
     ; playing
     ; heap_selected = None
+    ; heap_aimed = None
     ; land_seq = model.land_seq + 1
     }
   in
@@ -202,6 +209,9 @@ let apply_action
       | None -> model
     in
     { stepped with heap_selected = Some address }
+  (* a plain click only moves the eye: no jump, no pin, and the pin that is
+     already there stays *)
+  | Aim_heap_address address -> { model with heap_aimed = Some address }
   | Toggle_lod -> { model with lod = Action.Lod.toggle model.lod }
   | Cycle_edge_style ->
     { model with edge_style = Action.Edge_style.cycle model.edge_style }
@@ -360,6 +370,14 @@ let scroll_panes_effect =
     scroll_into_center Outline_view.current_row_id)
 ;;
 
+(* [.] in the OUTLINE tab. The canvas answers that key by zooming to a mark,
+   which is invisible behind an outline — the outline's answer to the same
+   question is to bring the row back under your eye. *)
+let scroll_outline_effect =
+  Effect.of_sync_fun (fun (_ : int) ->
+    scroll_into_center Outline_view.current_row_id)
+;;
+
 let close_window_effect =
   Effect.of_sync_fun (fun () -> Dom_html.window##close) ()
 ;;
@@ -500,6 +518,7 @@ let component
         ; focus_seq
         ; focus_target
         ; heap_selected
+        ; heap_aimed
         ; heap_filter
         ; typing_filter
         ; lod
@@ -536,6 +555,7 @@ let component
           Option.map current ~f:(fun (root : Heap_scene.Root.t) ->
             root.structure_id)
       ; selected_address = heap_selected
+      ; aimed_address = heap_aimed
       ; filter_active = not (String.is_empty heap_filter)
       ; lod
       ; edge_style
@@ -574,6 +594,20 @@ let component
       (Bonsai.return (fun key ->
          (* after this frame's DOM patch, so the rows exist *)
          scroll_panes_effect key))
+    graph;
+  (* [.] means "take me back to the mark" in both tabs: the canvas hears the
+     key itself and zooms, and the outline — where zooming shows nothing —
+     scrolls the row into the middle instead *)
+  let focus_pulse =
+    let%arr { Model.focus_seq; _ } = model in
+    focus_seq
+  in
+  Bonsai.Edge.on_change
+    ~sexp_of_model:[%sexp_of: int]
+    ~trigger:`After_display
+    ~equal:[%equal: int]
+    focus_pulse
+    ~callback:(Bonsai.return scroll_outline_effect)
     graph;
   let page_theme =
     let%arr { Model.theme_mode; _ } = model in

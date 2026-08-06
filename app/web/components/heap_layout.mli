@@ -49,6 +49,11 @@ module Head : sig
     { root : Heap_scene.Root.t
     ; x : float (** the structure's left edge, in world coordinates *)
     ; y : float (** the header line's top *)
+    ; width : float
+    (** the room the structure was given. The header is often the widest part
+        of a structure and is drawn at a fixed world size, so the layout
+        reserves space for it — and the drawing cuts the text to this rather
+        than trusting the estimate that reserved it. *)
     }
 end
 

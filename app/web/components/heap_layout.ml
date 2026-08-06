@@ -37,6 +37,9 @@ module Head = struct
     { root : Heap_scene.Root.t
     ; x : float
     ; y : float
+    ; width : float
+    (** the room this structure was given, so the header can be cut to fit it
+        rather than trusting the estimate that reserved it *)
     }
 end
 
@@ -76,8 +79,11 @@ let size (node : Heap_scene.Node.t) ~tier =
         Float.max widest (line_width line))
     in
     let raw_w =
+      (* the widest key ([header]) plus its gutters, then the value: the
+         canvas measures the key column exactly, but the box has to be wide
+         enough to hold it or the value is truncated to nothing *)
       List.fold node.raw ~init:0. ~f:(fun widest ((_ : string), value) ->
-        Float.max widest (54. +. (label_width value *. 8.5) +. 18.))
+        Float.max widest (78. +. (label_width value *. 8.5) +. 18.))
     in
     let w1 = Float.min 460. ((label_width node.label *. 11.) +. 32.) in
     let w2 =
@@ -193,10 +199,23 @@ let layout_root (root : Heap_scene.Root.t) ~tier =
       +. (gx *. Float.of_int (List.length children - 1))
   in
   place root.node ~left:0. ~depth:0 ~parent:None ~edge_label:"";
+  (* The header line above a structure is as much a part of it as its boxes,
+     and it is often the WIDEST part — a name, a type, a verdict and a node
+     count over a tree three boxes across. It is drawn at a fixed size in
+     world coordinates, so its width does not shrink with the tier, and a
+     structure that measured only its boxes laid its header straight across
+     whatever was packed to its right. *)
+  let header_width =
+    match tier with
+    (* the postage-stamp tier draws no headers at all, so reserving room for
+       one there is a wide empty row around a speck *)
+    | 0 -> 0.
+    | (_ : int) -> Float.of_int (String.length root.header + 14) *. 9.
+  in
   { Placement.placed = Queue.to_list placed
   ; pos = !pos
   ; root
-  ; width = !max_x
+  ; width = Float.max !max_x header_width
   ; height = hdr +. !acc
   }
 ;;
@@ -308,7 +327,13 @@ let compute (roots : Heap_scene.Root.t list) ~tier ~shelves =
                ~data:{ box with x = box.x +. dx; y = box.y +. dy });
         List.iter placement.placed ~f:(fun placed_node ->
           Queue.enqueue placed placed_node);
-        Queue.enqueue heads { Head.root = placement.root; x = dx; y = dy };
+        Queue.enqueue
+          heads
+          { Head.root = placement.root
+          ; x = dx
+          ; y = dy
+          ; width = placement.width
+          };
         x := !x +. placement.width +. column_gap);
       width := Float.max !width (!x -. column_gap);
       y := !y +. tallest +. root_gap);
@@ -414,6 +439,7 @@ let heads_now (layouts : Tier_layout.t array) ~tier_f =
     { head with
       x = head.x +. ((other.x -. head.x) *. f)
     ; y = head.y +. ((other.y -. head.y) *. f)
+    ; width = head.width +. ((other.width -. head.width) *. f)
     })
 ;;
 

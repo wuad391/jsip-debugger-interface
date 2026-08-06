@@ -54,9 +54,9 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
   [%expect
     {|
     tier 0: 8 boxes · 32.×256.
-    tier 1: 8 boxes · 252.×690.
-    tier 2: 8 boxes · 279.×970.
-    tier 3: 8 boxes · 319.×1882.
+    tier 1: 8 boxes · 441.×690.
+    tier 2: 8 boxes · 441.×970.
+    tier 3: 8 boxes · 441.×1882.
     same boxes true · growing true
     |}]
 ;;
@@ -165,9 +165,9 @@ let%expect_test "structures pack across into a grid" =
   [%expect
     {|
     2 structures
-    1 across: 241.×318. · (0.,0.) (0.,152.)
-    2 across: 512.×166. · (0.,0.) (271.,0.)
-    3 across: 512.×166. · (0.,0.) (271.,0.)
+    1 across: 396.×318. · (0.,0.) (0.,152.)
+    2 across: 822.×166. · (0.,0.) (426.,0.)
+    3 across: 822.×166. · (0.,0.) (426.,0.)
     |}]
 ;;
 
