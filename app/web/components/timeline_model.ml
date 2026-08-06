@@ -39,3 +39,12 @@ let played ~total ~step ~segments:count =
   | true -> 0
   | false -> (step + 1) * count / total
 ;;
+
+(* the segment the position stands IN, which the strip draws as the played
+   span's cap. Not [played - 1]: at step 0 nothing is played yet and the cap
+   still belongs at the very start. *)
+let cursor ~total ~step ~segments:count =
+  match total <= 0 || count = 0 with
+  | true -> 0
+  | false -> Int.max 0 (Int.min (count - 1) (step * count / total))
+;;

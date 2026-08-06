@@ -23,19 +23,33 @@ let fraction_of_click (event : Dom_html.mouseEvent Js.t) =
           | true -> Some ((Js.to_float event##.clientX -. left) /. width)))
 ;;
 
-(* position is the bright/dim boundary itself: played segments at full
-   strength, the future sunk toward the surface — a separate needle on top of
-   that read as a second, disagreeing cursor *)
-let ticks ~theme ~segments ~step ~total ~inject =
+(* Position is the bright/dim boundary itself, capped by the segment it
+   stands in — a separate needle floating over that read as a second,
+   disagreeing cursor.
+
+   The played span has to read as a BAR, not as shading, so a segment behind
+   the position fills to at least [played_floor] however quiet its steps
+   were; ahead of it the density shape survives but sinks toward the strip. *)
+let played_floor = 0.34
+let future_sink = 0.74
+
+let ticks ~(theme : Theme.t) ~segments ~step ~total ~inject =
   let count = Array.length segments in
   let played = Timeline_model.played ~total ~step ~segments:count in
+  let cursor = Timeline_model.cursor ~total ~step ~segments:count in
   let cells =
     List.init count ~f:(fun index ->
       let value = segments.(index) in
       let color =
-        match index < played with
-        | true -> Theme.heat_color theme value
-        | false -> Theme.heat_color theme (value *. 0.32)
+        match index = cursor, index < played with
+        | true, (true | false) -> theme.accent_bright
+        | false, true ->
+          Theme.heat_color theme (Float.max value played_floor)
+        | false, false ->
+          Theme.mix
+            (Theme.heat_color theme value)
+            theme.strip_bg
+            ~amount:future_sink
       in
       {%html|<div %{Styles.tick color}></div>|})
   in

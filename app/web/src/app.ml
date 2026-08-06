@@ -11,6 +11,10 @@ module Effect = Bonsai_web.Effect
 
 let play_interval = Time_ns.Span.of_int_ms 850
 
+(* how far the heap's corner slider goes. Past six across, a structure's
+   header no longer fits over its own tree at any readable zoom. *)
+let max_columns = 6
+
 module Model = struct
   type t =
     { step : int
@@ -30,6 +34,8 @@ module Model = struct
     ; heap_folds : Set.M(Heap_scene.Fold_key).t
     ; accordion : bool
     ; sort_by_address : bool
+    ; heap_columns : int
+    (** structures across the canvas before the next row of them *)
     ; heap_filter : string
     ; typing_filter : bool
     ; heap_selected : Snapshot.Address.t option
@@ -58,6 +64,7 @@ module Model = struct
     ; heap_folds = Set.empty (module Heap_scene.Fold_key)
     ; accordion = false
     ; sort_by_address = false
+    ; heap_columns = 3
     ; heap_filter = ""
     ; typing_filter = false
     ; heap_selected = None
@@ -155,6 +162,10 @@ let apply_action
   | Toggle_accordion -> { model with accordion = not model.accordion }
   | Toggle_address_order ->
     { model with sort_by_address = not model.sort_by_address }
+  | Set_columns columns ->
+    { model with
+      heap_columns = Int.clamp_exn columns ~min:1 ~max:max_columns
+    }
   (* [.]: back to the latest change — the pinned box cleared so blue follows
      the walked structure again, and the canvas zooms to it *)
   | Focus_latest ->
@@ -215,10 +226,20 @@ let heat_of_calls ~profile ~(calls : Call.t array) =
           (Function_info.display call.info.function_info)
           ~f:(fun count -> 1 + Option.value count ~default:0))
     in
-    let total = Float.of_int (Array.length calls) in
+    let busiest =
+      Float.of_int
+        (Map.fold counts ~init:1 ~f:(fun ~key:_ ~data -> Int.max data))
+    in
+    (* Scaled to the BUSIEST function, not to the whole trace. The ramp's
+       thresholds are calibrated for compute share, where one function really
+       can own a fifth of the samples; a share of the events is spread over
+       every call the dump recorded, so on a long run the same numbers put
+       the entire stack on the ramp's cold stop and the pane reads as having
+       no heat at all. Relative is also the truer claim here: this is the
+       busiest function in THIS run, not a fraction of a machine. *)
     ( Array.map calls ~f:(fun (call : Call.t) ->
         Map.find counts (Function_info.display call.info.function_info)
-        |> Option.map ~f:(fun count -> Float.of_int count /. total))
+        |> Option.map ~f:(fun count -> Float.of_int count /. busiest))
     , `Calls )
 ;;
 
@@ -303,11 +324,18 @@ let close_window_effect =
   Effect.of_sync_fun (fun () -> Dom_html.window##close) ()
 ;;
 
-(* the page behind the app — visible for a frame while loading, and behind
-   rubber-band overscroll — follows the theme too *)
-let body_background_effect =
-  Effect.of_sync_fun (fun color ->
-    Dom_html.document##.body##.style##.background := Js.string color)
+(* The page behind the app — visible for a frame while loading, and behind
+   rubber-band overscroll — follows the theme too. [color-scheme] is the
+   other half: it is what makes the browser's OWN furniture, the pane
+   scrollbars and the columns slider's track, pick this theme's side rather
+   than the operating system's. *)
+let page_theme_effect =
+  Effect.of_sync_fun (fun (background, scheme) ->
+    Dom_html.document##.body##.style##.background := Js.string background;
+    Js.Unsafe.set
+      Dom_html.document##.documentElement##.style
+      (Js.string "colorScheme")
+      (Js.string scheme))
 ;;
 
 (* ── the component ───────────────────────────────────────────────────── *)
@@ -359,8 +387,8 @@ let component
     (Bonsai.return play_interval)
     tick
     graph;
-  (* the scene and its four layouts: everything the canvas draws, rebuilt
-     when the step or a heap mode changes *)
+  (* the scene: everything the canvas draws, rebuilt when the step or a heap
+     mode changes *)
   let scene =
     let%arr { Model.step
             ; heap_folds
@@ -375,21 +403,28 @@ let component
     let { Replay.Step.structures; nodes; new_addresses; _ } =
       Replay.step_exn replay ~step
     in
-    let roots, stats =
-      Heap_scene.build
-        ~structures
-        ~nodes
-        ~new_addresses
-        ~folds:heap_folds
-        ~filter:heap_filter
-        ~sort_by_address
-        ~accordion
-    in
-    roots, stats, Heap_layout.all roots
+    Heap_scene.build
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:heap_folds
+      ~filter:heap_filter
+      ~sort_by_address
+      ~accordion
+  in
+  (* the four tier layouts, kept off the scene's own computation so that
+     moving the columns slider re-places the same scene rather than
+     rebuilding it — the canvas keeps its zoom anchor across the reflow *)
+  let layouts =
+    let%arr roots, (_ : Heap_scene.Stats.t) = scene
+    and { Model.heap_columns; _ } = model in
+    Heap_layout.all roots ~columns:heap_columns
   in
   let heap_view =
-    let%arr roots, (_ : Heap_scene.Stats.t), layouts = scene
+    let%arr roots, (_ : Heap_scene.Stats.t) = scene
+    and layouts
     and { Model.step
+        ; heap_columns
         ; land_seq
         ; focus_seq
         ; heap_selected
@@ -419,6 +454,7 @@ let component
       ; step
       ; land_seq
       ; focus_seq
+      ; columns = heap_columns
       ; pulse_ids
       ; current_root_id =
           Option.map current ~f:(fun (root : Heap_scene.Root.t) ->
@@ -466,29 +502,27 @@ let component
          (* after this frame's DOM patch, so the rows exist *)
          scroll_panes_effect key))
     graph;
-  let theme_background =
+  let page_theme =
     let%arr { Model.theme_mode; _ } = model in
-    (Action.Theme_mode.palette theme_mode).bg
+    let theme = Action.Theme_mode.palette theme_mode in
+    theme.bg, theme.name
   in
   Bonsai.Edge.on_change
-    ~sexp_of_model:[%sexp_of: string]
-    ~equal:[%equal: string]
-    theme_background
-    ~callback:(Bonsai.return body_background_effect)
+    ~sexp_of_model:[%sexp_of: string * string]
+    ~equal:[%equal: string * string]
+    page_theme
+    ~callback:(Bonsai.return page_theme_effect)
     graph;
   let view =
     let%arr model
-    and ( (_ : Heap_scene.Root.t list)
-        , stats
-        , (_ : Heap_layout.Tier_layout.t array) )
-      =
-      scene
+    and (_ : Heap_scene.Root.t list), stats = scene
     and heap_canvas = heap_view
     and inject in
     let { Model.step
         ; playing
         ; accordion
         ; sort_by_address
+        ; heap_columns
         ; heap_filter
         ; typing_filter
         ; stack_folds
@@ -509,9 +543,7 @@ let component
       model
     in
     let theme = Action.Theme_mode.palette theme_mode in
-    let { Replay.Step.call; frames; structures; _ } =
-      Replay.step_exn replay ~step
-    in
+    let { Replay.Step.call; frames; _ } = Replay.step_exn replay ~step in
     let live = live_calls replay ~step in
     let selected = selected_frame replay model in
     let frame = Option.value (List.nth frames selected) ~default:call in
@@ -713,24 +745,38 @@ let component
         </div>
       |}
     in
-    let structure_chip =
-      (* the walked structure's kind, typed when the wire says *)
-      let kind = Snapshot.Ds_type.display call.info.snapshot.ds_type in
-      let current =
-        List.find structures ~f:(fun (s : Replay.Structure.t) ->
-          s.is_current)
+    (* the corner control, sitting on the minimap: how many structures stand
+       side by side. A real range input, so dragging, clicking the track and
+       the arrow keys all work without any of them being written here — and
+       the canvas's own key handler already steps aside for an [input]. *)
+    let columns_slider =
+      let on_input (_ : _) value =
+        match Int.of_string_opt value with
+        | Some columns -> inject (Action.Set_columns columns)
+        | None -> Effect.Ignore
       in
-      match current with
-      | Some { ty = Some ty; _ } ->
-        [%string "%{kind} %{Type_info.display ty}"]
-      | Some { ty = None; _ } | None -> kind
+      let range =
+        Vdom.Attr.many
+          [ Vdom.Attr.type_ "range"
+          ; Vdom.Attr.create "min" "1"
+          ; Vdom.Attr.create "max" (Int.to_string max_columns)
+          ; Vdom.Attr.create "step" "1"
+          ; Vdom.Attr.value (Int.to_string heap_columns)
+          ; Styles.columns_slider theme
+          ]
+      in
+      let label = [%string "%{heap_columns#Int} across"] in
+      {%html|
+        <div %{Styles.columns_panel theme}>
+          <input %{range} on_input=%{on_input} />
+          <span %{Styles.columns_label theme}>#{label}</span>
+        </div>
+      |}
     in
     let session =
       Session_view.view
         ~theme
         ~dump_name
-        ~structure:structure_chip
-        ~playing
         ~heat:
           (match has_heat with false -> None | true -> Some heat_source)
     in
@@ -754,6 +800,7 @@ let component
             <div %{Styles.heap_body}>
               %{heap_canvas}
               %{hud}
+              %{columns_slider}
               %{filter_overlay}
             </div>
             %{flame_drawer}

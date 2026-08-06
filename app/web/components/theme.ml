@@ -85,8 +85,12 @@ let dark =
   ; selection_border = "#8ab6ea"
   ; selection_text = "#ffffff"
   ; range_bg = "#1c3f7a"
-  ; range_border = "#6f9bd8"
-  ; stripe_bg = "#171a20"
+  ; range_border =
+      "#6f9bd8"
+      (* the call stack's every-other-row band. The mockup's was a whisper; a
+         stack is read by scanning across a row, so the banding has to
+         survive being looked past. *)
+  ; stripe_bg = "#1e242f"
   ; tooltip_bg = "rgba(13,15,19,.97)"
   ; tooltip_border = "#3c4350"
   ; hud_bg = "rgba(16,18,22,.86)"
@@ -149,7 +153,7 @@ let light =
   ; selection_text = "#ffffff"
   ; range_bg = "#d7e6fb"
   ; range_border = "#4a7fc1"
-  ; stripe_bg = "#eef0f4"
+  ; stripe_bg = "#e2e7ef"
   ; tooltip_bg = "rgba(252,253,255,.97)"
   ; tooltip_border = "#b9c1cc"
   ; hud_bg = "rgba(255,255,255,.86)"

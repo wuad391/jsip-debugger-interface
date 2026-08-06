@@ -69,6 +69,8 @@ type t =
   | Toggle_heap_fold of Heap_scene.Fold_key.t
   | Toggle_accordion
   | Toggle_address_order
+  | Set_columns of int
+  (** the heap's corner slider: how many structures stand side by side *)
   | Focus_latest
   | Begin_filter
   | Set_filter of string

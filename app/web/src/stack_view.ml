@@ -17,24 +17,29 @@ let row_view (theme : Theme.t) (row : Stack_rows.Row.t) ~stripe ~inject =
     | Stack_rows.State.Selected -> true
     | Live | Dimmed -> false
   in
-  (* heat rides on the callee's name itself; the selection's wash already
-     says where you are, so it keeps plain ink — the TUI's reading *)
+  (* Heat rides on the callee's name itself; the selection's wash already
+     says where you are, so it keeps plain ink — the TUI's reading.
+
+     A dumped run is nearly all past calls, so the dimmed rows ARE the pane:
+     they keep their heat colour almost intact and only weight separates them
+     from the live chain. Sunk any further, the ramp stopped being visible at
+     all and the stack read as one dark block. *)
   let fn_color, fn_bold =
     match row.state, row.heat with
     | Stack_rows.State.Selected, (_ : float option) ->
       theme.selection_text, true
     | Live, None -> theme.bright, true
     | Live, Some share -> Theme.stack_heat ~share, true
-    | Dimmed, None -> theme.ghost, false
+    | Dimmed, None -> theme.dim, false
     | Dimmed, Some share ->
-      Theme.mix (Theme.stack_heat ~share) theme.bg ~amount:0.35, false
+      Theme.mix (Theme.stack_heat ~share) theme.bg ~amount:0.12, false
   in
   let args_color =
     match row.state with
     | Stack_rows.State.Selected ->
       Theme.mix theme.selection_text theme.selection_bg ~amount:0.25
     | Live -> theme.dim
-    | Dimmed -> theme.ghost
+    | Dimmed -> theme.faint
   in
   let indent = String.make (2 * (row.depth - 1)) ' ' in
   let glyph_text =
@@ -112,7 +117,7 @@ let view ~theme ~rows ~total_calls ~live_count ~has_heat ~collapsed ~inject =
     {%html|
       <div %{Styles.pane theme ~bordered_bottom:true}>
         %{header}
-        <div %{Styles.pane_body} %{Vdom.Attr.id "stack-scroll"}>*{body}</div>
+        <div %{Styles.pane_body theme} %{Vdom.Attr.id "stack-scroll"}>*{body}</div>
       </div>
     |}
 ;;

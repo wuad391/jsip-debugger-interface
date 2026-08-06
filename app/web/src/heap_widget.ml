@@ -19,6 +19,9 @@ module Input = struct
         structure, wherever the view was *)
     ; pulse_ids : string list
     (** boxes allocated at this step — ringed as the step arrives *)
+    ; columns : int
+    (** structures side by side before the next row of them — the corner
+        slider's value; a change refits, since the whole arrangement moved *)
     ; current_root_id : string option
     ; current_structure_id : int option
     ; selected_address : Snapshot.Address.t option
@@ -215,10 +218,11 @@ let head_at (state : State.t) sx sy =
     ~f:(fun (head : Heap_layout.Head.t) ->
       Float.( >= ) wy head.y
       && Float.( <= ) wy (head.y +. 18.)
-      && Float.( >= ) wx 0.
+      && Float.( >= ) wx head.x
       && Float.( <= )
            wx
-           (Float.of_int (String.length head.root.header + 12) *. 7.4))
+           (head.x
+            +. (Float.of_int (String.length head.root.header + 12) *. 7.4)))
 ;;
 
 let placed_by_id (state : State.t) id =
@@ -278,7 +282,11 @@ let apply_anchor (state : State.t) =
        state.view.y <- sy -. (wy *. state.view.k))
 ;;
 
-let fit (state : State.t) =
+(* [min_tier] is the detail the fit refuses to go below: [0] normally reads
+   the whole scene rather than shrinking it to nothing, so it stops where the
+   labels do. Reflowing the grid passes a lower floor — there the point IS to
+   see the new arrangement entire. *)
+let fit ?(min_tier = 1.1) (state : State.t) =
   let bounds = (layouts state).(1) in
   match Float.( > ) bounds.width 0. && Float.( > ) state.width 0. with
   | false -> ()
@@ -288,7 +296,7 @@ let fit (state : State.t) =
     let kh = (state.height -. pad) /. bounds.height in
     let k =
       Float.max
-        (Heap_layout.k_for_tier 1.1)
+        (Float.max min_zoom (Heap_layout.k_for_tier min_tier))
         (Float.min (Heap_layout.k_for_tier 2.2) (Float.min kw kh))
     in
     state.view.k <- k;
@@ -518,7 +526,16 @@ let draw_node
      context##.shadowColor := Js.string "rgba(0,0,0,.75)";
      context##.shadowBlur := Js.float (22. /. k);
      context##.shadowOffsetY := Js.float (5. /. k));
-  set_fill context style.fill;
+  (* Zoomed out there is no text and no border, so the box itself has to be
+     the ink: below the first tier the fill lifts to the border color — what
+     the minimap draws with — and settles back onto the panel fill as the
+     labels arrive. A panel fill is a surface; at postage-stamp size a
+     surface is invisible. *)
+  set_fill
+    context
+    (match Float.( < ) tier 1. with
+     | false -> style.fill
+     | true -> Theme.mix style.fill style.stroke ~amount:(1. -. tier));
   context##fillRect
     (Js.float box.x)
     (Js.float box.y)
@@ -792,7 +809,7 @@ let draw_heads (state : State.t) =
         set_fill context accent;
         context##fillText
           (Js.string [%string "%{glyph}%{name}"])
-          (Js.float 0.)
+          (Js.float head.x)
           (Js.float (head.y +. 14.));
         let prefix_width =
           Js.to_float
@@ -805,25 +822,29 @@ let draw_heads (state : State.t) =
         set_fill context dim;
         context##fillText
           (Js.string [%string "%{rest} · %{root.count#Int} %{nodes_word}"])
-          (Js.float prefix_width)
+          (Js.float (head.x +. prefix_width))
           (Js.float (head.y +. 14.)))
 ;;
 
 let draw_mini (state : State.t) =
   let context = state.context in
   let theme = state.input.theme in
-  let width, height =
-    Heap_layout.bounds_now (layouts state) ~tier_f:state.tier_f
-  in
   let mw = 168. in
   let mh = 118. in
   let pad = 14. in
   let x = state.width -. mw -. pad in
   let y = state.height -. mh -. pad in
+  let tier =
+    Int.max 0 (Int.min 3 (Int.of_float (Float.round_nearest state.tier_f)))
+  in
+  let layout = (layouts state).(tier) in
+  (* the map is scaled to the layout it actually DRAWS, not to the crossfaded
+     bounds: those belong to a size between two tiers, and a tier whose boxes
+     are bigger than that spilled out of the frame *)
   let scale =
     Float.min
-      ((mw -. 12.) /. Float.max 1. width)
-      ((mh -. 12.) /. Float.max 1. height)
+      ((mw -. 12.) /. Float.max 1. layout.width)
+      ((mh -. 12.) /. Float.max 1. layout.height)
   in
   state.mini <- Some { Mini.x; y; w = mw; h = mh; scale };
   context##save;
@@ -836,12 +857,18 @@ let draw_mini (state : State.t) =
     (Js.float (y +. 0.5))
     (Js.float (mw -. 1.))
     (Js.float (mh -. 1.));
+  (* and it is clipped as well: the 3px floor under a box's drawn size keeps
+     a postage-stamp node visible, and near the edge that floor is what
+     reaches past the frame *)
+  context##beginPath;
+  context##rect
+    (Js.float (x +. 1.))
+    (Js.float (y +. 1.))
+    (Js.float (mw -. 2.))
+    (Js.float (mh -. 2.));
+  context##clip;
   context##translate (Js.float (x +. 6.)) (Js.float (y +. 6.));
   context##scale (Js.float scale) (Js.float scale);
-  let tier =
-    Int.max 0 (Int.min 3 (Int.of_float (Float.round_nearest state.tier_f)))
-  in
-  let layout = (layouts state).(tier) in
   List.iter layout.placed ~f:(fun placed ->
     match Map.find layout.pos placed.Heap_layout.Placed.id with
     | None -> ()
@@ -1485,6 +1512,11 @@ let update
   (match old.focus_seq = input.focus_seq with
    | true -> ()
    | false -> focus_on_current previous);
+  (* the slider moved every structure, so the view it was framing is gone —
+     refit rather than leave the eye somewhere arbitrary in the new grid *)
+  (match old.columns = input.columns with
+   | true -> ()
+   | false -> fit previous ~min_tier:0.);
   previous.dirty <- true;
   previous, canvas
 ;;

@@ -3,11 +3,11 @@ open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
 open Vdom.Html_syntax
 
-(* the bottom bar: app chip, dump, the walked structure, the replay mode —
-   and the right end is the cross-pane legend, the one place that says what
-   the two ambient color scales mean *)
-let view ~(theme : Theme.t) ~dump_name ~structure ~playing ~heat =
-  let mode = match playing with true -> "playing" | false -> "replay" in
+(* The bottom bar. On the left, the dump being replayed and nothing else —
+   what it holds, where the replay is and whether it is running are all said
+   better by the panes themselves. The right end is the cross-pane legend,
+   the one place that says what the two ambient color scales mean. *)
+let view ~(theme : Theme.t) ~dump_name ~heat =
   let stack_legend =
     match (heat : [ `Compute | `Calls ] option) with
     | None -> Vdom.Node.none
@@ -46,14 +46,7 @@ let view ~(theme : Theme.t) ~dump_name ~structure ~playing ~heat =
   {%html|
     <div %{Styles.session theme}>
       <div %{Styles.session_group}>
-        <span %{Styles.session_dot theme}>●</span>
-        <span %{Styles.session_app theme}>jsip-debug</span>
-        <span %{Styles.session_sep theme}>|</span>
-        <span>#{dump_name}</span>
-        <span %{Styles.session_sep theme}>|</span>
-        <span>#{structure}</span>
-        <span %{Styles.session_faint theme}>·</span>
-        <span %{Styles.session_faint theme}>#{mode}</span>
+        <span %{Styles.session_app theme}>#{dump_name}</span>
       </div>
       <div %{Styles.session_right}>
         %{stack_legend}

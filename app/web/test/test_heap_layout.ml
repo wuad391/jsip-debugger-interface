@@ -31,7 +31,7 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
   let roots, (_ : Heap_scene.Stats.t) =
     scene replay ~step:(Replay.length replay - 1)
   in
-  let layouts = Heap_layout.all roots in
+  let layouts = Heap_layout.all roots ~columns:1 in
   Array.iteri layouts ~f:(fun tier (layout : Heap_layout.Tier_layout.t) ->
     print_endline
       [%string
@@ -53,18 +53,49 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
     [%string "same boxes %{same_boxes#Bool} · growing %{growing#Bool}"];
   [%expect
     {|
-    tier 0: 8 boxes · 32.×282.
-    tier 1: 8 boxes · 168.×902.
-    tier 2: 8 boxes · 205.×1150.
-    tier 3: 8 boxes · 220.×1800.
+    tier 0: 8 boxes · 32.×256.
+    tier 1: 8 boxes · 168.×822.
+    tier 2: 8 boxes · 205.×1054.
+    tier 3: 8 boxes · 220.×1690.
     same boxes true · growing true
+    |}]
+;;
+
+(* the columns slider's geometry: one column stacks, more than one packs the
+   structures across, each column as wide as its own widest tree *)
+let%expect_test "structures pack across into a grid" =
+  let replay = replay_of_fixture "map_nested" in
+  let roots, (_ : Heap_scene.Stats.t) =
+    scene replay ~step:(Replay.length replay - 1)
+  in
+  print_endline [%string "%{List.length roots#Int} structures"];
+  List.iter [ 1; 2; 3 ] ~f:(fun columns ->
+    let layout = Heap_layout.compute roots ~tier:1 ~columns in
+    let heads =
+      List.map layout.heads ~f:(fun (head : Heap_layout.Head.t) ->
+        [%string
+          "(%{Float.round_nearest head.x#Float},%{Float.round_nearest \
+           head.y#Float})"])
+      |> String.concat ~sep:" "
+    in
+    print_endline
+      [%string
+        "%{columns#Int} across: %{Float.round_nearest \
+         layout.width#Float}×%{Float.round_nearest layout.height#Float} · \
+         %{heads}"]);
+  [%expect
+    {|
+    2 structures
+    1 across: 170.×371. · (0.,0.) (0.,187.)
+    2 across: 451.×184. · (0.,0.) (281.,0.)
+    3 across: 451.×184. · (0.,0.) (281.,0.)
     |}]
 ;;
 
 let%expect_test "a parent's box is centered over the spread of its children" =
   let replay = replay_of_fixture "map_nested" in
   let roots, (_ : Heap_scene.Stats.t) = scene replay ~step:1 in
-  let layout = Heap_layout.compute roots ~tier:1 in
+  let layout = Heap_layout.compute roots ~tier:1 ~columns:1 in
   List.iter layout.placed ~f:(fun (placed : Heap_layout.Placed.t) ->
     let box = Map.find_exn layout.pos placed.id in
     print_endline
@@ -124,7 +155,7 @@ let%expect_test "content switches tiers only once geometry has grown" =
 let%expect_test "interpolated boxes sit between their two tier homes" =
   let replay = replay_of_fixture "map_nested" in
   let roots, (_ : Heap_scene.Stats.t) = scene replay ~step:1 in
-  let layouts = Heap_layout.all roots in
+  let layouts = Heap_layout.all roots ~columns:1 in
   let id =
     Heap_layout.key_id
       (List.hd_exn roots).Heap_scene.Root.node.Heap_scene.Node.key

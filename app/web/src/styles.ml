@@ -33,7 +33,7 @@ let strip (theme : Theme.t) =
 let ticks (theme : Theme.t) =
   style
     [%string
-      "position:relative;display:flex;gap:1px;height:11px;padding:0 \
+      "position:relative;display:flex;gap:1px;height:13px;padding:0 \
        2px;background:%{theme.strip_bg};cursor:pointer"]
 ;;
 
@@ -105,7 +105,16 @@ let pane_meta (theme : Theme.t) =
   style [%string "color:%{theme.faint};font-size:12px"]
 ;;
 
-let pane_body = style "overflow-y:auto;overflow-x:hidden;padding:0 0 14px"
+(* [scrollbar-color] because the panes are the only scrollers on the page and
+   a browser left to itself paints them off the OS theme, not this one — a
+   black bar down the side of the light theme *)
+let pane_body (theme : Theme.t) =
+  style
+    [%string
+      "overflow-y:auto;overflow-x:hidden;padding:0 0 \
+       14px;scrollbar-width:thin;scrollbar-color:%{theme.separator} \
+       transparent"]
+;;
 
 (* ── call stack ── *)
 
@@ -210,6 +219,26 @@ let hud (theme : Theme.t) =
 let hud_zoom (theme : Theme.t) = style [%string "color:%{theme.text}"]
 let hud_model (theme : Theme.t) = style [%string "color:%{theme.accent}"]
 
+(* directly over the canvas's minimap, which stands 118px tall on a 14px
+   margin: the two read as one cluster of view controls in the corner *)
+let columns_panel (theme : Theme.t) =
+  style
+    [%string
+      "position:absolute;right:14px;bottom:146px;display:flex;align-items:center;gap:9px;padding:5px \
+       11px;background:%{theme.hud_bg};border:1px solid \
+       %{theme.panel_border};color:%{theme.dim};font-size:11.5px;white-space:nowrap;backdrop-filter:blur(3px)"]
+;;
+
+let columns_slider (theme : Theme.t) =
+  style
+    [%string
+      "width:104px;height:12px;margin:0;accent-color:%{theme.accent};background:transparent;cursor:pointer"]
+;;
+
+let columns_label (theme : Theme.t) =
+  style [%string "color:%{theme.text};min-width:58px"]
+;;
+
 let filter_overlay (theme : Theme.t) =
   style
     [%string
@@ -241,7 +270,13 @@ let flame_drawer (theme : Theme.t) ~open_ =
        1fr;min-height:0"]
 ;;
 
-let flame_body = style "position:relative;overflow-y:auto;min-height:0"
+let flame_body (theme : Theme.t) =
+  style
+    [%string
+      "position:relative;overflow-y:auto;min-height:0;scrollbar-width:thin;scrollbar-color:%{theme.separator} \
+       transparent"]
+;;
+
 let flame_rows ~height = style [%string "position:relative;height:%{height}"]
 
 let flame_bar ~x ~width ~bottom ~fill ~ink ~lit ~deepest =

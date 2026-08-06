@@ -35,6 +35,7 @@ end
 module Head = struct
   type t =
     { root : Heap_scene.Root.t
+    ; x : float
     ; y : float
     }
 end
@@ -92,8 +93,8 @@ let size (node : Heap_scene.Node.t) ~tier =
 (* ── the tree layout, per tier ───────────────────────────────────────── The
    mockup's: siblings side by side in field order, each subtree as wide as
    itself or its children, the parent centered over its spread; one row of
-   boxes per depth, each row as tall as its tallest box; roots stacked down
-   the canvas, each under a header line. *)
+   boxes per depth, each row as tall as its tallest box; each structure under
+   a header line, and the structures packed into a grid of [columns]. *)
 
 let gaps ~tier =
   let pick a b c d = match tier with 0 -> a | 1 -> b | 2 -> c | _ -> d in
@@ -103,88 +104,162 @@ let gaps ~tier =
   , pick 26. 80. 96. 110. (* root gap: between structures *) )
 ;;
 
-let compute (roots : Heap_scene.Root.t list) ~tier =
-  let gx, gy, hdr, root_gap = gaps ~tier in
+(* One structure's tree in its OWN coordinates — header line at [y = 0], the
+   root box below it — so {!compute} can put it anywhere in the grid without
+   the recursion knowing where that is. *)
+module Placement = struct
+  type t =
+    { placed : Placed.t list
+    ; pos : Box.t String.Map.t
+    ; root : Heap_scene.Root.t
+    ; width : float
+    ; height : float
+    }
+end
+
+let layout_root (root : Heap_scene.Root.t) ~tier =
+  let gx, gy, hdr, (_ : float) = gaps ~tier in
   let pos = ref String.Map.empty in
   let placed = Queue.create () in
   let max_x = ref 0. in
-  let cy = ref 0. in
-  let heads = Queue.create () in
-  List.iter roots ~f:(fun root ->
-    (* row heights per depth, so a deep box never overlaps the row below *)
-    let row_heights = Int.Table.create () in
-    let rec measure (node : Heap_scene.Node.t) ~depth =
-      let (_ : float), h = size node ~tier in
-      Hashtbl.update row_heights depth ~f:(fun tallest ->
-        Float.max h (Option.value tallest ~default:0.));
-      List.iter node.children ~f:(fun ((_ : string), child) ->
-        measure child ~depth:(depth + 1))
-    in
-    measure root.node ~depth:0;
-    let depths =
-      1 + (Hashtbl.keys row_heights |> List.fold ~init:0 ~f:Int.max)
-    in
-    let row_y = Array.create ~len:depths 0. in
-    let acc = ref 0. in
-    for depth = 0 to depths - 1 do
-      row_y.(depth) <- !acc;
-      acc
-      := !acc
-         +. Option.value (Hashtbl.find row_heights depth) ~default:0.
-         +. gy
-    done;
-    let rec subtree_width (node : Heap_scene.Node.t) =
-      let w, (_ : float) = size node ~tier in
-      match node.children with
-      | [] -> w
-      | children ->
-        let spread =
-          List.fold children ~init:0. ~f:(fun total ((_ : string), child) ->
-            total +. subtree_width child)
-          +. (gx *. Float.of_int (List.length children - 1))
-        in
-        Float.max w spread
-    in
-    let rec place (node : Heap_scene.Node.t) ~left ~depth ~parent ~edge_label
-      =
-      let w, h = size node ~tier in
-      let width = subtree_width node in
-      let x = left +. ((width -. w) /. 2.) in
-      let y = !cy +. hdr +. row_y.(depth) in
-      let id = key_id node.key in
-      pos := Map.set !pos ~key:id ~data:{ Box.x; y; w; h };
-      Queue.enqueue placed { Placed.id; node; parent; edge_label; depth };
-      max_x := Float.max !max_x (left +. width);
-      let child_x = ref (left +. ((width -. subtree_spread node) /. 2.)) in
-      List.iter node.children ~f:(fun (label, child) ->
-        let child_width = subtree_width child in
-        place
-          child
-          ~left:!child_x
-          ~depth:(depth + 1)
-          ~parent:(Some id)
-          ~edge_label:label;
-        child_x := !child_x +. child_width +. gx)
-    and subtree_spread (node : Heap_scene.Node.t) =
-      match node.children with
-      | [] -> subtree_width node
-      | children ->
+  (* row heights per depth, so a deep box never overlaps the row below *)
+  let row_heights = Int.Table.create () in
+  let rec measure (node : Heap_scene.Node.t) ~depth =
+    let (_ : float), h = size node ~tier in
+    Hashtbl.update row_heights depth ~f:(fun tallest ->
+      Float.max h (Option.value tallest ~default:0.));
+    List.iter node.children ~f:(fun ((_ : string), child) ->
+      measure child ~depth:(depth + 1))
+  in
+  measure root.node ~depth:0;
+  let depths =
+    1 + (Hashtbl.keys row_heights |> List.fold ~init:0 ~f:Int.max)
+  in
+  let row_y = Array.create ~len:depths 0. in
+  let acc = ref 0. in
+  for depth = 0 to depths - 1 do
+    row_y.(depth) <- !acc;
+    acc
+    := !acc
+       +. Option.value (Hashtbl.find row_heights depth) ~default:0.
+       +. gy
+  done;
+  let rec subtree_width (node : Heap_scene.Node.t) =
+    let w, (_ : float) = size node ~tier in
+    match node.children with
+    | [] -> w
+    | children ->
+      let spread =
         List.fold children ~init:0. ~f:(fun total ((_ : string), child) ->
           total +. subtree_width child)
         +. (gx *. Float.of_int (List.length children - 1))
-    in
-    place root.node ~left:0. ~depth:0 ~parent:None ~edge_label:"";
-    Queue.enqueue heads { Head.root; y = !cy };
-    cy := !cy +. hdr +. !acc +. root_gap);
-  { Tier_layout.placed = Queue.to_list placed
+      in
+      Float.max w spread
+  in
+  let rec place (node : Heap_scene.Node.t) ~left ~depth ~parent ~edge_label =
+    let w, h = size node ~tier in
+    let width = subtree_width node in
+    let x = left +. ((width -. w) /. 2.) in
+    let y = hdr +. row_y.(depth) in
+    let id = key_id node.key in
+    pos := Map.set !pos ~key:id ~data:{ Box.x; y; w; h };
+    Queue.enqueue placed { Placed.id; node; parent; edge_label; depth };
+    max_x := Float.max !max_x (left +. width);
+    let child_x = ref (left +. ((width -. subtree_spread node) /. 2.)) in
+    List.iter node.children ~f:(fun (label, child) ->
+      let child_width = subtree_width child in
+      place
+        child
+        ~left:!child_x
+        ~depth:(depth + 1)
+        ~parent:(Some id)
+        ~edge_label:label;
+      child_x := !child_x +. child_width +. gx)
+  and subtree_spread (node : Heap_scene.Node.t) =
+    match node.children with
+    | [] -> subtree_width node
+    | children ->
+      List.fold children ~init:0. ~f:(fun total ((_ : string), child) ->
+        total +. subtree_width child)
+      +. (gx *. Float.of_int (List.length children - 1))
+  in
+  place root.node ~left:0. ~depth:0 ~parent:None ~edge_label:"";
+  { Placement.placed = Queue.to_list placed
   ; pos = !pos
-  ; heads = Queue.to_list heads
+  ; root
   ; width = !max_x
-  ; height = !cy
+  ; height = hdr +. !acc
   }
 ;;
 
-let all roots = Array.init 4 ~f:(fun tier -> compute roots ~tier)
+let empty_layout =
+  { Tier_layout.placed = []
+  ; pos = String.Map.empty
+  ; heads = []
+  ; width = 0.
+  ; height = 0.
+  }
+;;
+
+let compute (roots : Heap_scene.Root.t list) ~tier ~columns =
+  let (_ : float), (_ : float), (_ : float), root_gap = gaps ~tier in
+  (* structures sit further apart across than down: two trees side by side
+     have nothing between them but air, where stacked ones are separated by a
+     header line as well *)
+  let column_gap = root_gap *. 1.5 in
+  let columns = Int.max 1 columns in
+  match List.map roots ~f:(layout_root ~tier) with
+  | [] -> empty_layout
+  | placements ->
+    let rows = (List.length placements + columns - 1) / columns in
+    let column_w = Array.create ~len:columns 0. in
+    let row_h = Array.create ~len:rows 0. in
+    List.iteri placements ~f:(fun index (placement : Placement.t) ->
+      let column = index % columns in
+      let row = index / columns in
+      column_w.(column) <- Float.max column_w.(column) placement.width;
+      row_h.(row) <- Float.max row_h.(row) placement.height);
+    let column_x = Array.create ~len:columns 0. in
+    for column = 1 to columns - 1 do
+      column_x.(column)
+      <- column_x.(column - 1) +. column_w.(column - 1) +. column_gap
+    done;
+    let row_y = Array.create ~len:rows 0. in
+    for row = 1 to rows - 1 do
+      row_y.(row) <- row_y.(row - 1) +. row_h.(row - 1) +. root_gap
+    done;
+    let pos = ref String.Map.empty in
+    let placed = Queue.create () in
+    let heads = Queue.create () in
+    let width = ref 0. in
+    let height = ref 0. in
+    List.iteri placements ~f:(fun index (placement : Placement.t) ->
+      let dx = column_x.(index % columns) in
+      let dy = row_y.(index / columns) in
+      Map.iteri placement.pos ~f:(fun ~key ~data:(box : Box.t) ->
+        pos
+        := Map.set
+             !pos
+             ~key
+             ~data:{ box with x = box.x +. dx; y = box.y +. dy });
+      List.iter placement.placed ~f:(fun placed_node ->
+        Queue.enqueue placed placed_node);
+      Queue.enqueue heads { Head.root = placement.root; x = dx; y = dy };
+      (* the extent is measured off the structures themselves, so trailing
+         empty columns cost nothing *)
+      width := Float.max !width (dx +. placement.width);
+      height := Float.max !height (dy +. placement.height));
+    { Tier_layout.placed = Queue.to_list placed
+    ; pos = !pos
+    ; heads = Queue.to_list heads
+    ; width = !width
+    ; height = !height
+    }
+;;
+
+let all roots ~columns =
+  Array.init 4 ~f:(fun tier -> compute roots ~tier ~columns)
+;;
 
 (* ── zoom plumbing ─────────────────────────────────────────────────────
    Semantic zoom: the scale factor [k] maps onto a continuous detail tier
@@ -270,7 +345,10 @@ let heads_now (layouts : Tier_layout.t array) ~tier_f =
     let other =
       Option.value (List.nth layouts.(b).heads index) ~default:head
     in
-    { head with y = head.y +. ((other.y -. head.y) *. f) })
+    { head with
+      x = head.x +. ((other.x -. head.x) *. f)
+    ; y = head.y +. ((other.y -. head.y) *. f)
+    })
 ;;
 
 let bounds_now (layouts : Tier_layout.t array) ~tier_f =

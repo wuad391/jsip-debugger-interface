@@ -35,6 +35,13 @@ let%expect_test "segments keep bursts visible and clicks land on steps" =
     [%string
       "played at step 199: %{Timeline_model.played ~total:400 ~step:199 \
        ~segments:(Array.length segments)#Int}"];
+  (* the cap sits at the end of the played span, and at step 0 it is already
+     on screen — the strip has no other mark for the position *)
+  List.iter [ 0; 199; 399 ] ~f:(fun step ->
+    print_endline
+      [%string
+        "cursor at step %{step#Int}: %{Timeline_model.cursor ~total:400 \
+         ~step ~segments:(Array.length segments)#Int}"]);
   [%expect
     {|
     160 segments, 1 carrying the burst
@@ -42,6 +49,9 @@ let%expect_test "segments keep bursts visible and clicks land on steps" =
     fraction 0.5 → step 200
     fraction 1.0 → step 399
     played at step 199: 80
+    cursor at step 0: 0
+    cursor at step 199: 79
+    cursor at step 399: 159
     |}]
 ;;
 

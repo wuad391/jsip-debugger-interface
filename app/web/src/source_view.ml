@@ -106,7 +106,7 @@ let view ~theme ~source ~file_label ~file ~line_count ~collapsed ~inject =
     {%html|
       <div %{Styles.pane theme ~bordered_bottom:false}>
         %{header}
-        <div %{Styles.pane_body} %{Vdom.Attr.id "source-scroll"}>*{body}</div>
+        <div %{Styles.pane_body theme} %{Vdom.Attr.id "source-scroll"}>*{body}</div>
       </div>
     |}
 ;;

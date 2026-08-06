@@ -84,7 +84,7 @@ let view
     {%html|
       <div %{Styles.flame_drawer theme ~open_:true}>
         %{header}
-        <div %{Styles.flame_body}>
+        <div %{Styles.flame_body theme}>
           <div %{Styles.flame_rows ~height}>*{bars}</div>
         </div>
       </div>

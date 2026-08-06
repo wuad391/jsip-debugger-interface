@@ -47,7 +47,8 @@ end
 module Head : sig
   type t =
     { root : Heap_scene.Root.t
-    ; y : float (** the header line's top, in world coordinates *)
+    ; x : float (** the structure's left edge, in world coordinates *)
+    ; y : float (** the header line's top *)
     }
 end
 
@@ -65,10 +66,19 @@ end
     mode, which grows single boxes past the global tier. *)
 val size : Heap_scene.Node.t -> tier:int -> float * float
 
-val compute : Heap_scene.Root.t list -> tier:int -> Tier_layout.t
+(** One tier's layout. [columns] is how many structures stand side by side
+    before the next row of them — the canvas is much wider than one tree, so
+    the structures pack into a grid rather than a single column. Each column
+    is as wide as its widest structure and each row as tall as its tallest,
+    and a column no structure landed in costs nothing. *)
+val compute
+  :  Heap_scene.Root.t list
+  -> tier:int
+  -> columns:int
+  -> Tier_layout.t
 
 (** All four tiers at once — what everything below interpolates over. *)
-val all : Heap_scene.Root.t list -> Tier_layout.t array
+val all : Heap_scene.Root.t list -> columns:int -> Tier_layout.t array
 
 (** The scale factors where each integer tier begins. *)
 val stops : float array

@@ -331,6 +331,11 @@ pans, and the minimap in the corner drags too. `m` flips between uniform
 detail and a focal mode where boxes near the pointer grow while the rest
 stay small.
 
+The structures pack into a grid rather than a single column — the
+browser is much wider than one tree. The slider above the minimap sets
+how many stand side by side (1–6, three by default); moving it reflows
+and refits, since the arrangement it was framing has moved.
+
 Everything from the terminal carries over: `←`/`→` step (`space` plays,
 the strip up top scrubs), clicking a box jumps to its allocation step
 and pins it blue, hovering shows the tooltip the outline's rows carried
