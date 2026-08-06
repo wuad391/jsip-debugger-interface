@@ -4,10 +4,10 @@
     the same hue, current in the highlight blue, future hairline; clickable
     to jump) over the controls: right-aligned chips, each naming its key
     ([◂ back], [step ▸], [[space] play], [. latest], [↑↓ node], [⏎ diagram],
-    [h fold], [z accordion], [/ filter], [f flame], [q quit]) — the row is
-    simultaneously the buttons and the key legend, and every chip is
-    clickable. The chips that name a mode (play, accordion, diagram, flame)
-    light up while it is on.
+    [h fold], [z accordion], [/ filter], [f flame], [b web], [q quit]) — the
+    row is simultaneously the buttons and the key legend, and every chip is
+    clickable. The chips that name a mode (play, accordion, diagram, flame,
+    web) light up while it is on.
 
     The middle of the row swaps with focus: the flame drawer rebinds [z] from
     accordion to zoom, [↑↓] aim its bars, and [⏎] jumps rather than popping
@@ -28,6 +28,16 @@ module Flame_state : sig
   [@@deriving sexp_of, equal]
 end
 
+(** What the web twin is doing, as far as the chip row cares: [Live] lights
+    the chip, [Failed] grows the label a [✗]. *)
+module Web_state : sig
+  type t =
+    | Idle
+    | Live
+    | Failed
+  [@@deriving sexp_of, equal]
+end
+
 module Button : sig
   type t =
     | Back
@@ -45,6 +55,9 @@ module Button : sig
     | Accordion
     | Filter
     | Flame (** [f]: open and shut the flame drawer *)
+    | Web
+    (** [b]: hand this replay to the web twin — launch it on the same inputs
+        and open the browser at it (see {!Jsip_tui.Web_handoff}) *)
     | Zoom (** [z] while the drawer holds the keyboard *)
     | Reset_zoom (** [Z] while the drawer holds the keyboard *)
     | Quit
@@ -66,18 +79,20 @@ val view
   -> accordion:bool
   -> diagram:bool
   -> flame:Flame_state.t
+  -> web:Web_state.t
   -> View.t
 
 (** Which step a click at column [x] of the tick row jumps to. *)
 val step_at : width:int -> total:int -> x:int -> int option
 
 (** Which chip a click at column [x] of the controls row hits — the same
-    layout math [view] draws with. [playing] and [flame] matter: the play
-    chip's label and the whole middle of the row (and so every extent) change
-    with them. *)
+    layout math [view] draws with. [playing], [flame] and [web] matter: the
+    play and web chips' labels and the whole middle of the row (and so every
+    extent) change with them. *)
 val control_at
   :  width:int
   -> playing:bool
   -> flame:Flame_state.t
+  -> web:Web_state.t
   -> x:int
   -> Button.t option

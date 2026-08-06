@@ -57,6 +57,7 @@ let main ~dump_file ~source_root ~perf_file =
       ~dump_name:(Filename.basename dump_file)
       ~replay
       ~sources:(load_sources replay ~source_root)
+      ~web:{ Web_handoff.dump_file; source_root; perf_file }
       ()
 ;;
 

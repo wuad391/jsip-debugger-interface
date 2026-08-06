@@ -15,6 +15,17 @@ module Flame_state = struct
   let is_open t = match t with Shut -> false | Open | Focused -> true
 end
 
+(* the web twin, as far as the chip row cares: not yet asked for, serving
+   (the chip lights), or asked for and not launchable — the label grows a [✗]
+   there, so the failure is on screen rather than nowhere *)
+module Web_state = struct
+  type t =
+    | Idle
+    | Live
+    | Failed
+  [@@deriving sexp_of, equal]
+end
+
 module Button = struct
   type t =
     | Back
@@ -27,6 +38,7 @@ module Button = struct
     | Accordion
     | Filter
     | Flame
+    | Web
     | Zoom
     | Reset_zoom
     | Quit
@@ -119,9 +131,14 @@ let ticks ~width ~step ~total ~density =
    controls and the whole key legend — the one place control info lives — and
    every chip is clickable. Layout math lives here so the view and
    [control_at] can never disagree. *)
-let segments ~playing ~flame =
+let segments ~playing ~flame ~web =
   let play_label =
     match playing with true -> "[space] pause" | false -> "[space] play"
+  in
+  let web_label =
+    match (web : Web_state.t) with
+    | Idle | Live -> "b web"
+    | Failed -> "b web ✗"
   in
   let dot = None, " · " in
   (* focus rebinds keys — [z] is accordion in the heap and zoom in the flame
@@ -157,6 +174,8 @@ let segments ~playing ~flame =
       ; Some Button.Filter, "/ filter"
       ; dot
       ; Some Button.Flame, "f flame"
+      ; dot
+      ; Some Button.Web, web_label
       ]
   in
   [ Some Button.Back, "◂ back"
@@ -173,19 +192,19 @@ let segments ~playing ~flame =
 (* display columns, not bytes — ◂ ▸ · are multi-byte glyphs *)
 let segment_columns text = View.width (View.text text)
 
-let start_column ~width ~playing ~flame =
+let start_column ~width ~playing ~flame ~web =
   let total =
     List.sum
       (module Int)
-      (segments ~playing ~flame)
+      (segments ~playing ~flame ~web)
       ~f:(fun ((_ : Button.t option), text) -> segment_columns text)
   in
   max 0 (width - total - 1)
 ;;
 
-let controls ~width ~playing ~accordion ~diagram ~flame =
+let controls ~width ~playing ~accordion ~diagram ~flame ~web =
   let chips =
-    List.map (segments ~playing ~flame) ~f:(fun (button, text) ->
+    List.map (segments ~playing ~flame ~web) ~f:(fun (button, text) ->
       (* the chips that name a mode light up while it is on, the same cue for
          all of them: you can read the row as state, not just as keys *)
       let attrs =
@@ -199,11 +218,17 @@ let controls ~width ~playing ~accordion ~diagram ~flame =
           [ Theme.fg Theme.highlight; Attr.bold ]
         | Some Button.Flame when Flame_state.is_open flame ->
           [ Theme.fg Theme.highlight; Attr.bold ]
+        | Some Button.Web when Web_state.equal web Web_state.Live ->
+          [ Theme.fg Theme.highlight; Attr.bold ]
+        (* a chip that failed reads in the row's punctuation gray: present,
+           explained by its [✗], and visibly not a live mode *)
+        | Some Button.Web when Web_state.equal web Web_state.Failed ->
+          Theme.fg' Theme.ghost
         | Some
             ( Button.Back | Button.Step | Button.Play | Button.Latest
             | Button.Node | Button.Diagram | Button.Fold | Button.Accordion
-            | Button.Filter | Button.Flame | Button.Zoom | Button.Reset_zoom
-            | Button.Quit ) ->
+            | Button.Filter | Button.Flame | Button.Web | Button.Zoom
+            | Button.Reset_zoom | Button.Quit ) ->
           Theme.fg' Theme.secondary
       in
       View.text ~attrs text)
@@ -211,18 +236,18 @@ let controls ~width ~playing ~accordion ~diagram ~flame =
   Panel.fit
     (View.hcat
        (View.transparent_rectangle
-          ~width:(start_column ~width ~playing ~flame)
+          ~width:(start_column ~width ~playing ~flame ~web)
           ~height:1
         :: chips))
     ~width
     ~height:1
 ;;
 
-let control_at ~width ~playing ~flame ~x =
+let control_at ~width ~playing ~flame ~web ~x =
   let (_ : int), hit =
     List.fold
-      (segments ~playing ~flame)
-      ~init:(start_column ~width ~playing ~flame, None)
+      (segments ~playing ~flame ~web)
+      ~init:(start_column ~width ~playing ~flame ~web, None)
       ~f:(fun (column, hit) (button, text) ->
         let stop = column + segment_columns text in
         let hit =
@@ -235,7 +260,17 @@ let control_at ~width ~playing ~flame ~x =
   hit
 ;;
 
-let view ~width ~step ~total ~density ~playing ~accordion ~diagram ~flame =
+let view
+  ~width
+  ~step
+  ~total
+  ~density
+  ~playing
+  ~accordion
+  ~diagram
+  ~flame
+  ~web
+  =
   View.with_colors'
     ~fill_backdrop:true
     ~fg:Theme.text
@@ -243,7 +278,7 @@ let view ~width ~step ~total ~density ~playing ~accordion ~diagram ~flame =
     (Panel.fit
        (View.vcat
           [ ticks ~width ~step ~total ~density
-          ; controls ~width ~playing ~accordion ~diagram ~flame
+          ; controls ~width ~playing ~accordion ~diagram ~flame ~web
           ])
        ~width
        ~height:Layout.strip_height)

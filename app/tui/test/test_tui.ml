@@ -803,21 +803,43 @@ let%expect_test "source pane: a missing file renders its error, wrapped" =
 
 let%expect_test "transport: ticks, then the clickable key legend" =
   print_view
-    ~width:117
+    ~width:125
     ~height:3
     (Transport.view
-       ~width:117
+       ~width:125
        ~step:1
        ~total:3
        ~density:[| 0.0; 1.0; 0.2 |]
        ~playing:false
        ~accordion:false
        ~diagram:false
-       ~flame:Shut);
+       ~flame:Shut
+       ~web:Idle);
   [%expect
     {|
-    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-    ◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · f flame · q quit
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+    ◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · f flame · b web · q quit
+    |}]
+;;
+
+let%expect_test "a failed web launch is on the chip, not nowhere" =
+  print_view
+    ~width:127
+    ~height:2
+    (Transport.view
+       ~width:127
+       ~step:0
+       ~total:1
+       ~density:[| 0.0 |]
+       ~playing:false
+       ~accordion:false
+       ~diagram:false
+       ~flame:Shut
+       ~web:Failed);
+  [%expect
+    {|
+    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+    ◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · f flame · b web ✗ · q quit
     |}]
 ;;
 
@@ -1123,14 +1145,14 @@ let%expect_test "heap pane: closures stay opaque" =
 ;;
 
 let%expect_test "control chips hit-test exactly where they render" =
-  (* the row wants 117 columns now that [f flame] rides beyond [/ filter];
+  (* the row wants 125 columns now that [b web] rides beyond [f flame];
      narrower than that and [start_column] pins it at 0 and the right-hand
      chips crop *)
-  let width = 117 in
+  let width = 125 in
   let show (flame : Transport.Flame_state.t) =
     let hits =
       List.filter_map (List.init width ~f:Fn.id) ~f:(fun x ->
-        Transport.control_at ~width ~playing:false ~flame ~x
+        Transport.control_at ~width ~playing:false ~flame ~web:Idle ~x
         |> Option.map ~f:(fun button -> x, button))
     in
     let groups =
@@ -1158,7 +1180,8 @@ let%expect_test "control chips hit-test exactly where they render" =
     (Accordion 75 85)
     (Filter 89 96)
     (Flame 100 106)
-    (Quit 110 115)
+    (Web 110 114)
+    (Quit 118 123)
     (Back 17 22)
     (Step 26 31)
     (Play 35 46)
@@ -1168,7 +1191,8 @@ let%expect_test "control chips hit-test exactly where they render" =
     (Reset_zoom 79 85)
     (Filter 89 96)
     (Flame 100 106)
-    (Quit 110 115)
+    (Web 110 114)
+    (Quit 118 123)
     |}]
 ;;
 

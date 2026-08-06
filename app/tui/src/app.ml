@@ -62,6 +62,25 @@ module Flame = struct
   let initial = { open_ = false; zoom = []; cursor = None; depth_scroll = 0 }
 end
 
+(* the web twin's corner of the model: launched at most once per session —
+   the port is the launch's one output, which the chip row needs to light and
+   a second [b] needs to reopen. A refusal keeps its reason so the model's
+   sexp says what happened, even though the chip only wears [✗]. *)
+module Web = struct
+  type t =
+    | Idle
+    | Live of int (** the port the twin serves on *)
+    | Failed of string
+  [@@deriving sexp_of, equal]
+
+  let chip t =
+    match t with
+    | Idle -> Transport.Web_state.Idle
+    | Live (_ : int) -> Transport.Web_state.Live
+    | Failed (_ : string) -> Transport.Web_state.Failed
+  ;;
+end
+
 module Model = struct
   type t =
     { step : int
@@ -108,6 +127,8 @@ module Model = struct
     ; pop_pan : int
     ; flame : Flame.t
     (** [f]: the flame drawer under the heap, open or shut *)
+    ; web : Web.t
+    (** [b]: whether this replay's web twin has been launched, and where *)
     }
   [@@deriving sexp_of, equal]
 
@@ -135,6 +156,7 @@ module Model = struct
     ; pop_scroll = 0
     ; pop_pan = 0
     ; flame = Flame.initial
+    ; web = Web.Idle
     }
   ;;
 end
@@ -194,6 +216,10 @@ module Action = struct
     | Zoom_flame (** [z] while the drawer is focused: rescale to the bar *)
     | Reset_flame_zoom (** [Z]: back to the whole tree *)
     | Scroll_flame of int (** by depth rows *)
+    | Web_result of (int, string) Result.t
+    (** what [b]'s launch came back with — the twin's port, or why not. The
+        launch itself is a side effect in the handler; only its outcome
+        passes through the state machine. *)
   [@@deriving sexp_of]
 end
 
@@ -695,6 +721,8 @@ let apply_action
           depth_scroll = Int.max 0 (model.flame.depth_scroll + delta)
         }
     }
+  | Web_result (Ok port) -> { model with web = Web.Live port }
+  | Web_result (Error reason) -> { model with web = Web.Failed reason }
 ;;
 
 (* each call's share, joined once up front — the color its name renders in.
@@ -788,7 +816,9 @@ let birth_steps replay =
 module Computed = struct
   type t =
     { view : View.t
-    ; on_click : Position.t -> [ `Act of Action.t | `Quit ] option
+    ; on_click : Position.t -> [ `Act of Action.t | `Quit | `Web ] option
+    (** [`Web] rather than an action: launching the twin is a side effect
+        with a result, so the handler owns it the way it owns [`Quit] *)
     ; on_scroll :
         Position.t -> [ `Up | `Down ] -> sideways:bool -> Action.t option
     }
@@ -988,6 +1018,7 @@ let render
       ~accordion:model.accordion
       ~diagram:(Option.is_some model.popped_out)
       ~flame:flame_chip
+      ~web:(Web.chip model.web)
   in
   (* The diagram of the row [Enter] was pressed on, over everything else. It
      is a slab rather than a pane, so it is inset from the screen's edges
@@ -1154,7 +1185,9 @@ let render
              ()
          ])
   in
-  let on_click (position : Position.t) : [ `Act of Action.t | `Quit ] option =
+  let on_click (position : Position.t)
+    : [ `Act of Action.t | `Quit | `Web ] option
+    =
     let act action = `Act action in
     (* everything below the pane titles — the body hit-tests only start under
        the title row *)
@@ -1274,6 +1307,7 @@ let render
            ~width:layout.controls.width
            ~playing:model.playing
            ~flame:flame_chip
+           ~web:(Web.chip model.web)
            ~x:position.x
          |> Option.map ~f:(fun button ->
            match (button : Transport.Button.t) with
@@ -1287,6 +1321,7 @@ let render
            | Accordion -> act Action.Toggle_accordion
            | Filter -> act Action.Begin_filter
            | Flame -> act Action.Toggle_flame
+           | Web -> `Web
            | Zoom -> act Action.Zoom_flame
            | Reset_zoom -> act Action.Reset_flame_zoom
            | Quit -> `Quit)
@@ -1340,6 +1375,8 @@ let component
   ~replay
   ~sources
   ~dump_name
+  ~launch_web
+  ~reopen_web
   ~exit
   ~dimensions
   (local_ graph)
@@ -1400,7 +1437,8 @@ let component
   in
   let handler =
     let%arr { Computed.on_click; on_scroll; view = _ } = computed
-    and { Model.typing_filter; popped_out; flame = panel; focus; _ } = model
+    and { Model.typing_filter; popped_out; flame = panel; focus; web; _ } =
+      model
     and inject in
     let inject_or_ignore action =
       match action with
@@ -1410,9 +1448,21 @@ let component
     (* the drawer only takes the keyboard when [Tab] has actually put it
        there: it shares the screen with the heap, so both must stay drivable *)
     let flame_focused = panel.Flame.open_ && Pane.equal focus Pane.Flame in
+    (* [b]: the twin launches once and its port sticks; after that the same
+       key only reopens the browser at it. The launch is IO, so it happens
+       here in the handler and only its result goes through the model. *)
+    let web_effect =
+      match (web : Web.t) with
+      | Live port -> Effect.of_sync_fun (fun () -> reopen_web ~port) ()
+      | Idle | Failed (_ : string) ->
+        let%bind.Effect result = Effect.of_sync_fun launch_web () in
+        inject
+          (Action.Web_result (Result.map_error result ~f:Error.to_string_hum))
+    in
     let click_or_ignore click =
       match click with
       | Some (`Act action) -> inject action
+      | Some `Web -> web_effect
       | Some `Quit -> exit ()
       | None -> Effect.Ignore
     in
@@ -1463,6 +1513,7 @@ let component
             join them here: accordion and heap scroll elsewhere, zoom and
             depth in the drawer. *)
          | ASCII 'f', [] -> inject Toggle_flame
+         | ASCII 'b', [] -> web_effect
          | ASCII 'z', [] when flame_focused -> inject Zoom_flame
          | ASCII 'Z', [] when flame_focused -> inject Reset_flame_zoom
          | Page `Up, [] when flame_focused -> inject (Scroll_flame (-1))
@@ -1525,7 +1576,16 @@ let component
   ~view, ~handler
 ;;
 
-let run ?profile ~dump_name ~replay ~sources () =
+let run ?profile ~dump_name ~replay ~sources ~web () =
   Bonsai_term.start_with_exit (fun ~exit ~dimensions (local_ graph) ->
-    component ?profile ~replay ~sources ~dump_name ~exit ~dimensions graph)
+    component
+      ?profile
+      ~replay
+      ~sources
+      ~dump_name
+      ~launch_web:(fun () -> Web_handoff.launch web)
+      ~reopen_web:Web_handoff.reopen
+      ~exit
+      ~dimensions
+      graph)
 ;;

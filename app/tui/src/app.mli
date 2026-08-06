@@ -15,6 +15,9 @@
       [Enter] commits, and [z] means zoom there rather than accordion.
       Stepping and playing carry on either way, so the lit path walks the
       profile as the replay runs
+    - [b] — hand the replay to the web twin: launch {!Web_handoff} on this
+      session's own inputs and open the browser at it. The chip lights while
+      the twin is live, and [b] after that reopens the tab
     - clicks — stack rows select, footer ticks and heap nodes jump the replay
       (a node jumps to the step that allocated it), a flame bar jumps to the
       first call that merged into it, the wheel scrolls the heap tree
@@ -33,22 +36,29 @@ module Dimensions := Bonsai_term.Dimensions
     carry, and [replay] must have at least one step. [profile] is the perf
     heat profile the pipeline captured over the unchanged program; when
     given, the stack pane grows a per-call heat cell and the session bar its
-    legend. *)
+    legend. [launch_web] and [reopen_web] are what [b] does — start the web
+    twin (returning its port) and raise the browser at a port it already
+    holds; {!Web_handoff} is the real pair, and tests stub them. *)
 val component
   :  ?profile:Jsip_types.Heat_profile.t
   -> replay:Replay.t
   -> sources:Source_pane.Loaded.t Or_error.t String.Map.t
   -> dump_name:string
+  -> launch_web:(unit -> int Or_error.t)
+  -> reopen_web:(port:int -> unit)
   -> exit:(unit -> unit Effect.t)
   -> dimensions:Dimensions.t Bonsai.t
   -> local_ Bonsai.graph
   -> view:View.t Bonsai.t * handler:(Event.t -> unit Effect.t) Bonsai.t
 
-(** Runs until [q]/[Ctrl-C]. The terminal is restored on exit. *)
+(** Runs until [q]/[Ctrl-C]. The terminal is restored on exit. [web] names
+    the session's own inputs again, paths this time, so [b] can hand the
+    replay to the browser twin. *)
 val run
   :  ?profile:Jsip_types.Heat_profile.t
   -> dump_name:string
   -> replay:Replay.t
   -> sources:Source_pane.Loaded.t Or_error.t String.Map.t
+  -> web:Web_handoff.t
   -> unit
   -> unit Async.Deferred.Or_error.t

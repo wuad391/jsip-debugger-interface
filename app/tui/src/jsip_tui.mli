@@ -6,6 +6,7 @@
     consumers keep one entry point. *)
 
 module App = App
+module Web_handoff = Web_handoff
 module Flame_pane = Jsip_tui_components.Flame_pane
 module Heap_pane = Jsip_tui_components.Heap_pane
 module Layout = Jsip_tui_components.Layout

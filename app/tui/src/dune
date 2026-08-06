@@ -3,6 +3,7 @@
  (public_name jsip-debugger-interface.jsip_tui)
  (libraries
   core
+  core_unix
   async
   bonsai
   bonsai_term

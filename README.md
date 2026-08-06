@@ -32,7 +32,7 @@ divider line along each seam:
 
 ```
 ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · f flame · q quit
+◂ back · step ▸ · [space] play · ↑↓ node · ⏎ diagram · h fold · z accordion · / filter · f flame · b web · q quit
 ─────────────────────────────┬──────────────────────────────────────────────────────────────
  CALL STACK 5 calls · 1 live │ HEAP                                2 live · 3 nodes · 2 new
       M.add "b" 2 M.empty    │ ▾ #1  int M.t  1 binding
@@ -262,14 +262,24 @@ its subtree earned; the gaps are exposed self time.)
   — so the run's busy phases read straight off the bar — over the
   controls, right-aligned chips that double as the key legend —
   `◂ back · step ▸ · [space] play · . latest · ↑↓ node · ⏎ diagram ·
-  h fold · z accordion · / filter · f flame · q quit` — every chip
-  clickable, and the mode chips (play, accordion, diagram, flame) light
-  up while theirs is on. The middle of the row swaps while the flame
-  drawer holds the keyboard (`↑↓ bar · z zoom · Z reset`), because focus
-  rebinds those keys and a legend naming keys that no longer work is
-  worse than no legend. The row wants 117 columns; narrower than that
-  and the right-hand chips crop. The session bar (dump name, structure)
-  sits along the bottom.
+  h fold · z accordion · / filter · f flame · b web · q quit` — every
+  chip clickable, and the mode chips (play, accordion, diagram, flame,
+  web) light up while theirs is on. The middle of the row swaps while
+  the flame drawer holds the keyboard (`↑↓ bar · z zoom · Z reset`),
+  because focus rebinds those keys and a legend naming keys that no
+  longer work is worse than no legend. The row wants 125 columns;
+  narrower than that and the right-hand chips crop. The session bar
+  (dump name, structure) sits along the bottom.
+- **The web twin** — `b` (or the `b web` chip) hands this replay to the
+  browser: it starts `app/web/server/serve.exe` on the same
+  `-dump-file`/`-source-root`/`-perf-file` this session was given, on
+  the first free port from 8080, and opens `http://localhost:PORT`
+  (via `$BROWSER` — which VS Code's remote terminals point at your
+  local browser — then `xdg-open`). The chip lights while the twin is
+  live; `b` again just reopens the tab. The server is detached, so it
+  outlives `q`. Until the web branch is merged and built beside this
+  binary, point `JSIP_WEB_SERVE` at a built `serve.exe`; a launch that
+  cannot happen puts `✗` on the chip instead of pretending.
 
 ## Run it
 
