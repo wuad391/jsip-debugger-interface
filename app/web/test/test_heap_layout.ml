@@ -61,6 +61,80 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
     |}]
 ;;
 
+(* The invariant the crossfade rests on. Zoom blends the two neighbouring
+   tiers' layouts, so if each tier packed the structures for itself a
+   structure could sit on a different row at each detail level and sail
+   across its neighbours halfway through — which is what "the structures
+   overlap when I scroll" looked like. Shelving is fixed once for all four
+   tiers, and this walks the whole zoom range asking whether any two boxes
+   ever intersect. *)
+let%expect_test "no two boxes overlap at any zoom, at any column count" =
+  let overlaps ~fixture ~columns =
+    let replay = replay_of_fixture fixture in
+    let roots, (_ : Heap_scene.Stats.t) =
+      scene replay ~step:(Replay.length replay - 1)
+    in
+    let layouts = Heap_layout.all roots ~columns in
+    let ids =
+      List.map layouts.(0).placed ~f:(fun (placed : Heap_layout.Placed.t) ->
+        placed.id)
+    in
+    List.sum
+      (module Int)
+      [ 0.; 0.4; 0.85; 1.; 1.5; 1.9; 2.; 2.6; 3. ]
+      ~f:(fun tier_f ->
+        let boxes =
+          List.filter_map ids ~f:(fun id ->
+            Heap_layout.box_of layouts ~tier_f ~id)
+        in
+        (* a pair counts as overlapping only when they properly intersect;
+           boxes that share an edge are tiling, which is the point *)
+        List.sum
+          (module Int)
+          (List.mapi boxes ~f:(fun index box -> index, box))
+          ~f:(fun (index, (a : Heap_layout.Box.t)) ->
+            List.sum
+              (module Int)
+              (List.filteri boxes ~f:(fun other (_ : Heap_layout.Box.t) ->
+                 other > index))
+              ~f:(fun (b : Heap_layout.Box.t) ->
+                match
+                  Float.( > ) (a.x +. a.w) (b.x +. 0.01)
+                  && Float.( > ) (b.x +. b.w) (a.x +. 0.01)
+                  && Float.( > ) (a.y +. a.h) (b.y +. 0.01)
+                  && Float.( > ) (b.y +. b.h) (a.y +. 0.01)
+                with
+                | true -> 1
+                | false -> 0)))
+  in
+  List.iter
+    [ "map_nested"; "queue_of_queues"; "map_shared_payload" ]
+    ~f:(fun fixture ->
+      List.iter [ 1; 2; 3; 8; 16 ] ~f:(fun columns ->
+        print_endline
+          [%string
+            "%{fixture} · %{columns#Int} across: %{overlaps ~fixture \
+             ~columns#Int} overlapping pairs"]));
+  [%expect
+    {|
+    map_nested · 1 across: 0 overlapping pairs
+    map_nested · 2 across: 0 overlapping pairs
+    map_nested · 3 across: 0 overlapping pairs
+    map_nested · 8 across: 0 overlapping pairs
+    map_nested · 16 across: 0 overlapping pairs
+    queue_of_queues · 1 across: 0 overlapping pairs
+    queue_of_queues · 2 across: 0 overlapping pairs
+    queue_of_queues · 3 across: 0 overlapping pairs
+    queue_of_queues · 8 across: 0 overlapping pairs
+    queue_of_queues · 16 across: 0 overlapping pairs
+    map_shared_payload · 1 across: 0 overlapping pairs
+    map_shared_payload · 2 across: 0 overlapping pairs
+    map_shared_payload · 3 across: 0 overlapping pairs
+    map_shared_payload · 8 across: 0 overlapping pairs
+    map_shared_payload · 16 across: 0 overlapping pairs
+    |}]
+;;
+
 (* the columns slider's geometry: one column stacks, more than one packs the
    structures across, each column as wide as its own widest tree *)
 let%expect_test "structures pack across into a grid" =
@@ -70,7 +144,12 @@ let%expect_test "structures pack across into a grid" =
   in
   print_endline [%string "%{List.length roots#Int} structures"];
   List.iter [ 1; 2; 3 ] ~f:(fun columns ->
-    let layout = Heap_layout.compute roots ~tier:1 ~columns in
+    let layout =
+      Heap_layout.compute
+        roots
+        ~tier:1
+        ~shelves:(Heap_layout.shelves roots ~columns)
+    in
     let heads =
       List.map layout.heads ~f:(fun (head : Heap_layout.Head.t) ->
         [%string
@@ -95,7 +174,12 @@ let%expect_test "structures pack across into a grid" =
 let%expect_test "a parent's box is centered over the spread of its children" =
   let replay = replay_of_fixture "map_nested" in
   let roots, (_ : Heap_scene.Stats.t) = scene replay ~step:1 in
-  let layout = Heap_layout.compute roots ~tier:1 ~columns:1 in
+  let layout =
+    Heap_layout.compute
+      roots
+      ~tier:1
+      ~shelves:(Heap_layout.shelves roots ~columns:1)
+  in
   List.iter layout.placed ~f:(fun (placed : Heap_layout.Placed.t) ->
     let box = Map.find_exn layout.pos placed.id in
     print_endline

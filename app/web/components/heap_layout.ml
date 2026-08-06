@@ -210,48 +210,81 @@ let empty_layout =
   }
 ;;
 
-let compute (roots : Heap_scene.Root.t list) ~tier ~columns =
+(* Structures sit CLOSER across than down. Stacked ones are separated by a
+   header line as well as the gap; side by side there is only the gap, and
+   every pixel of it is paid for in zoom. *)
+let column_gap ~tier =
   let (_ : float), (_ : float), (_ : float), root_gap = gaps ~tier in
-  (* Structures sit CLOSER across than down. Stacked ones are separated by a
-     header line as well as the gap; side by side there is only the gap, and
-     every pixel of it is paid for in zoom. *)
-  let column_gap = root_gap *. 0.55 in
+  root_gap *. 0.55
+;;
+
+(* the tier the shelving is decided at — the middle of the range, so neither
+   end has to stretch far from the packing it was measured for *)
+let shelving_tier = 2
+
+(* Which structures share a row, as indices, decided ONCE for all four tiers.
+
+   A row is a WIDTH BUDGET, not a count of slots: the slider says how many
+   average-sized structures should fit across, and each one then takes the
+   room it actually needs. A fixed grid is the wrong shape for this data —
+   heap trees differ in width by an order of magnitude, so one wide tree set
+   the width of a column that every narrow one below it then swam in. Here a
+   tree twice the average spans two slots' worth and its row wraps sooner.
+
+   But the ASSIGNMENT has to be tier-independent, which is why this is not
+   decided inside {!compute}. Widths change with the tier, so a tier that
+   shelves for itself can put a structure on row one at one detail level and
+   row three at the next — and {!box_of} crossfades between two tiers'
+   layouts, so mid-zoom the picture would be a blend of two different
+   packings, belonging to neither, with structures sailing across their
+   neighbours on the way. Fixed once, the interpolation is exact: positions
+   tile because each is the previous plus a width plus a gap, and a linear
+   blend of two tilings is a tiling. *)
+let shelves (roots : Heap_scene.Root.t list) ~columns =
+  let gap = column_gap ~tier:shelving_tier in
   let columns = Int.max 1 columns in
-  match List.map roots ~f:(layout_root ~tier) with
-  | [] -> empty_layout
-  | placements ->
-    (* A row is a WIDTH BUDGET, not a count of slots: the slider says how
-       many average-sized structures should fit across, and each one then
-       takes the room it actually needs. A fixed grid is the wrong shape for
-       this data — heap trees differ in width by an order of magnitude, so
-       one wide tree set the width of a column that every narrow one below it
-       then swam in. Here a tree twice the average simply spans two slots'
-       worth and its row wraps sooner. *)
+  let widths =
+    List.map roots ~f:(fun root ->
+      (layout_root root ~tier:shelving_tier).Placement.width)
+  in
+  match widths with
+  | [] -> []
+  | widths ->
     let average =
-      List.fold
-        placements
-        ~init:0.
-        ~f:(fun total (placement : Placement.t) -> total +. placement.width)
-      /. Float.of_int (List.length placements)
+      List.fold widths ~init:0. ~f:( +. )
+      /. Float.of_int (List.length widths)
     in
-    let budget = Float.of_int columns *. (average +. column_gap) in
+    let budget = Float.of_int columns *. (average +. gap) in
     let shelved, last, (_ : float) =
-      List.fold
-        placements
+      List.foldi
+        widths
         ~init:([], [], 0.)
-        ~f:(fun (shelves, current, used) (placement : Placement.t) ->
-          let gap = match current with [] -> 0. | _ :: _ -> column_gap in
-          let next = used +. gap +. placement.width in
+        ~f:(fun index (shelves, current, used) width ->
+          let gap = match current with [] -> 0. | _ :: _ -> gap in
+          let next = used +. gap +. width in
           (* one per row at minimum: a structure wider than the whole budget
              still has to go somewhere *)
           match List.is_empty current || Float.( <= ) next budget with
-          | true -> shelves, placement :: current, next
-          | false ->
-            List.rev current :: shelves, [ placement ], placement.width)
+          | true -> shelves, index :: current, next
+          | false -> List.rev current :: shelves, [ index ], width)
     in
+    List.rev
+      (match last with [] -> shelved | _ :: _ -> List.rev last :: shelved)
+;;
+
+let compute (roots : Heap_scene.Root.t list) ~tier ~shelves =
+  let (_ : float), (_ : float), (_ : float), root_gap = gaps ~tier in
+  let column_gap = column_gap ~tier in
+  match List.map roots ~f:(layout_root ~tier) with
+  | [] -> empty_layout
+  | placements ->
+    let placements = Array.of_list placements in
     let shelves =
-      List.rev
-        (match last with [] -> shelved | _ :: _ -> List.rev last :: shelved)
+      List.map shelves ~f:(fun shelf ->
+        List.filter_map shelf ~f:(fun index ->
+          match index >= 0 && index < Array.length placements with
+          | true -> Some placements.(index)
+          | false -> None))
     in
     let pos = ref String.Map.empty in
     let placed = Queue.create () in
@@ -288,7 +321,8 @@ let compute (roots : Heap_scene.Root.t list) ~tier ~columns =
 ;;
 
 let all roots ~columns =
-  Array.init 4 ~f:(fun tier -> compute roots ~tier ~columns)
+  let shelves = shelves roots ~columns in
+  Array.init 4 ~f:(fun tier -> compute roots ~tier ~shelves)
 ;;
 
 (* ── zoom plumbing ─────────────────────────────────────────────────────
