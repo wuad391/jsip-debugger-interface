@@ -1358,6 +1358,7 @@ let on_key (state : State.t) (event : Dom_html.keyboardEvent Js.t) =
        (match hovered_fold_key state with
         | Some fold -> act (Action.Toggle_heap_fold fold)
         | None -> ())
+     | "v" -> act Action.Toggle_heap_view
      | "z" -> act Action.Toggle_accordion
      | "Z" -> act Action.Reset_flame_zoom
      | "m" -> act Action.Toggle_lod
