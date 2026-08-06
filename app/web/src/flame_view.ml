@@ -4,17 +4,37 @@ open Jsip_web_components
 module Vdom = Virtual_dom.Vdom
 open Vdom.Html_syntax
 
-let row_height = 18.
+(* A flame graph of an instrumented trace is SHALLOW — the events are
+   bindings inside functions, not a sampled stack — so the drawer's rows
+   spread to fill it rather than sitting in a thin strip along the bottom of
+   an empty box. Three rows of forty pixels reads; three of eighteen, with a
+   hundred pixels of nothing above them, reads as broken. *)
+let drawer_height = 180.
+let min_row = 18.
+let max_row = 44.
 
-let segment_view theme (segment : Flame_math.Segment.t) ~depth ~inject =
-  let bottom = Float.of_int depth *. row_height in
+let row_height ~depth_count =
+  match depth_count with
+  | 0 -> min_row
+  | depth_count ->
+    Float.clamp_exn
+      ((drawer_height -. 34.) /. Float.of_int depth_count)
+      ~min:min_row
+      ~max:max_row
+;;
+
+let segment_view theme (segment : Flame_math.Segment.t) ~depth ~row ~inject =
+  let bottom = Float.of_int depth *. row in
+  let height = row -. 1. in
   match segment with
   | Flame_math.Segment.Pool { x; width; count } ->
     let x = sprintf "%.1f" x in
     let width = sprintf "%.1f" width in
     let bottom = sprintf "%.1f" bottom in
-    {%html|<div %{Styles.flame_pool theme ~x ~width ~bottom}>+%{count#Int}</div>|}
-  | Flame_math.Segment.Bar { path; label; x; width; share; lit; deepest } ->
+    let height = sprintf "%.1f" height in
+    {%html|<div %{Styles.flame_pool theme ~x ~width ~bottom ~height}>+%{count#Int}</div>|}
+  | Flame_math.Segment.Bar
+      { path; label; detail; x; width; share; lit; deepest } ->
     let fill, ink =
       match share with
       | None -> Theme.flame_neutral, Theme.flame_label_neutral
@@ -23,7 +43,7 @@ let segment_view theme (segment : Flame_math.Segment.t) ~depth ~inject =
     let title =
       Vdom.Attr.create
         "title"
-        [%string "%{label} — click jumps, double-click zooms"]
+        [%string "%{detail} — click jumps, double-click zooms"]
     in
     (* a bar stands for every call that merged into it; clicking goes to the
        first of them — the TUI's jump — and double-click rescales *)
@@ -32,8 +52,10 @@ let segment_view theme (segment : Flame_math.Segment.t) ~depth ~inject =
     let x = sprintf "%.1f" x in
     let width = sprintf "%.1f" width in
     let bottom = sprintf "%.1f" bottom in
+    let height = sprintf "%.1f" height in
     {%html|
-      <div %{Styles.flame_bar ~x ~width ~bottom ~fill ~ink ~lit ~deepest}
+      <div %{Styles.flame_bar ~x ~width ~bottom ~height ~fill ~ink ~lit
+              ~deepest}
            %{title} on_click=%{jump} on_double_click=%{zoom}>#{label}</div>
     |}
 ;;
@@ -74,13 +96,14 @@ let view
   | false ->
     {%html|<div %{Styles.flame_drawer theme ~open_:false}>%{header}</div>|}
   | true ->
+    let row = row_height ~depth_count in
     let bars =
-      List.concat_map rows ~f:(fun (row : Flame_math.Row.t) ->
+      List.concat_map rows ~f:(fun (flame_row : Flame_math.Row.t) ->
         List.map
-          row.segments
-          ~f:(segment_view theme ~depth:row.depth ~inject))
+          flame_row.segments
+          ~f:(segment_view theme ~depth:flame_row.depth ~row ~inject))
     in
-    let height = sprintf "%.0fpx" (Float.of_int depth_count *. row_height) in
+    let height = sprintf "%.0fpx" (Float.of_int depth_count *. row) in
     {%html|
       <div %{Styles.flame_drawer theme ~open_:true}>
         %{header}

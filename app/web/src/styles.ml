@@ -279,7 +279,7 @@ let flame_body (theme : Theme.t) =
 
 let flame_rows ~height = style [%string "position:relative;height:%{height}"]
 
-let flame_bar ~x ~width ~bottom ~fill ~ink ~lit ~deepest =
+let flame_bar ~x ~width ~bottom ~height ~fill ~ink ~lit ~deepest =
   let weight = match deepest with true -> "700" | false -> "400" in
   let mark =
     match lit with
@@ -288,15 +288,15 @@ let flame_bar ~x ~width ~bottom ~fill ~ink ~lit ~deepest =
   in
   style
     [%string
-      "position:absolute;left:%{x}px;width:%{width}px;bottom:%{bottom}px;height:17px;background:%{fill};color:%{ink};%{mark}font-size:11px;font-weight:%{weight};overflow:hidden;white-space:nowrap;text-overflow:clip;padding:1px \
-       3px 0;cursor:pointer;box-sizing:border-box"]
+      "position:absolute;left:%{x}px;width:%{width}px;bottom:%{bottom}px;height:%{height}px;background:%{fill};color:%{ink};%{mark}display:flex;align-items:center;font-size:12px;font-weight:%{weight};overflow:hidden;white-space:nowrap;text-overflow:clip;padding:0 \
+       4px;cursor:pointer;box-sizing:border-box"]
 ;;
 
-let flame_pool (theme : Theme.t) ~x ~width ~bottom =
+let flame_pool (theme : Theme.t) ~x ~width ~bottom ~height =
   style
     [%string
-      "position:absolute;left:%{x}px;width:%{width}px;bottom:%{bottom}px;height:17px;background:transparent;color:%{theme.faint};font-size:11px;padding:1px \
-       3px 0;white-space:nowrap;box-sizing:border-box"]
+      "position:absolute;left:%{x}px;width:%{width}px;bottom:%{bottom}px;height:%{height}px;background:transparent;color:%{theme.faint};display:flex;align-items:center;font-size:12px;padding:0 \
+       4px;white-space:nowrap;box-sizing:border-box"]
 ;;
 
 (* ── session bar ── *)

@@ -16,11 +16,29 @@ let live_path tree ~frames =
 let min_child = 3.
 let min_pool = 18.
 
+(* What fits ON a bar, which is a different question from what a call is
+   called. An unnamed callee's name is its whole source expression — a record
+   literal spanning six lines, in a bar forty pixels wide — so a lambda is
+   labeled by WHERE it is instead: [order_book.ml:134] identifies it, sorts
+   with its neighbours, and survives being cut off. The full text is still on
+   the bar's tooltip, which is where a long thing belongs. *)
+let bar_label (key : Flame_tree.Key.t) =
+  match key with
+  | Named name -> name
+  | Lambda { text = (_ : string); site } ->
+    [%string
+      "%{Filename.basename (Location.file_path \
+       site)}:%{Location.line_number site#Int}"]
+;;
+
 module Segment = struct
   type t =
     | Bar of
         { path : Path.t
-        ; label : string
+        ; label : string (** what fits on the bar — see {!bar_label} *)
+        ; detail : string
+        (** the callee in full, for the tooltip: a lambda's whole source
+            expression, which is what the bar cannot hold *)
         ; x : float
         ; width : float
         ; share : float option
@@ -126,7 +144,14 @@ let bars tree ~zoom ~width ~live =
       depth
       (Segment.Bar
          { path = List.rev (node.key :: rev_path)
-         ; label = Flame_tree.Key.display node.key
+         ; label = bar_label node.key
+         ; detail =
+             String.concat_map
+               (Flame_tree.Key.display node.key)
+               ~f:(fun char ->
+                 match Char.is_whitespace char with
+                 | true -> " "
+                 | false -> Char.to_string char)
          ; x
          ; width
          ; share = share node
