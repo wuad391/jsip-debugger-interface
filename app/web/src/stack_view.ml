@@ -11,7 +11,13 @@ let target_action (target : Stack_rows.Target.t) : Action.t =
   | Expand head -> Action.Toggle_stack_run head
 ;;
 
-let row_view (theme : Theme.t) (row : Stack_rows.Row.t) ~stripe ~inject =
+let row_view
+  (theme : Theme.t)
+  (row : Stack_rows.Row.t)
+  ~stripe
+  ~aimed
+  ~inject
+  =
   let is_selected =
     match row.state with
     | Stack_rows.State.Selected -> true
@@ -76,7 +82,8 @@ let row_view (theme : Theme.t) (row : Stack_rows.Row.t) ~stripe ~inject =
   in
   let id = Vdom.Attr.id [%string "stack-row-%{row.step#Int}"] in
   {%html|
-    <div %{id} %{Styles.stack_row theme ~selected:is_selected ~stripe}
+    <div %{id}
+         %{Styles.stack_row theme ~selected:is_selected ~stripe ~aimed}
          on_click=%{fun _ -> inject (target_action row.target)}>
       <span>#{indent}</span>
       %{glyph}
@@ -89,7 +96,16 @@ let row_view (theme : Theme.t) (row : Stack_rows.Row.t) ~stripe ~inject =
   |}
 ;;
 
-let view ~theme ~rows ~total_calls ~live_count ~has_heat ~collapsed ~inject =
+let view
+  ~theme
+  ~rows
+  ~total_calls
+  ~live_count
+  ~has_heat
+  ~collapsed
+  ~aimed_step
+  ~inject
+  =
   let title =
     match collapsed with true -> "▸ CALL STACK" | false -> "▾ CALL STACK"
   in
@@ -112,7 +128,15 @@ let view ~theme ~rows ~total_calls ~live_count ~has_heat ~collapsed ~inject =
   | false ->
     let body =
       List.mapi rows ~f:(fun index row ->
-        row_view theme row ~stripe:(index % 2 = 1) ~inject)
+        (* the orange aim, wherever it was set: clicking a heap box marks the
+           call that allocated it, so the three panes agree on what you are
+           looking at without the replay having moved *)
+        let aimed =
+          match aimed_step with
+          | Some step -> step = row.Stack_rows.Row.step
+          | None -> false
+        in
+        row_view theme row ~stripe:(index % 2 = 1) ~aimed ~inject)
     in
     {%html|
       <div %{Styles.pane theme ~bordered_bottom:true}>

@@ -227,8 +227,8 @@ let%expect_test "content switches tiers only once geometry has grown" =
   [%expect
     {|
     tier_f 0.00: geometry 0→1 at 0.00 · content 0
-    tier_f 0.50: geometry 0→1 at 0.59 · content 0
-    tier_f 0.84: geometry 0→1 at 0.99 · content 0
+    tier_f 0.50: geometry 0→1 at 1.00 · content 1
+    tier_f 0.84: geometry 0→1 at 1.00 · content 1
     tier_f 0.85: geometry 0→1 at 1.00 · content 1
     tier_f 1.00: geometry 1→2 at 0.00 · content 1
     tier_f 1.90: geometry 1→2 at 1.00 · content 2
@@ -255,7 +255,7 @@ let%expect_test "interpolated boxes sit between their two tier homes" =
   [%expect
     {|
     tier_f 1.00: w=241. h=34.
-    tier_f 1.40: w=248. h=49.
+    tier_f 1.40: w=257. h=65.
     tier_f 1.85: w=257. h=65.
     |}]
 ;;

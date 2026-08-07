@@ -543,7 +543,6 @@ let draw_node
     | Some aimed, Some address -> Snapshot.Address.equal aimed address
     | (Some _ | None), (Some _ | None) -> false
   in
-  let ct = Heap_layout.content_tier tier in
   let box =
     match raised with
     | false -> box
@@ -560,6 +559,27 @@ let draw_node
       ; w
       ; h
       }
+  in
+  (* WHICH detail this box draws is the box's own business, not the zoom's.
+     [content_tier] answers it off the continuous tier alone, so between the
+     moment a box finishes growing and the moment the zoom crosses the
+     switching point, a full-sized box sat there drawing the smaller tier's
+     content — visibly roomy, and empty. Ask the geometry instead: if the box
+     has reached the size the next tier's content was laid out for, that
+     content fits, so draw it. Per node, so a box that grew early (focal
+     mode, a short label) fills early. *)
+  let ct =
+    let base = Heap_layout.content_tier tier in
+    let next = Int.min 3 (base + 1) in
+    match next > base with
+    | false -> base
+    | true ->
+      let nw, nh = Heap_layout.size node ~tier:next in
+      (match
+         Float.( >= ) box.w (nw *. 0.94) && Float.( >= ) box.h (nh *. 0.94)
+       with
+       | true -> next
+       | false -> base)
   in
   (match raised with
    | false -> ()

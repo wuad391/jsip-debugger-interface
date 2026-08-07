@@ -118,17 +118,24 @@ let pane_body (theme : Theme.t) =
 
 (* ── call stack ── *)
 
-let stack_row (theme : Theme.t) ~selected ~stripe =
+(* Blue is where the replay IS, orange is what you are looking at — the same
+   pair the heap pane draws, so a box marked orange there and the call that
+   allocated it here are visibly one thing. Blue wins when they land on the
+   same row: the position is the stronger claim. *)
+let stack_row (theme : Theme.t) ~selected ~stripe ~aimed =
   let background =
-    match selected, stripe with
-    | true, (true | false) -> theme.selection_bg
-    | false, true -> theme.stripe_bg
-    | false, false -> "transparent"
+    match selected, aimed, stripe with
+    | true, (true | false), (true | false) -> theme.selection_bg
+    | false, true, (true | false) ->
+      Theme.mix theme.accent theme.bg ~amount:0.78
+    | false, false, true -> theme.stripe_bg
+    | false, false, false -> "transparent"
   in
   let border =
-    match selected with
-    | true -> theme.selection_border
-    | false -> "transparent"
+    match selected, aimed with
+    | true, (true | false) -> theme.selection_border
+    | false, true -> theme.accent
+    | false, false -> "transparent"
   in
   style
     [%string
@@ -148,11 +155,17 @@ let stack_registered (theme : Theme.t) = style [%string "color:%{theme.dim}"]
 
 (* ── source ── *)
 
-let source_line (theme : Theme.t) ~active =
+(* [aimed] is the orange reading of the same line: the source pane follows
+   whatever the orange mark points at, and the wash says which of the two
+   selections put it there — blue for where the replay is, orange for what
+   you clicked on in the heap. *)
+let source_line (theme : Theme.t) ~active ~aimed =
   let background, border =
-    match active with
-    | true -> theme.selection_bg, theme.selection_border
-    | false -> "transparent", "transparent"
+    match active, aimed with
+    | true, false -> theme.selection_bg, theme.selection_border
+    | true, true ->
+      Theme.mix theme.accent theme.bg ~amount:0.72, theme.accent
+    | false, (true | false) -> "transparent", "transparent"
   in
   style
     [%string

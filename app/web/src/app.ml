@@ -567,7 +567,7 @@ let component
   (* keep the selected call and the active source line centered as the replay
      moves — the TUI's landing, spelled scrollIntoView *)
   let scroll_key =
-    let%arr { Model.step; selected_frame; _ } = model in
+    let%arr { Model.step; selected_frame; heap_aimed; _ } = model in
     let selected =
       clamp
         (Option.value selected_frame ~default:(frame_count replay ~step - 1))
@@ -582,8 +582,20 @@ let component
         (List.nth (Replay.step_exn replay ~step).frames selected)
         ~default:(Replay.step_exn replay ~step).call
     in
-    ( [%string "stack-row-%{selected_step#Int}"]
-    , [%string "src-line-%{Location.line_number frame.info.location#Int}"] )
+    (* the orange aim is what the panes are showing when there is one, so it
+       is what they scroll to — landing on a marked row you cannot see is the
+       same as not marking it *)
+    let aimed =
+      Option.bind heap_aimed ~f:(fun address -> Map.find births address)
+    in
+    let row, line =
+      match aimed with
+      | Some aimed_step ->
+        let aimed_call = (Replay.step_exn replay ~step:aimed_step).call in
+        aimed_step, Location.line_number aimed_call.info.location
+      | None -> selected_step, Location.line_number frame.info.location
+    in
+    [%string "stack-row-%{row#Int}"], [%string "src-line-%{line#Int}"]
   in
   Bonsai.Edge.on_change
     ~sexp_of_model:[%sexp_of: string * string]
@@ -630,6 +642,7 @@ let component
         ; playing
         ; heap_view
         ; heap_selected
+        ; heap_aimed
         ; accordion
         ; sort_by_address
         ; heap_columns
@@ -658,7 +671,23 @@ let component
     let live = live_calls replay ~step in
     let selected = selected_frame replay model in
     let frame = Option.value (List.nth frames selected) ~default:call in
-    let location = frame.info.location in
+    (* The orange mark is one selection across three panes. Clicking a heap
+       box marks the call that ALLOCATED it — so the stack lights that row
+       and the source shows that line, without the replay having moved. Blue
+       stays where the replay is; orange is where you are looking, and the
+       two are allowed to disagree. *)
+    let aimed_step =
+      Option.bind heap_aimed ~f:(fun address -> Map.find births address)
+    in
+    let aimed_call =
+      Option.map aimed_step ~f:(fun step ->
+        calls.(clamp step ~max:(total - 1)))
+    in
+    let location =
+      match aimed_call with
+      | Some (aimed : Call.t) -> aimed.info.location
+      | None -> frame.info.location
+    in
     let file_path = Location.file_path location in
     let callsite_line =
       match List.nth frames (selected - 1) with
@@ -701,6 +730,7 @@ let component
              ~expanded:stack_expanded
              ~registered)
         ~total_calls:(Array.length calls)
+        ~aimed_step
         ~live_count:(List.length live)
         ~has_heat
         ~collapsed:stack_collapsed
@@ -739,6 +769,7 @@ let component
       in
       Source_view.view
         ~theme
+        ~aimed:(Option.is_some aimed_call)
         ~source:rows
         ~file_label:(Filename.basename file_path)
         ~file:file_path

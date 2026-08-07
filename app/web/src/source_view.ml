@@ -25,11 +25,17 @@ let span_view (theme : Theme.t) (token, text, marked) =
     {%html|<span %{attr}>#{text}</span>|}
 ;;
 
-let row_view (theme : Theme.t) (row : Source_model.Row.t) ~file ~inject =
+let row_view
+  (theme : Theme.t)
+  (row : Source_model.Row.t)
+  ~file
+  ~aimed
+  ~inject
+  =
   match row with
   | Source_model.Row.Folded_marker { start; stop; hides_active } ->
     let count = stop - start in
-    let attr = Styles.source_line theme ~active:hides_active in
+    let attr = Styles.source_line theme ~active:hides_active ~aimed in
     let on_click (_ : _) =
       inject
         (Action.Toggle_source_fold { Action.Source_fold.file; line = start })
@@ -68,7 +74,7 @@ let row_view (theme : Theme.t) (row : Source_model.Row.t) ~file ~inject =
     let code = List.map spans ~f:(span_view theme) in
     let id = Vdom.Attr.id [%string "src-line-%{number#Int}"] in
     {%html|
-      <div %{id} %{Styles.source_line theme ~active:is_active}>
+      <div %{id} %{Styles.source_line theme ~active:is_active ~aimed}>
         %{gutter}
         <span %{Styles.source_number theme ~active:is_active}>%{number#Int}</span>
         <span %{Styles.source_code}>*{code}</span>
@@ -76,7 +82,16 @@ let row_view (theme : Theme.t) (row : Source_model.Row.t) ~file ~inject =
     |}
 ;;
 
-let view ~theme ~source ~file_label ~file ~line_count ~collapsed ~inject =
+let view
+  ~theme
+  ~source
+  ~file_label
+  ~file
+  ~line_count
+  ~collapsed
+  ~aimed
+  ~inject
+  =
   let title =
     match collapsed with true -> "▸ SOURCE" | false -> "▾ SOURCE"
   in
@@ -96,7 +111,7 @@ let view ~theme ~source ~file_label ~file ~line_count ~collapsed ~inject =
   | false ->
     let body =
       match source with
-      | Ok rows -> List.map rows ~f:(row_view theme ~file ~inject)
+      | Ok rows -> List.map rows ~f:(row_view theme ~file ~aimed ~inject)
       | Error error ->
         (* a missing file is a placeholder pane, not a crash — where it
            looked and which flag moves the search *)

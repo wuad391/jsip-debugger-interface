@@ -390,9 +390,15 @@ let k_for_tier tier =
   Float.exp (a +. ((clamped -. Float.of_int i) *. (b -. a)))
 ;;
 
-(* geometry reaches the next tier's size at [grow] of the octave, so the box
-   is always fully grown before the content switches to that tier *)
-let grow = 0.85
+(* Geometry reaches the next tier's size at [grow] of the octave, so a box is
+   always fully grown before its content switches to that tier.
+
+   Well under half the octave, because the wait is what you feel: the canvas
+   decides what to draw from the box's ACTUAL size, so the sooner a box
+   finishes growing the sooner it fills. The rest of the octave is then spent
+   with the detail already up, magnifying — which is what zooming into
+   something you can already read should feel like. *)
+let grow = 0.4
 
 module Split = struct
   type t =
