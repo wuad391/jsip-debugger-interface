@@ -9,7 +9,7 @@ module Span = struct
       | Value
       | Label
       | Arrow
-      | Null
+      | Nothing
       | Gap
     [@@deriving sexp_of, equal]
   end
@@ -120,7 +120,7 @@ let printable_leaves leaves =
 
 (* What a row says where the wire gave it nothing to say: an unresolved
    revisit stub, a container whose entries are all empty slots. *)
-let null_span = Span.Kind.Null, "null"
+let nothing_span = Span.Kind.Nothing, "none"
 
 (* What a node says about itself, a LINE per field: [key → data] for the
    known binding pairs, [length n] for a counter, the bare value where there
@@ -142,7 +142,7 @@ let field_lines leaves ~arity : Span.t list list =
   match fields with
   | [] when positional ->
     [ [ Span.Kind.Label, "slots "; Value, Int.to_string arity ] ]
-  | [] -> [ [ null_span ] ]
+  | [] -> [ [ nothing_span ] ]
   | fields when positional ->
     [ [ Span.Kind.Value, String.concat (List.map fields ~f:snd) ~sep:", " ] ]
   | [ (key_label, key); (data_label, data) ]
@@ -597,7 +597,7 @@ let rec entries_of
   | [], _ :: _ -> of_kind false @ of_kind true
   (* nothing to say and nothing to splice into — a revisit stub the registry
      did not resolve. A row saying [null] beats a node quietly disappearing. *)
-  | [], [] -> [ row ~value:[ null_span ] ~is_binding:false ~children:[] ]
+  | [], [] -> [ row ~value:[ nothing_span ] ~is_binding:false ~children:[] ]
   | printable, (_ : (string * Edge.t) list) ->
     let children = of_kind false in
     let value = summary_spans printable ~arity:(List.length node.block) in

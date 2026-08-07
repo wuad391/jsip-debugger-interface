@@ -32,7 +32,7 @@ module Line = struct
       | Value of string
       | Label of string
       | Arrow
-      | Null
+      | Nothing
     [@@deriving sexp_of, equal]
   end
 
@@ -43,7 +43,7 @@ module Line = struct
       match part with
       | Key text | Value text | Label text -> text
       | Arrow -> " → "
-      | Null -> "null")
+      | Nothing -> "none")
     |> String.concat
   ;;
 end
@@ -161,7 +161,7 @@ let field_lines leaves ~arity : Line.t list =
   match fields with
   | [] when positional ->
     [ [ Line.Part.Label "slots "; Value (Int.to_string arity) ] ]
-  | [] -> [ [ Line.Part.Null ] ]
+  | [] -> [ [ Line.Part.Nothing ] ]
   | fields when positional ->
     [ [ Line.Part.Value (String.concat (List.map fields ~f:snd) ~sep:", ") ]
     ]

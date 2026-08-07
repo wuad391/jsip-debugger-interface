@@ -403,7 +403,7 @@ module Span = struct
     | Value
     | Arrow
     | Label
-    | Null (** there is nothing here — a word, not a mark, so it reads *)
+    | Nothing (** there is nothing here — a word, not a mark, so it reads *)
     | Gap
 
   type t = kind * string
@@ -419,11 +419,11 @@ module Span = struct
     | Label -> Theme.fg' palette.label
     (* italic, because it is the pane talking and not the program: the one
        word on a row that was never in the heap *)
-    | Null -> [ Theme.fg palette.dashed; Attr.italic ]
+    | Nothing -> [ Theme.fg palette.dashed; Attr.italic ]
     | Gap -> []
   ;;
 
-  (* Attributed pieces, ready to wrap. [Arrow], [Null] and [Gap] are the
+  (* Attributed pieces, ready to wrap. [Arrow], [Nothing] and [Gap] are the
      pane's own punctuation and mean their spacing; everything else came off
      the wire, and gets flattened onto one line. *)
   let pieces ~accent ~palette spans =
@@ -431,7 +431,7 @@ module Span = struct
       let text =
         match kind with
         | Key | Value | Label -> one_line text
-        | Arrow | Null | Gap -> text
+        | Arrow | Nothing | Gap -> text
       in
       attrs kind ~accent ~palette, text)
   ;;
@@ -449,7 +449,7 @@ end
    revisit stub, a container whose entries are all empty slots. Spelled out
    rather than dotted — a reader has to be able to tell "nothing is here"
    from a bullet in a list. *)
-let null_span = Span.Null, "null"
+let nothing_span = Span.Nothing, "none"
 
 (* What a node says about itself. [key → data] where it holds one of the
    known binding pairs, [length n] for a counter, the bare value where there
@@ -476,7 +476,7 @@ let field_lines leaves ~arity =
   match fields with
   | [] when positional ->
     [ [ Span.Label, "slots "; Value, Int.to_string arity ] ]
-  | [] -> [ [ null_span ] ]
+  | [] -> [ [ nothing_span ] ]
   | fields when positional ->
     [ [ Span.Value, String.concat (List.map fields ~f:snd) ~sep:", " ] ]
   | [ (key_label, key); (data_label, data) ]
@@ -813,7 +813,7 @@ let rec entries_of
   | [], _ :: _ -> of_kind false @ of_kind true
   (* nothing to say and nothing to splice into — a revisit stub the registry
      did not resolve. A row saying [null] beats a node quietly disappearing. *)
-  | [], [] -> [ row ~value:[ null_span ] ~is_binding:false ~children:[] ]
+  | [], [] -> [ row ~value:[ nothing_span ] ~is_binding:false ~children:[] ]
   | printable, (_ : (string * Edge.t) list) ->
     let children = of_kind false in
     (* A binding whose data is a block of its own keeps the key here and the

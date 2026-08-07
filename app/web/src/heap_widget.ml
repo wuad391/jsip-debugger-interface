@@ -506,7 +506,7 @@ let line_parts
     | Value text -> text, theme.node_value, false
     | Label text -> text, theme.node_key, false
     | Arrow -> " → ", theme.node_key, false
-    | Null -> "null", theme.edge_label, true)
+    | Nothing -> "none", theme.edge_label, true)
 ;;
 
 let draw_node

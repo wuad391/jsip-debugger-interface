@@ -70,7 +70,7 @@ module Line : sig
       | Value of string
       | Label of string (** a field label, [length ] or [tl=] *)
       | Arrow (** the [→] of a binding *)
-      | Null (** the wire had nothing to say — spelled out *)
+      | Nothing (** the wire had nothing to say — spelled out *)
     [@@deriving sexp_of, equal]
   end
 
