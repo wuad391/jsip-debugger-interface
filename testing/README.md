@@ -16,6 +16,21 @@ too, so `-source-root .` from this repo's root finds the sources.
 The empty `.dump` files are negative cases (plain functions, partial
 application, untracked structures): a run that fires no events.
 
+The three `expected/delta_*.dump` files are ahead of the rest of the
+corpus: they are verbatim goldens of the compiler's `feat/registry-delta`
+branch (its PR #24, commit `dabb30df95`, re-blessed by its
+`vreplay/tests/run_tests.sh --promote`), whose events carry
+`registry_delta ((upserts ...) (drops ...))` in place of the full
+`registry` echo. They exist so the reader's delta fold is tested on
+real compiler output before that branch merges — `delta_map_registry_gc`
+exercises a drop, `delta_map_versions` multiple drops plus roots that
+adopted member-minted ids (insertion order ≠ id order). Their `loc`
+paths are the compiler suite's (`vreplay/tests/cases/<name>.ml`), so
+they have no sources here. Once PR #24 lands and the corpus is
+re-vendored wholesale, these stopgap copies go away with it. Note the
+compiler's fixtures moved in its PR #23: vendor from `vreplay/tests/`
+there, not the old `testing/`.
+
 Two exceptions to "copied from the compiler repo": `map_spine_sharing`
 was written here, as a legible demo of structure sharing; and
 `cases/multi_file/` (three modules — `inventory.ml`, `basket.ml`,
