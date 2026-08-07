@@ -130,8 +130,11 @@ let dark =
          the three kinds of box stay tellable apart, but all three stay in
          white's register. *)
   ; box_block = "#171c23", "#e9edf3", "#ffffff"
-  ; box_nil = "#14161a", "#aab4c2", "#c3ccd8"
-  ; box_shared = "#191d24", "#ccd4de", "#e4eaf2"
+  ; box_nil =
+      "#14161a", "#aab4c2", "#c3ccd8"
+      (* a [↗] box wears the reference blue its link is drawn in, so "this is
+         the same block as one over there" is one colour wherever it appears *)
+  ; box_shared = "#161d27", "#8fb0cf", "#cfe0f0"
   ; node_key = "#aab6c6"
   ; node_reference = "#8fb0cf"
   ; node_value = "#e8b76a"
@@ -197,7 +200,7 @@ let light =
       ]
   ; box_block = "#ffffff", "#2b3340", "#2d3743"
   ; box_nil = "#f2f4f7", "#7d8794", "#8b95a3"
-  ; box_shared = "#f6f8fb", "#414c5d", "#5d6a7c"
+  ; box_shared = "#f2f7fd", "#3e648d", "#2f4f70"
   ; node_key = "#7a8494"
   ; node_reference = "#3e648d"
   ; node_value = "#a05c22"

@@ -894,6 +894,80 @@ let draw_edges (state : State.t) ~content_alpha =
             context##.textBaseline := Js.string "top")))
 ;;
 
+(* The sharing links. A [↗] box stands for a block that is drawn somewhere
+   else — the same order resting in its price level, in the id index, and
+   named by a fill — and until now it said so without ever saying WHERE. The
+   line is the point: sharing is the one thing a heap diagram can show that a
+   list of values cannot, and a reader has to be able to follow it.
+
+   Drawn under the boxes, in the reference blue the [↗] label already uses,
+   dashed so it reads as "the same thing over there" rather than as another
+   pointer field. Only when the target is actually on this canvas: a stub
+   whose definition is folded away or filtered out has nothing to point at,
+   and a line to nowhere is worse than no line. *)
+let draw_shares (state : State.t) ~content_alpha =
+  match Float.( > ) content_alpha 0.04 with
+  | false -> ()
+  | true ->
+    let context = state.context in
+    let theme = state.input.theme in
+    let k = state.view.k in
+    (* [Snapshot.Address.t] is [int64] and its comparable gives maps, not
+       tables; the hashtable keys on the underlying word *)
+    let definitions = Int64.Table.create () in
+    List.iter (visible_placed state) ~f:(fun placed ->
+      match placed.Heap_layout.Placed.node.kind, placed.node.address with
+      | Heap_scene.Kind.Block, Some address ->
+        (* the first drawing of an address is its definition; the [↗]s are
+           the later ones *)
+        Hashtbl.update definitions address ~f:(function
+          | Some first -> first
+          | None -> placed.Heap_layout.Placed.id)
+      | ( (Heap_scene.Kind.Block | Nil | Shared _)
+        , (Some (_ : Snapshot.Address.t) | None) ) ->
+        ());
+    set_stroke context theme.node_reference;
+    context##.lineWidth := Js.float (1.6 /. k);
+    set_dash context [ Js.float (5. /. k); Js.float (4. /. k) ];
+    List.iter (visible_placed state) ~f:(fun placed ->
+      match placed.Heap_layout.Placed.node.kind, placed.node.address with
+      | Heap_scene.Kind.Shared (_ : int), Some address ->
+        (match
+           ( Hashtbl.find definitions address
+           , box_of state placed.Heap_layout.Placed.id )
+         with
+         | None, (Some _ | None) | Some _, None -> ()
+         | Some target_id, Some from_box ->
+           (match box_of state target_id with
+            | None -> ()
+            | Some to_box ->
+              let x1 = from_box.x +. (from_box.w /. 2.) in
+              let y1 = from_box.y +. (from_box.h /. 2.) in
+              let x2 = to_box.x +. (to_box.w /. 2.) in
+              let y2 = to_box.y +. (to_box.h /. 2.) in
+              (* a link to yourself is not worth a curve *)
+              (match Float.( < ) (Float.hypot (x2 -. x1) (y2 -. y1)) 8. with
+               | true -> ()
+               | false ->
+                 (* bowed away from the straight line, so two links between
+                    neighbouring boxes stay tellable apart *)
+                 let bow =
+                   Float.min 90. (Float.hypot (x2 -. x1) (y2 -. y1) *. 0.22)
+                 in
+                 context##beginPath;
+                 context##moveTo (Js.float x1) (Js.float y1);
+                 context##quadraticCurveTo
+                   (Js.float ((x1 +. x2) /. 2.))
+                   (Js.float (((y1 +. y2) /. 2.) -. bow))
+                   (Js.float x2)
+                   (Js.float y2);
+                 context##stroke)))
+      | ( (Heap_scene.Kind.Block | Nil | Shared _)
+        , (Some (_ : Snapshot.Address.t) | None) ) ->
+        ());
+    set_dash context []
+;;
+
 let draw_heads (state : State.t) =
   let context = state.context in
   let theme = state.input.theme in
@@ -1148,6 +1222,7 @@ let draw (state : State.t) =
   in
   draw_heads state;
   draw_edges state ~content_alpha;
+  draw_shares state ~content_alpha;
   let focal =
     match state.input.lod with
     | Action.Lod.Focal -> true
