@@ -274,12 +274,26 @@ its subtree earned; the gaps are exposed self time.)
 ## Run it
 
 ```sh
+dune exec app/bin/main.exe -- \
+  -dump-file examples/order_book/order_book.dump \
+  -perf-file examples/order_book/heat.sexp
+```
+
+That is `examples/order_book` — a limit order book with price-time
+priority, built out of Core the way a real one is, with its dump and its
+perf profile vendored beside it (see `examples/README.md`). Five
+container kinds work on one set of `order` records, and every one of them
+holds the *same* records, so the heap pane draws each order once and
+points at it from the three places it appears. Neither flag needs a
+`-source-root`: the dump's paths are relative and resolve from here.
+
+```sh
 dune exec app/bin/main.exe -- -dump-file testing/expected/map_nested.dump
 ```
 
 `testing/` holds golden dumps of real `-visual-replay` runs, vendored
 verbatim from the compiler repo (see `testing/README.md`) — any of them
-replays. For **structure sharing**, replay `map_spine_sharing` and step
+replays, and each is aimed at one case rather than at being read. For **structure sharing**, replay `map_spine_sharing` and step
 to the end: a five-binding map sits above the version one more `add`
 returned, and the two `↗` rows among that version's bindings are the
 subtrees `add` did not rebuild. Aim at one with `↓` and the row it names,

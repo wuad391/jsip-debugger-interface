@@ -132,6 +132,9 @@ app/web/       the bonsai_web interface (the zoomable-heap browser twin)
                client bundle embedded via ocaml-embed-file
   test/        expect tests over app/web/components
 testing/       golden dumps + their programs, vendored from the compiler repo
+examples/      one program written to be READ, with its own dump and perf
+               profile beside it — the order book. Data only for the same
+               reason testing/ is; see examples/README.md
 ```
 
 The web heap draws the TUI diagram pop-out's reading — physical boxes,
