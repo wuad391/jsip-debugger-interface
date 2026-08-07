@@ -28,7 +28,10 @@ type t =
   ; ghost : Color.t
   ; separator : Color.t
   ; hairline : Color.t
-  ; edge : Color.t (** pointer strokes on the heap canvas *)
+  ; edge : Color.t
+  (** pointer strokes on the heap canvas — WHITE against the dark theme, ink
+      against the light one, rather than a panel gray: zoomed out these lines
+      and the box borders are all there is to see *)
   ; edge_label : Color.t
   ; accent : Color.t
   (** the heap's burnt orange: its pane border, fold markers, the filter
@@ -36,6 +39,9 @@ type t =
   ; accent_bright : Color.t
   ; gold : Color.t (** transient state — playing, pulses, minimap frame *)
   ; fresh : Color.t (** the "allocated at this step" green *)
+  ; progress : Color.t
+  (** the timeline's played span: one flat blue, so how far in you are is a
+      length rather than a shade *)
   ; selection_bg : Color.t
   (** the blue wash that follows the current step and frame *)
   ; selection_border : Color.t

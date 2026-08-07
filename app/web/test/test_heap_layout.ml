@@ -31,7 +31,7 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
   let roots, (_ : Heap_scene.Stats.t) =
     scene replay ~step:(Replay.length replay - 1)
   in
-  let layouts = Heap_layout.all roots in
+  let layouts = Heap_layout.all roots ~columns:1 in
   Array.iteri layouts ~f:(fun tier (layout : Heap_layout.Tier_layout.t) ->
     print_endline
       [%string
@@ -53,18 +53,133 @@ let%expect_test "each tier lays every box out, roomier as detail grows" =
     [%string "same boxes %{same_boxes#Bool} · growing %{growing#Bool}"];
   [%expect
     {|
-    tier 0: 8 boxes · 32.×282.
-    tier 1: 8 boxes · 168.×902.
-    tier 2: 8 boxes · 205.×1150.
-    tier 3: 8 boxes · 220.×1800.
+    tier 0: 8 boxes · 32.×256.
+    tier 1: 8 boxes · 441.×690.
+    tier 2: 8 boxes · 441.×970.
+    tier 3: 8 boxes · 441.×1882.
     same boxes true · growing true
+    |}]
+;;
+
+(* The invariant the crossfade rests on. Zoom blends the two neighbouring
+   tiers' layouts, so if each tier packed the structures for itself a
+   structure could sit on a different row at each detail level and sail
+   across its neighbours halfway through — which is what "the structures
+   overlap when I scroll" looked like. Shelving is fixed once for all four
+   tiers, and this walks the whole zoom range asking whether any two boxes
+   ever intersect. *)
+let%expect_test "no two boxes overlap at any zoom, at any column count" =
+  let overlaps ~fixture ~columns =
+    let replay = replay_of_fixture fixture in
+    let roots, (_ : Heap_scene.Stats.t) =
+      scene replay ~step:(Replay.length replay - 1)
+    in
+    let layouts = Heap_layout.all roots ~columns in
+    let ids =
+      List.map layouts.(0).placed ~f:(fun (placed : Heap_layout.Placed.t) ->
+        placed.id)
+    in
+    List.sum
+      (module Int)
+      [ 0.; 0.4; 0.85; 1.; 1.5; 1.9; 2.; 2.6; 3. ]
+      ~f:(fun tier_f ->
+        let boxes =
+          List.filter_map ids ~f:(fun id ->
+            Heap_layout.box_of layouts ~tier_f ~id)
+        in
+        (* a pair counts as overlapping only when they properly intersect;
+           boxes that share an edge are tiling, which is the point *)
+        List.sum
+          (module Int)
+          (List.mapi boxes ~f:(fun index box -> index, box))
+          ~f:(fun (index, (a : Heap_layout.Box.t)) ->
+            List.sum
+              (module Int)
+              (List.filteri boxes ~f:(fun other (_ : Heap_layout.Box.t) ->
+                 other > index))
+              ~f:(fun (b : Heap_layout.Box.t) ->
+                match
+                  Float.( > ) (a.x +. a.w) (b.x +. 0.01)
+                  && Float.( > ) (b.x +. b.w) (a.x +. 0.01)
+                  && Float.( > ) (a.y +. a.h) (b.y +. 0.01)
+                  && Float.( > ) (b.y +. b.h) (a.y +. 0.01)
+                with
+                | true -> 1
+                | false -> 0)))
+  in
+  List.iter
+    [ "map_nested"; "queue_of_queues"; "map_shared_payload" ]
+    ~f:(fun fixture ->
+      List.iter [ 1; 2; 3; 8; 16 ] ~f:(fun columns ->
+        print_endline
+          [%string
+            "%{fixture} · %{columns#Int} across: %{overlaps ~fixture \
+             ~columns#Int} overlapping pairs"]));
+  [%expect
+    {|
+    map_nested · 1 across: 0 overlapping pairs
+    map_nested · 2 across: 0 overlapping pairs
+    map_nested · 3 across: 0 overlapping pairs
+    map_nested · 8 across: 0 overlapping pairs
+    map_nested · 16 across: 0 overlapping pairs
+    queue_of_queues · 1 across: 0 overlapping pairs
+    queue_of_queues · 2 across: 0 overlapping pairs
+    queue_of_queues · 3 across: 0 overlapping pairs
+    queue_of_queues · 8 across: 0 overlapping pairs
+    queue_of_queues · 16 across: 0 overlapping pairs
+    map_shared_payload · 1 across: 0 overlapping pairs
+    map_shared_payload · 2 across: 0 overlapping pairs
+    map_shared_payload · 3 across: 0 overlapping pairs
+    map_shared_payload · 8 across: 0 overlapping pairs
+    map_shared_payload · 16 across: 0 overlapping pairs
+    |}]
+;;
+
+(* the columns slider's geometry: one column stacks, more than one packs the
+   structures across, each column as wide as its own widest tree *)
+let%expect_test "structures pack across into a grid" =
+  let replay = replay_of_fixture "map_nested" in
+  let roots, (_ : Heap_scene.Stats.t) =
+    scene replay ~step:(Replay.length replay - 1)
+  in
+  print_endline [%string "%{List.length roots#Int} structures"];
+  List.iter [ 1; 2; 3 ] ~f:(fun columns ->
+    let layout =
+      Heap_layout.compute
+        roots
+        ~tier:1
+        ~shelves:(Heap_layout.shelves roots ~columns)
+    in
+    let heads =
+      List.map layout.heads ~f:(fun (head : Heap_layout.Head.t) ->
+        [%string
+          "(%{Float.round_nearest head.x#Float},%{Float.round_nearest \
+           head.y#Float})"])
+      |> String.concat ~sep:" "
+    in
+    print_endline
+      [%string
+        "%{columns#Int} across: %{Float.round_nearest \
+         layout.width#Float}×%{Float.round_nearest layout.height#Float} · \
+         %{heads}"]);
+  [%expect
+    {|
+    2 structures
+    1 across: 396.×318. · (0.,0.) (0.,152.)
+    2 across: 822.×166. · (0.,0.) (426.,0.)
+    3 across: 822.×166. · (0.,0.) (426.,0.)
     |}]
 ;;
 
 let%expect_test "a parent's box is centered over the spread of its children" =
   let replay = replay_of_fixture "map_nested" in
   let roots, (_ : Heap_scene.Stats.t) = scene replay ~step:1 in
-  let layout = Heap_layout.compute roots ~tier:1 in
+  let layout =
+    Heap_layout.compute
+      roots
+      ~tier:1
+      ~shelves:(Heap_layout.shelves roots ~columns:1)
+  in
   List.iter layout.placed ~f:(fun (placed : Heap_layout.Placed.t) ->
     let box = Map.find_exn layout.pos placed.id in
     print_endline
@@ -74,10 +189,10 @@ let%expect_test "a parent's box is centered over the spread of its children" =
          box.y#Float} w=%{Float.round_nearest box.w#Float}"]);
   [%expect
     {|
-    1: d0  → x=0. y=30. w=161.
-    2: d0  → x=5. y=217. w=161.
-    2:0 d1 l → x=0. y=294. w=30.
-    2:1 d1 r → x=54. y=294. w=116.
+    1: d0  → x=0. y=30. w=241.
+    2: d0  → x=0. y=182. w=241.
+    2:0 d1 l → x=3. y=250. w=44.
+    2:1 d1 r → x=63. y=250. w=175.
     |}]
 ;;
 
@@ -91,13 +206,13 @@ let%expect_test "zoom stops and tiers round-trip through each other" =
          k=%{sprintf \"%.2f\" back}"]);
   [%expect
     {|
-    k=0.20 → tier 0.00 → k=0.20
-    k=0.45 → tier 1.00 → k=0.45
-    k=0.85 → tier 2.00 → k=0.85
-    k=1.00 → tier 2.29 → k=1.00
-    k=1.38 → tier 2.85 → k=1.38
-    k=1.50 → tier 3.00 → k=1.50
-    k=2.00 → tier 3.00 → k=1.50
+    k=0.20 → tier 0.60 → k=0.20
+    k=0.45 → tier 1.82 → k=0.45
+    k=0.85 → tier 2.90 → k=0.85
+    k=1.00 → tier 3.00 → k=0.90
+    k=1.38 → tier 3.00 → k=0.90
+    k=1.50 → tier 3.00 → k=0.90
+    k=2.00 → tier 3.00 → k=0.90
     |}]
 ;;
 
@@ -112,8 +227,8 @@ let%expect_test "content switches tiers only once geometry has grown" =
   [%expect
     {|
     tier_f 0.00: geometry 0→1 at 0.00 · content 0
-    tier_f 0.50: geometry 0→1 at 0.59 · content 0
-    tier_f 0.84: geometry 0→1 at 0.99 · content 0
+    tier_f 0.50: geometry 0→1 at 1.00 · content 1
+    tier_f 0.84: geometry 0→1 at 1.00 · content 1
     tier_f 0.85: geometry 0→1 at 1.00 · content 1
     tier_f 1.00: geometry 1→2 at 0.00 · content 1
     tier_f 1.90: geometry 1→2 at 1.00 · content 2
@@ -124,7 +239,7 @@ let%expect_test "content switches tiers only once geometry has grown" =
 let%expect_test "interpolated boxes sit between their two tier homes" =
   let replay = replay_of_fixture "map_nested" in
   let roots, (_ : Heap_scene.Stats.t) = scene replay ~step:1 in
-  let layouts = Heap_layout.all roots in
+  let layouts = Heap_layout.all roots ~columns:1 in
   let id =
     Heap_layout.key_id
       (List.hd_exn roots).Heap_scene.Root.node.Heap_scene.Node.key
@@ -139,8 +254,8 @@ let%expect_test "interpolated boxes sit between their two tier homes" =
            box.w#Float} h=%{Float.round_nearest box.h#Float}"]);
   [%expect
     {|
-    tier_f 1.00: w=161. h=23.
-    tier_f 1.40: w=166. h=31.
-    tier_f 1.85: w=173. h=39.
+    tier_f 1.00: w=241. h=34.
+    tier_f 1.40: w=257. h=65.
+    tier_f 1.85: w=257. h=65.
     |}]
 ;;

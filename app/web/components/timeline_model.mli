@@ -18,3 +18,8 @@ val step_of_fraction : total:int -> fraction:float -> int
 (** How many segments the position has reached — those draw full strength,
     the future dims. *)
 val played : total:int -> step:int -> segments:int -> int
+
+(** The index of the segment the position stands in, which the strip caps in
+    the accent color. Not [played - 1]: at step 0 nothing is played yet and
+    the cap still belongs at the very start. *)
+val cursor : total:int -> step:int -> segments:int -> int

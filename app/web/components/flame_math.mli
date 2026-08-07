@@ -23,6 +23,11 @@ module Segment : sig
     | Bar of
         { path : Path.t
         ; label : string
+        (** what fits ON the bar: a name, or for an unnamed callee the site
+            it was written at ([order_book.ml:134]) — its source text is a
+            whole expression and a bar is forty pixels wide *)
+        ; detail : string
+        (** the callee in full, whitespace collapsed, for the tooltip *)
         ; x : float
         ; width : float
         ; share : float option

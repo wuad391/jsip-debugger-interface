@@ -15,13 +15,19 @@ module Input = struct
     (** bumped by stepping: the cue to bring the walked structure back into
         view if it slipped off *)
     ; focus_seq : int
-    (** bumped by [.] and the header's [⌖ latest]: zoom to the walked
-        structure, wherever the view was *)
+    (** bumped by [.] and the header's [⌖]: zoom to whichever mark
+        {!focus_target} names, wherever the view was *)
+    ; focus_target : Action.Focus_target.t
     ; pulse_ids : string list
     (** boxes allocated at this step — ringed as the step arrives *)
+    ; columns : int
+    (** structures side by side before the next row of them — the corner
+        slider's value; a change refits, since the whole arrangement moved *)
     ; current_root_id : string option
     ; current_structure_id : int option
     ; selected_address : Snapshot.Address.t option
+    ; aimed_address : Snapshot.Address.t option
+    (** the orange mark a plain click leaves *)
     ; filter_active : bool
     ; lod : Action.Lod.t
     ; edge_style : Action.Edge_style.t
@@ -114,10 +120,11 @@ module State = struct
     }
 end
 
-(* the wheel stops a third past full detail (tier 3 is fully grown at 1.5×):
-   past that, zoom only magnifies pixels *)
+(* the wheel stops well past full detail (tier 3 is fully grown at 0.9×):
+   past that, zoom only magnifies pixels. The floor is low enough to hold a
+   whole grid of structures at once — that view is a map, not a reading. *)
 let max_zoom = 2.0
-let min_zoom = 0.08
+let min_zoom = 0.035
 
 let font ?(italic = false) ?(bold = false) size =
   let italic = match italic with true -> "italic " | false -> "" in
@@ -215,10 +222,11 @@ let head_at (state : State.t) sx sy =
     ~f:(fun (head : Heap_layout.Head.t) ->
       Float.( >= ) wy head.y
       && Float.( <= ) wy (head.y +. 18.)
-      && Float.( >= ) wx 0.
+      && Float.( >= ) wx head.x
       && Float.( <= )
            wx
-           (Float.of_int (String.length head.root.header + 12) *. 7.4))
+           (head.x
+            +. (Float.of_int (String.length head.root.header + 12) *. 7.4)))
 ;;
 
 let placed_by_id (state : State.t) id =
@@ -278,7 +286,11 @@ let apply_anchor (state : State.t) =
        state.view.y <- sy -. (wy *. state.view.k))
 ;;
 
-let fit (state : State.t) =
+(* [min_tier] is the detail the fit refuses to go below: [0] normally reads
+   the whole scene rather than shrinking it to nothing, so it stops where the
+   labels do. Reflowing the grid passes a lower floor — there the point IS to
+   see the new arrangement entire. *)
+let fit ?(min_tier = 1.1) (state : State.t) =
   let bounds = (layouts state).(1) in
   match Float.( > ) bounds.width 0. && Float.( > ) state.width 0. with
   | false -> ()
@@ -288,7 +300,7 @@ let fit (state : State.t) =
     let kh = (state.height -. pad) /. bounds.height in
     let k =
       Float.max
-        (Heap_layout.k_for_tier 1.1)
+        (Float.max min_zoom (Heap_layout.k_for_tier min_tier))
         (Float.min (Heap_layout.k_for_tier 2.2) (Float.min kw kh))
     in
     state.view.k <- k;
@@ -328,12 +340,29 @@ let current_subtree_ids (state : State.t) =
         Heap_layout.key_id child.key :: ids))
 ;;
 
-(* [.]: the walked structure filling the pane at reading detail — pan AND
+(* the pinned box's own drawing — a single box, so focusing it is a close
+   read of one node rather than a survey of a structure *)
+let selected_ids (state : State.t) =
+  match state.input.selected_address with
+  | None -> None
+  | Some selected ->
+    (match
+       List.filter_map (visible_placed state) ~f:(fun placed ->
+         match placed.Heap_layout.Placed.node.address with
+         | Some address when Snapshot.Address.equal address selected ->
+           Some placed.id
+         | Some (_ : Snapshot.Address.t) | None -> None)
+     with
+     | [] -> None
+     | ids -> Some ids)
+;;
+
+(* [.] and [⌖]: the chosen marks filling the pane at reading detail — pan AND
    zoom, unconditionally *)
-let focus_on_current (state : State.t) =
-  match current_subtree_ids state with
-  | None | Some [] -> ()
-  | Some ids ->
+let focus_on_ids (state : State.t) ids =
+  match ids with
+  | [] -> ()
+  | ids ->
     (* measured at the fields tier, which is where focusing lands *)
     let layout = (layouts state).(2) in
     let bounds =
@@ -391,6 +420,22 @@ let focus_on_current (state : State.t) =
        state.view.y <- (state.height /. 2.) -. (cy *. k);
        state.anchor <- None;
        state.dirty <- true)
+;;
+
+(* The two marks the pane carries, and what [⌖] alternates between: the blue
+   box you pinned, and the orange structure this step walked. Asking for the
+   selection when nothing is pinned falls through to the walked one rather
+   than doing nothing — an inert button reads as broken. *)
+let focus_on_target (state : State.t) =
+  let current () =
+    focus_on_ids state (Option.value (current_subtree_ids state) ~default:[])
+  in
+  match state.input.focus_target with
+  | Action.Focus_target.Current -> current ()
+  | Action.Focus_target.Selection ->
+    (match selected_ids state with
+     | Some ids -> focus_on_ids state ids
+     | None -> current ())
 ;;
 
 (* stepping lands the eye on the walked structure — pan, never rezoom, and
@@ -493,7 +538,11 @@ let draw_node
     | Some selected, Some address -> Snapshot.Address.equal selected address
     | (Some _ | None), (Some _ | None) -> false
   in
-  let ct = Heap_layout.content_tier tier in
+  let aimed =
+    match state.input.aimed_address, node.address with
+    | Some aimed, Some address -> Snapshot.Address.equal aimed address
+    | (Some _ | None), (Some _ | None) -> false
+  in
   let box =
     match raised with
     | false -> box
@@ -511,6 +560,27 @@ let draw_node
       ; h
       }
   in
+  (* WHICH detail this box draws is the box's own business, not the zoom's.
+     [content_tier] answers it off the continuous tier alone, so between the
+     moment a box finishes growing and the moment the zoom crosses the
+     switching point, a full-sized box sat there drawing the smaller tier's
+     content — visibly roomy, and empty. Ask the geometry instead: if the box
+     has reached the size the next tier's content was laid out for, that
+     content fits, so draw it. Per node, so a box that grew early (focal
+     mode, a short label) fills early. *)
+  let ct =
+    let base = Heap_layout.content_tier tier in
+    let next = Int.min 3 (base + 1) in
+    match next > base with
+    | false -> base
+    | true ->
+      let nw, nh = Heap_layout.size node ~tier:next in
+      (match
+         Float.( >= ) box.w (nw *. 0.94) && Float.( >= ) box.h (nh *. 0.94)
+       with
+       | true -> next
+       | false -> base)
+  in
   (match raised with
    | false -> ()
    | true ->
@@ -518,7 +588,16 @@ let draw_node
      context##.shadowColor := Js.string "rgba(0,0,0,.75)";
      context##.shadowBlur := Js.float (22. /. k);
      context##.shadowOffsetY := Js.float (5. /. k));
-  set_fill context style.fill;
+  (* Zoomed out there is no text and no border, so the box itself has to be
+     the ink: below the first tier the fill lifts to the border color — what
+     the minimap draws with — and settles back onto the panel fill as the
+     labels arrive. A panel fill is a surface; at postage-stamp size a
+     surface is invisible. *)
+  set_fill
+    context
+    (match Float.( < ) tier 1. with
+     | false -> style.fill
+     | true -> Theme.mix style.fill style.stroke ~amount:(1. -. tier));
   context##fillRect
     (Js.float box.x)
     (Js.float box.y)
@@ -530,22 +609,28 @@ let draw_node
      context##.shadowColor := Js.string "transparent";
      context##.shadowBlur := Js.float 0.;
      context##.shadowOffsetY := Js.float 0.);
-  let border_visible = ct >= 1 || hovered || selected in
+  let border_visible = ct >= 1 || hovered || selected || aimed in
   (match border_visible with
    | false -> ()
    | true ->
+     (* the marks, in the order they take precedence: the pointer, then the
+        blue pin, then the orange aim, then "allocated this step" *)
      let color =
-       match hovered, selected with
-       | true, (_ : bool) -> theme.accent_bright
-       | false, true -> theme.selection_border
-       | false, false -> style.stroke
+       match hovered, selected, aimed with
+       | true, (_ : bool), (_ : bool) -> theme.accent_bright
+       | false, true, (_ : bool) -> theme.selection_border
+       | false, false, true -> theme.accent
+       | false, false, false -> style.stroke
      in
-     (match node.is_new && not (hovered || selected) with
+     (match node.is_new && not (hovered || selected || aimed) with
       | false -> set_stroke context color
       | true -> set_stroke context theme.fresh);
      context##.lineWidth
      := Js.float
-          ((match hovered || selected with true -> 1.4 | false -> 1.) /. k);
+          ((match hovered || selected || aimed with
+            | true -> 1.8
+            | false -> 1.)
+           /. k);
      (match style.dashed with
       | true -> set_dash context [ Js.float (3. /. k); Js.float (3. /. k) ]
       | false -> ());
@@ -555,31 +640,44 @@ let draw_node
        (Js.float (box.w -. (1. /. k)))
        (Js.float (box.h -. (1. /. k)));
      (match style.dashed with true -> set_dash context [] | false -> ()));
-  (* fold marker: the box stays, the subtree is behind it *)
-  (match node.folded && ct >= 1 with
-   | false -> ()
-   | true ->
-     set_fill context theme.accent;
-     context##.font := Js.string (font 10.);
-     context##.textAlign := Js.string "right";
-     context##.textBaseline := Js.string "top";
-     context##fillText
-       (Js.string [%string "▸%{node.hidden_count#Int}"])
-       (Js.float (box.x +. box.w -. 4.))
-       (Js.float (box.y +. 3.));
-     context##.textAlign := Js.string "left");
-  (match node.is_new && ct >= 2 with
-   | false -> ()
-   | true ->
-     set_fill context theme.fresh;
-     context##.font := Js.string (font 9.5);
-     context##.textAlign := Js.string "right";
-     context##.textBaseline := Js.string "top";
-     context##fillText
-       (Js.string "new")
-       (Js.float (box.x +. box.w -. 5.))
-       (Js.float (box.y +. 4.));
-     context##.textAlign := Js.string "left");
+  (* The corner marks — the fold count, the [new] badge — share the top strip
+     with the node's own name. They used to be drawn independently, each
+     right-aligned to the same edge, so a node that was both folded AND new
+     printed one over the other; and the name knew nothing of either. So they
+     are laid out as a strip: measured, placed right to left, and the width
+     they take is handed back for the name to stop short of. *)
+  let badge_room =
+    let badges =
+      List.filter_opt
+        [ (match node.folded && ct >= 1 with
+           | true ->
+             Some ([%string "▸%{node.hidden_count#Int}"], theme.accent, 11.)
+           | false -> None)
+        ; (match node.is_new && ct >= 2 with
+           | true -> Some ("new", theme.fresh, 10.5)
+           | false -> None)
+        ]
+    in
+    context##.textAlign := Js.string "right";
+    context##.textBaseline := Js.string "top";
+    let right =
+      List.fold
+        badges
+        ~init:(box.x +. box.w -. 5.)
+        ~f:(fun right (text, color, size) ->
+          context##.font := Js.string (font size);
+          set_fill context color;
+          context##fillText
+            (Js.string text)
+            (Js.float right)
+            (Js.float (box.y +. 5.));
+          right
+          -. Js.to_float (context##measureText (Js.string text))##.width
+          -. 6.)
+    in
+    context##.textAlign := Js.string "left";
+    match badges with [] -> 0. | _ :: _ -> box.x +. box.w -. right
+  in
   (* clipped content *)
   context##save;
   context##beginPath;
@@ -616,42 +714,56 @@ let draw_node
    | Heap_scene.Kind.Nil, (_ : int) -> ()
    | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), 1 ->
      set_fill context style.ink;
-     context##.font := Js.string (font 12.);
+     context##.font := Js.string (font ~bold:true 17.);
      context##.textAlign := Js.string "center";
      context##fillText
-       (Js.string (fit_text node.label ~size:12. ~room:(box.w -. 10.)))
+       (Js.string
+          (fit_text
+             node.label
+             ~size:17.
+             ~room:(box.w -. 14. -. (badge_room *. 2.))))
        (Js.float (box.x +. (box.w /. 2.)))
-       (Js.float (box.y +. ((box.h -. 12.) /. 2.) -. 1.));
+       (Js.float (box.y +. ((box.h -. 17.) /. 2.) -. 1.));
      context##.textAlign := Js.string "left"
    | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), (2 | 3) ->
+     (* the node's own name reads as a header: white, bold, over a rule *)
      set_fill context style.ink;
-     context##.font := Js.string (font 11.5);
+     context##.font := Js.string (font ~bold:true 16.);
      context##fillText
-       (Js.string (fit_text node.label ~size:11.5 ~room:(box.w -. 16.)))
-       (Js.float (box.x +. 8.))
-       (Js.float (box.y +. 5.));
+       (Js.string
+          (fit_text node.label ~size:16. ~room:(box.w -. 20. -. badge_room)))
+       (Js.float (box.x +. 10.))
+       (Js.float (box.y +. 7.));
      set_stroke context (Theme.mix style.stroke theme.bg ~amount:0.45);
      context##.lineWidth := Js.float (1. /. k);
      context##beginPath;
-     context##moveTo (Js.float box.x) (Js.float (box.y +. 21.));
-     context##lineTo (Js.float (box.x +. box.w)) (Js.float (box.y +. 21.));
+     context##moveTo (Js.float box.x) (Js.float (box.y +. 31.));
+     context##lineTo (Js.float (box.x +. box.w)) (Js.float (box.y +. 31.));
      context##stroke;
-     let y = ref (box.y +. 25.) in
+     let y = ref (box.y +. 37.) in
      List.iter node.lines ~f:(fun line ->
-       let x = ref (box.x +. 8.) in
+       let x = ref (box.x +. 10.) in
        List.iter
          (line_parts theme line ~style)
          ~f:(fun (text, color, italic) ->
-           context##.font := Js.string (font ~italic 11.);
+           context##.font := Js.string (font ~italic 15.);
            set_fill context color;
-           let room = box.x +. box.w -. 8. -. !x in
+           let room = box.x +. box.w -. 10. -. !x in
            match Float.( > ) room 8. with
            | false -> ()
            | true ->
-             let fitted = fit_text text ~size:11. ~room in
+             let fitted = fit_text text ~size:15. ~room in
              context##fillText (Js.string fitted) (Js.float !x) (Js.float !y);
-             x := !x +. (Float.of_int (String.length fitted) *. 6.6));
-       y := !y +. 15.);
+             (* MEASURED, not counted. A line is drawn part by part, and the
+                cursor between them was advanced by character count times an
+                assumed 0.6em — which is right only while the canvas has the
+                monospace font we asked for. Fall back to anything wider and
+                every part after the first overprints the one before it. *)
+             x
+             := !x
+                +. Js.to_float
+                     (context##measureText (Js.string fitted))##.width);
+       y := !y +. 22.);
      (match ct = 3 && not (List.is_empty node.raw) with
       | false -> ()
       | true ->
@@ -663,20 +775,35 @@ let draw_node
         context##lineTo (Js.float (box.x +. box.w -. 6.)) (Js.float y0);
         context##stroke;
         set_dash context [];
-        context##.font := Js.string (font 9.5);
-        let ry = ref (y0 +. 5.) in
+        context##.font := Js.string (font 13.);
+        (* the value column starts after the WIDEST key, measured: these keys
+           went from [@] and [hd] to [addr] and [header], and a fixed 36px
+           offset that fit the old ones ran the new ones straight into their
+           own values *)
+        let key_column =
+          List.fold node.raw ~init:0. ~f:(fun widest (key, (_ : string)) ->
+            Float.max
+              widest
+              (Js.to_float (context##measureText (Js.string key))##.width))
+        in
+        let value_x = box.x +. 10. +. key_column +. 10. in
+        let ry = ref (y0 +. 7.) in
         List.iter node.raw ~f:(fun (key, value) ->
           set_fill context theme.raw_key;
           context##fillText
             (Js.string key)
-            (Js.float (box.x +. 8.))
+            (Js.float (box.x +. 10.))
             (Js.float !ry);
           set_fill context theme.raw_value;
           context##fillText
-            (Js.string (fit_text value ~size:9.5 ~room:(box.w -. 46.)))
-            (Js.float (box.x +. 8. +. 26.))
+            (Js.string
+               (fit_text
+                  value
+                  ~size:13.
+                  ~room:(box.x +. box.w -. 10. -. value_x)))
+            (Js.float value_x)
             (Js.float !ry);
-          ry := !ry +. 13.))
+          ry := !ry +. 18.))
    | (Heap_scene.Kind.Block | Heap_scene.Kind.Shared _), (_ : int) -> ());
   context##restore;
   match raised with true -> context##restore | false -> ()
@@ -741,8 +868,19 @@ let draw_edges (state : State.t) ~content_alpha =
             context##.textBaseline := Js.string "middle";
             let mx = (x1 +. x2) /. 2. in
             let my = (y1 +. y2) /. 2. in
+            (* bounded to its own child's column, so a long field name cannot
+               reach across and land on the sibling edge's label, and its
+               backing plate is MEASURED rather than guessed at 6.3px a
+               character — a plate narrower than its text is a label sitting
+               half on the edge line it was meant to interrupt *)
+            let label =
+              fit_text
+                placed.edge_label
+                ~size:10.5
+                ~room:(Float.max 34. (child.w +. 16.))
+            in
             let width =
-              Float.of_int (String.length placed.edge_label) *. 6.3
+              Js.to_float (context##measureText (Js.string label))##.width
             in
             set_fill context theme.bg;
             context##fillRect
@@ -751,10 +889,7 @@ let draw_edges (state : State.t) ~content_alpha =
               (Js.float (width +. 6.))
               (Js.float 14.);
             set_fill context theme.edge_label;
-            context##fillText
-              (Js.string placed.edge_label)
-              (Js.float mx)
-              (Js.float my);
+            context##fillText (Js.string label) (Js.float mx) (Js.float my);
             context##.textAlign := Js.string "left";
             context##.textBaseline := Js.string "top")))
 ;;
@@ -765,7 +900,7 @@ let draw_heads (state : State.t) =
   match Heap_layout.content_tier state.tier_f >= 1 with
   | false -> ()
   | true ->
-    context##.font := Js.string (font 13.);
+    context##.font := Js.string (font ~bold:true 15.);
     context##.textBaseline := Js.string "alphabetic";
     List.iter
       (Heap_layout.heads_now (layouts state) ~tier_f:state.tier_f)
@@ -789,41 +924,51 @@ let draw_heads (state : State.t) =
         let glyph =
           match root.node.folded with true -> "▸ " | false -> "▾ "
         in
+        (* The layout reserved room for this line, but off an estimate. Cut
+           both halves to the room they were actually given so a header can
+           never reach the structure packed beside it — the name keeps
+           whatever it needs and the trailing detail takes what is left. *)
+        let room = Float.max 60. head.width in
+        let name = [%string "%{glyph}%{name}"] in
+        let name = fit_text name ~size:15. ~room in
         set_fill context accent;
         context##fillText
-          (Js.string [%string "%{glyph}%{name}"])
-          (Js.float 0.)
+          (Js.string name)
+          (Js.float head.x)
           (Js.float (head.y +. 14.));
         let prefix_width =
-          Js.to_float
-            (context##measureText (Js.string [%string "%{glyph}%{name} "]))##.
-            width
+          Js.to_float (context##measureText (Js.string (name ^ " ")))##.width
         in
         let nodes_word =
           match root.count with 1 -> "node" | (_ : int) -> "nodes"
         in
+        let rest = [%string "%{rest} · %{root.count#Int} %{nodes_word}"] in
         set_fill context dim;
         context##fillText
-          (Js.string [%string "%{rest} · %{root.count#Int} %{nodes_word}"])
-          (Js.float prefix_width)
+          (Js.string (fit_text rest ~size:15. ~room:(room -. prefix_width)))
+          (Js.float (head.x +. prefix_width))
           (Js.float (head.y +. 14.)))
 ;;
 
 let draw_mini (state : State.t) =
   let context = state.context in
   let theme = state.input.theme in
-  let width, height =
-    Heap_layout.bounds_now (layouts state) ~tier_f:state.tier_f
-  in
   let mw = 168. in
   let mh = 118. in
   let pad = 14. in
   let x = state.width -. mw -. pad in
   let y = state.height -. mh -. pad in
+  let tier =
+    Int.max 0 (Int.min 3 (Int.of_float (Float.round_nearest state.tier_f)))
+  in
+  let layout = (layouts state).(tier) in
+  (* the map is scaled to the layout it actually DRAWS, not to the crossfaded
+     bounds: those belong to a size between two tiers, and a tier whose boxes
+     are bigger than that spilled out of the frame *)
   let scale =
     Float.min
-      ((mw -. 12.) /. Float.max 1. width)
-      ((mh -. 12.) /. Float.max 1. height)
+      ((mw -. 12.) /. Float.max 1. layout.width)
+      ((mh -. 12.) /. Float.max 1. layout.height)
   in
   state.mini <- Some { Mini.x; y; w = mw; h = mh; scale };
   context##save;
@@ -836,12 +981,18 @@ let draw_mini (state : State.t) =
     (Js.float (y +. 0.5))
     (Js.float (mw -. 1.))
     (Js.float (mh -. 1.));
+  (* and it is clipped as well: the 3px floor under a box's drawn size keeps
+     a postage-stamp node visible, and near the edge that floor is what
+     reaches past the frame *)
+  context##beginPath;
+  context##rect
+    (Js.float (x +. 1.))
+    (Js.float (y +. 1.))
+    (Js.float (mw -. 2.))
+    (Js.float (mh -. 2.));
+  context##clip;
   context##translate (Js.float (x +. 6.)) (Js.float (y +. 6.));
   context##scale (Js.float scale) (Js.float scale);
-  let tier =
-    Int.max 0 (Int.min 3 (Int.of_float (Float.round_nearest state.tier_f)))
-  in
-  let layout = (layouts state).(tier) in
   List.iter layout.placed ~f:(fun placed ->
     match Map.find layout.pos placed.Heap_layout.Placed.id with
     | None -> ()
@@ -919,12 +1070,18 @@ let draw_tooltip (state : State.t) =
          | true -> [ "  name no longer reaches this", theme.faint ]
          | false -> []
        in
+       (* measured, and measured at the font it will be drawn in: the box was
+          sized by character count while the text was fitted to that box by a
+          different estimate, so the two disagreed and a tooltip could print
+          past its own edge *)
+       context##.font := Js.string (font 11.5);
        let width =
          List.fold lines ~init:120. ~f:(fun widest (text, (_ : string)) ->
            Float.max
              widest
-             ((Float.of_int (String.length text) *. 6.6) +. 20.))
-         |> Float.min 360.
+             (Js.to_float (context##measureText (Js.string text))##.width
+              +. 20.))
+         |> Float.min 380.
        in
        let height = 14. +. (Float.of_int (List.length lines) *. 16.) in
        let x = Float.min (sx +. 18.) (state.width -. width -. 8.) in
@@ -1204,11 +1361,20 @@ let on_pointer_up (state : State.t) (event : Dom_html.mouseEvent Js.t) =
      | false ->
        (match node_at state sx sy with
         | Some placed ->
-          (* committing a box is the TUI's click: pin it blue and jump the
-             replay to where it was allocated *)
+          (* Two weights of click. A plain one marks the box orange and moves
+             nothing — pointing at something should not cost you your place
+             in the replay. Cmd/ctrl-click is the committing gesture: pin it
+             blue and jump to where it was allocated, the TUI's click. *)
           (match placed.node.address with
            | Some address ->
-             inject state (Action.Select_heap_address address)
+             let commit =
+               Js.to_bool event##.metaKey || Js.to_bool event##.ctrlKey
+             in
+             inject
+               state
+               (match commit with
+                | true -> Action.Select_heap_address address
+                | false -> Action.Aim_heap_address address)
            | None -> ())
         | None ->
           (match head_at state sx sy with
@@ -1295,6 +1461,7 @@ let on_key (state : State.t) (event : Dom_html.keyboardEvent Js.t) =
        (match hovered_fold_key state with
         | Some fold -> act (Action.Toggle_heap_fold fold)
         | None -> ())
+     | "v" -> act Action.Toggle_heap_view
      | "z" -> act Action.Toggle_accordion
      | "Z" -> act Action.Reset_flame_zoom
      | "m" -> act Action.Toggle_lod
@@ -1484,7 +1651,12 @@ let update
      land_on_current previous);
   (match old.focus_seq = input.focus_seq with
    | true -> ()
-   | false -> focus_on_current previous);
+   | false -> focus_on_target previous);
+  (* the slider moved every structure, so the view it was framing is gone —
+     refit rather than leave the eye somewhere arbitrary in the new grid *)
+  (match old.columns = input.columns with
+   | true -> ()
+   | false -> fit previous ~min_tier:0.);
   previous.dirty <- true;
   previous, canvas
 ;;

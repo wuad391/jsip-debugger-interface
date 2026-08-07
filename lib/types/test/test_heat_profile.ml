@@ -81,6 +81,31 @@ let%expect_test "a lambda matches an anonymous entry on its line" =
   [%expect {| () |}]
 ;;
 
+(* the fallback behind [share]: no name and no lambda on the line, but the
+   file is known and perf knows what that file cost *)
+let%expect_test "a file's whole cost stands in when nothing else matches" =
+  let show_file ?(file_path = "greet.ml") () =
+    print_s
+      [%sexp
+        (Option.map
+           (Heat_profile.file_share
+              profile
+              ~location:(location ~file_path ~line_number:41 ()))
+           ~f:(Float.round_decimal ~decimal_digits:4)
+         : float option)]
+  in
+  (* every [Greet] entry, named and anonymous, over the whole profile *)
+  show_file ();
+  [%expect {| (0.9451) |}];
+  (* a file the profile never sampled stays neutral, not zero *)
+  show_file ~file_path:"lib/other.ml" ();
+  [%expect {| () |}];
+  (* [share] itself still declines there — the fallback is the caller's to
+     reach for *)
+  show ~location:(location ~line_number:41 ()) (Unnamed "book.best_bid ()");
+  [%expect {| () |}]
+;;
+
 let%expect_test "an empty profile is all neutral" =
   let empty =
     Heat_profile.t_of_sexp

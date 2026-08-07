@@ -25,6 +25,10 @@ type t =
   ; accent_bright : Color.t
   ; gold : Color.t
   ; fresh : Color.t
+  ; progress : Color.t
+  (** the timeline's played span — one flat color, so "how far in am I" is
+      answered by length alone and never confused with the density shading
+      the future carries *)
   ; selection_bg : Color.t
   ; selection_border : Color.t
   ; selection_text : Color.t
@@ -74,19 +78,30 @@ let dark =
   ; faint = "#6a7382"
   ; ghost = "#5d6675"
   ; separator = "#39404c"
-  ; hairline = "#252b34"
-  ; edge = "#333b46"
-  ; edge_label = "#7d8899"
+  ; hairline =
+      "#252b34"
+      (* The heap diagram's lines are drawn WHITE, not in the panel greys the
+         rest of the surface uses. Zoomed out there is no text and the boxes
+         are a few pixels across: at that size a line only exists if it is at
+         full contrast against the background, and the tier-0 box takes this
+         color as its fill for the same reason. *)
+  ; edge = "#e9edf3"
+  ; edge_label = "#a7b2c1"
   ; accent = "#c8763a"
   ; accent_bright = "#e08a4a"
   ; gold = "#d9a05b"
   ; fresh = "#8fd694"
+  ; progress = "#3f86dc"
   ; selection_bg = "#17509c"
   ; selection_border = "#8ab6ea"
   ; selection_text = "#ffffff"
   ; range_bg = "#1c3f7a"
-  ; range_border = "#6f9bd8"
-  ; stripe_bg = "#171a20"
+  ; range_border =
+      "#6f9bd8"
+      (* the call stack's every-other-row band. The mockup's was a whisper; a
+         stack is read by scanning across a row, so the banding has to
+         survive being looked past. *)
+  ; stripe_bg = "#1e242f"
   ; tooltip_bg = "rgba(13,15,19,.97)"
   ; tooltip_border = "#3c4350"
   ; hud_bg = "rgba(16,18,22,.86)"
@@ -108,17 +123,23 @@ let dark =
       ; 0.82, "#c9a24a"
       ; 1.0, "#d4794f"
       ]
-  ; box_block = "#171c23", "#4a6076", "#cdd3dc"
-  ; box_nil = "#14161a", "#3a414c", "#5d6675"
-  ; box_shared = "#191d24", "#556579", "#93a0b0"
-  ; node_key = "#7d8899"
-  ; node_reference = "#6f8fae"
-  ; node_value = "#d0a05b"
-  ; raw_key = "#5f6a7a"
-  ; raw_value = "#8ea0b4"
-  ; minimap_block = "#39485a"
-  ; minimap_shared = "#6d5433"
-  ; minimap_nil = "#2b3038"
+      (* (fill, border, ink). Borders are white for the same reason the edges
+         are, and the ink — the node's own name, its header line — is white
+         outright: it is the first thing read in a box and it was competing
+         with the field text below it. Nil and shared step down a little so
+         the three kinds of box stay tellable apart, but all three stay in
+         white's register. *)
+  ; box_block = "#171c23", "#e9edf3", "#ffffff"
+  ; box_nil = "#14161a", "#aab4c2", "#c3ccd8"
+  ; box_shared = "#191d24", "#ccd4de", "#e4eaf2"
+  ; node_key = "#aab6c6"
+  ; node_reference = "#8fb0cf"
+  ; node_value = "#e8b76a"
+  ; raw_key = "#93a0b2"
+  ; raw_value = "#c2ceda"
+  ; minimap_block = "#93a2b4"
+  ; minimap_shared = "#b28b52"
+  ; minimap_nil = "#4d545f"
   }
 ;;
 
@@ -137,19 +158,22 @@ let light =
   ; faint = "#8a93a1"
   ; ghost = "#a5adba"
   ; separator = "#c5cbd4"
-  ; hairline = "#e4e7ec"
-  ; edge = "#b9c1cc"
+  ; hairline =
+      "#e4e7ec"
+      (* white's opposite number: on paper the diagram's lines are ink *)
+  ; edge = "#2b3340"
   ; edge_label = "#7a8494"
   ; accent = "#b95f24"
   ; accent_bright = "#a04e15"
   ; gold = "#a97c26"
   ; fresh = "#2e8b57"
+  ; progress = "#2f6fad"
   ; selection_bg = "#17509c"
   ; selection_border = "#8ab6ea"
   ; selection_text = "#ffffff"
   ; range_bg = "#d7e6fb"
   ; range_border = "#4a7fc1"
-  ; stripe_bg = "#eef0f4"
+  ; stripe_bg = "#e2e7ef"
   ; tooltip_bg = "rgba(252,253,255,.97)"
   ; tooltip_border = "#b9c1cc"
   ; hud_bg = "rgba(255,255,255,.86)"
@@ -171,17 +195,17 @@ let light =
       ; 0.82, "#c9a24a"
       ; 1.0, "#c9703f"
       ]
-  ; box_block = "#ffffff", "#7d97b3", "#2d3743"
-  ; box_nil = "#f2f4f7", "#c3cbd6", "#a5adba"
-  ; box_shared = "#f6f8fb", "#8fa3bb", "#5d6a7c"
+  ; box_block = "#ffffff", "#2b3340", "#2d3743"
+  ; box_nil = "#f2f4f7", "#7d8794", "#8b95a3"
+  ; box_shared = "#f6f8fb", "#414c5d", "#5d6a7c"
   ; node_key = "#7a8494"
   ; node_reference = "#3e648d"
   ; node_value = "#a05c22"
   ; raw_key = "#8a93a1"
   ; raw_value = "#4c657e"
-  ; minimap_block = "#b3c2d4"
-  ; minimap_shared = "#c9a273"
-  ; minimap_nil = "#dde2ea"
+  ; minimap_block = "#5b6a7d"
+  ; minimap_shared = "#a07c4a"
+  ; minimap_nil = "#b8c0cb"
   }
 ;;
 
@@ -234,7 +258,13 @@ let stack_heat_ramp =
   [| "#5a6a78"; "#8a7a58"; "#c09149"; "#df7038"; "#e05545" |]
 ;;
 
-let heat_thresholds = [ 0.20, 4; 0.08, 3; 0.03, 2; 0.01, 1 ]
+(* Log-spaced, and anchored at the top of the RUN: the app hands these shares
+   over already divided by the busiest call, so the hottest thing on screen
+   reaches the last stop by construction and the buckets step down by roughly
+   half from there. The TUI's are the same spacing against an absolute share
+   of the machine — the right anchor for a profile that is one program's hot
+   loop, and the wrong one for a trace whose compute is mostly library code. *)
+let heat_thresholds = [ 0.60, 4; 0.30, 3; 0.12, 2; 0.04, 1 ]
 
 let ramp_index ~share =
   List.find_map heat_thresholds ~f:(fun (threshold, index) ->

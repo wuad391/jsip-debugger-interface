@@ -11,6 +11,11 @@ module Effect = Bonsai_web.Effect
 
 let play_interval = Time_ns.Span.of_int_ms 850
 
+(* how far the heap's corner slider goes. It counts AVERAGE-sized structures
+   across, not columns, so the top of the range is a survey of a whole
+   registry at once rather than a grid nobody could read. *)
+let max_columns = 16
+
 module Model = struct
   type t =
     { step : int
@@ -20,20 +25,32 @@ module Model = struct
     (** bumped by stepping: brings the walked structure back into the
         canvas's view if it slipped off *)
     ; focus_seq : int
-    (** bumped by [.] and the heap header's [⌖ latest]: the canvas zooms to
-        the walked structure *)
+    (** bumped by [.] and the heap header's [⌖]: the canvas zooms to
+        {!focus_target} *)
+    ; focus_target : Action.Focus_target.t
+    (** which mark the next [⌖] goes to; each press alternates *)
     ; stack_folds : Int.Set.t
     ; stack_expanded : Int.Set.t
     ; source_folds : Set.M(Action.Source_fold).t
     ; stack_collapsed : bool
     ; source_collapsed : bool
+    ; heap_view : Action.Heap_view.t
+    (** which reading the heap pane's tabs are showing — the canvas diagram
+        or the outline over the same scene *)
     ; heap_folds : Set.M(Heap_scene.Fold_key).t
     ; accordion : bool
     ; sort_by_address : bool
+    ; heap_columns : int
+    (** structures across the canvas before the next row of them *)
     ; heap_filter : string
     ; typing_filter : bool
     ; heap_selected : Snapshot.Address.t option
-    (** [None] falls back to the structure this step walked *)
+    (** the BLUE pin — cmd/ctrl-click. [None] falls back to the structure
+        this step walked *)
+    ; heap_aimed : Snapshot.Address.t option
+    (** the ORANGE mark — a plain click. Purely where you are looking; it
+        moves nothing. [None] means the orange belongs to the structure this
+        step walked, which is where it started. *)
     ; lod : Action.Lod.t
     ; edge_style : Action.Edge_style.t
     ; theme_mode : Action.Theme_mode.t
@@ -50,17 +67,21 @@ module Model = struct
     ; playing = false
     ; land_seq = 0
     ; focus_seq = 0
+    ; focus_target = Action.Focus_target.Selection
     ; stack_folds = Int.Set.empty
     ; stack_expanded = Int.Set.empty
     ; source_folds = Set.empty (module Action.Source_fold)
     ; stack_collapsed = false
     ; source_collapsed = false
+    ; heap_view = Action.Heap_view.Diagram
     ; heap_folds = Set.empty (module Heap_scene.Fold_key)
     ; accordion = false
     ; sort_by_address = false
+    ; heap_columns = 3
     ; heap_filter = ""
     ; typing_filter = false
     ; heap_selected = None
+    ; heap_aimed = None
     ; lod = Action.Lod.Uniform
     ; edge_style = Action.Edge_style.Angled
     ; theme_mode = Action.Theme_mode.Dark
@@ -120,6 +141,7 @@ let apply_action
     ; selected_frame = None
     ; playing
     ; heap_selected = None
+    ; heap_aimed = None
     ; land_seq = model.land_seq + 1
     }
   in
@@ -150,15 +172,27 @@ let apply_action
     { model with stack_collapsed = not model.stack_collapsed }
   | Toggle_source_pane ->
     { model with source_collapsed = not model.source_collapsed }
+  | Set_heap_view heap_view -> { model with heap_view }
+  | Toggle_heap_view ->
+    { model with heap_view = Action.Heap_view.toggle model.heap_view }
   | Toggle_heap_fold fold ->
     { model with heap_folds = toggle model.heap_folds fold }
   | Toggle_accordion -> { model with accordion = not model.accordion }
   | Toggle_address_order ->
     { model with sort_by_address = not model.sort_by_address }
-  (* [.]: back to the latest change — the pinned box cleared so blue follows
-     the walked structure again, and the canvas zooms to it *)
+  | Set_columns columns ->
+    { model with
+      heap_columns = Int.clamp_exn columns ~min:1 ~max:max_columns
+    }
+  (* [.] and [⌖]: back to a mark, alternating between the pinned box and the
+     walked structure. The pin is NOT cleared — it is half of what this
+     button navigates between, and clearing it would delete the destination
+     on the way there. *)
   | Focus_latest ->
-    { model with heap_selected = None; focus_seq = model.focus_seq + 1 }
+    { model with
+      focus_seq = model.focus_seq + 1
+    ; focus_target = Action.Focus_target.toggle model.focus_target
+    }
   (* [/] always starts from empty: the old filter was shaped around whatever
      you were hunting last time *)
   | Begin_filter -> { model with typing_filter = true; heap_filter = "" }
@@ -175,6 +209,9 @@ let apply_action
       | None -> model
     in
     { stepped with heap_selected = Some address }
+  (* a plain click only moves the eye: no jump, no pin, and the pin that is
+     already there stays *)
+  | Aim_heap_address address -> { model with heap_aimed = Some address }
   | Toggle_lod -> { model with lod = Action.Lod.toggle model.lod }
   | Cycle_edge_style ->
     { model with edge_style = Action.Edge_style.cycle model.edge_style }
@@ -194,6 +231,25 @@ let apply_action
 
 (* ── once-per-run data, ported from the TUI app ──────────────────────── *)
 
+(* Every share this interface colors is RELATIVE TO THE RUN: divided by the
+   busiest call rather than left as a fraction of the machine. Absolute
+   shares are calibrated for a profile of one program's hot loop, and neither
+   input here looks like that — a real profile of this exchange spends most
+   of its samples inside Base and Bin_prot, and a call-frequency fallback
+   spreads a long trace over hundreds of names. Both put every row on the
+   ramp's cold stop, which is a picture of the denominator, not of the run.
+   {!Theme.heat_thresholds} is spaced for this convention. *)
+let normalize shares =
+  let busiest =
+    Array.fold shares ~init:0. ~f:(fun hottest share ->
+      Float.max hottest (Option.value share ~default:0.))
+  in
+  match Float.( > ) busiest 0. with
+  | false -> shares
+  | true ->
+    Array.map shares ~f:(Option.map ~f:(fun share -> share /. busiest))
+;;
+
 (* each call's share, joined once up front — the color its name renders in.
    With a perf profile the share is sampled compute; without one it falls
    back to the trace itself, so a replay with no [-perf-file] still reads
@@ -202,10 +258,21 @@ let heat_of_calls ~profile ~(calls : Call.t array) =
   match (profile : Heat_profile.t option) with
   | Some profile ->
     ( Array.map calls ~f:(fun (call : Call.t) ->
-        Heat_profile.share
-          profile
-          ~function_info:call.info.function_info
-          ~location:call.info.location)
+        match
+          Heat_profile.share
+            profile
+            ~function_info:call.info.function_info
+            ~location:call.info.location
+        with
+        | Some share -> Some share
+        (* The instrumentation fires on bindings inside functions, so most
+           callees arrive as expressions located mid-function: perf can name
+           the enclosing function but the trace cannot, and a whole replay
+           comes back neutral with a good profile loaded. Falling back to
+           what the FILE cost keeps the reading true — coarser, not wrong. *)
+        | None ->
+          Heat_profile.file_share profile ~location:call.info.location)
+      |> normalize
     , `Compute )
   | None ->
     let counts =
@@ -219,6 +286,7 @@ let heat_of_calls ~profile ~(calls : Call.t array) =
     ( Array.map calls ~f:(fun (call : Call.t) ->
         Map.find counts (Function_info.display call.info.function_info)
         |> Option.map ~f:(fun count -> Float.of_int count /. total))
+      |> normalize
     , `Calls )
 ;;
 
@@ -293,21 +361,39 @@ let scroll_into_center id =
       |]
 ;;
 
+(* the outline's walked-structure row rides along: it is the pane's landing
+   place while the OUTLINE tab is up, and it is simply absent otherwise *)
 let scroll_panes_effect =
   Effect.of_sync_fun (fun (stack_id, source_id) ->
     scroll_into_center stack_id;
-    scroll_into_center source_id)
+    scroll_into_center source_id;
+    scroll_into_center Outline_view.current_row_id)
+;;
+
+(* [.] in the OUTLINE tab. The canvas answers that key by zooming to a mark,
+   which is invisible behind an outline — the outline's answer to the same
+   question is to bring the row back under your eye. *)
+let scroll_outline_effect =
+  Effect.of_sync_fun (fun (_ : int) ->
+    scroll_into_center Outline_view.current_row_id)
 ;;
 
 let close_window_effect =
   Effect.of_sync_fun (fun () -> Dom_html.window##close) ()
 ;;
 
-(* the page behind the app — visible for a frame while loading, and behind
-   rubber-band overscroll — follows the theme too *)
-let body_background_effect =
-  Effect.of_sync_fun (fun color ->
-    Dom_html.document##.body##.style##.background := Js.string color)
+(* The page behind the app — visible for a frame while loading, and behind
+   rubber-band overscroll — follows the theme too. [color-scheme] is the
+   other half: it is what makes the browser's OWN furniture, the pane
+   scrollbars and the columns slider's track, pick this theme's side rather
+   than the operating system's. *)
+let page_theme_effect =
+  Effect.of_sync_fun (fun (background, scheme) ->
+    Dom_html.document##.body##.style##.background := Js.string background;
+    Js.Unsafe.set
+      Dom_html.document##.documentElement##.style
+      (Js.string "colorScheme")
+      (Js.string scheme))
 ;;
 
 (* ── the component ───────────────────────────────────────────────────── *)
@@ -359,8 +445,8 @@ let component
     (Bonsai.return play_interval)
     tick
     graph;
-  (* the scene and its four layouts: everything the canvas draws, rebuilt
-     when the step or a heap mode changes *)
+  (* the scene: everything the canvas draws, rebuilt when the step or a heap
+     mode changes *)
   let scene =
     let%arr { Model.step
             ; heap_folds
@@ -375,8 +461,38 @@ let component
     let { Replay.Step.structures; nodes; new_addresses; _ } =
       Replay.step_exn replay ~step
     in
-    let roots, stats =
-      Heap_scene.build
+    Heap_scene.build
+      ~structures
+      ~nodes
+      ~new_addresses
+      ~folds:heap_folds
+      ~filter:heap_filter
+      ~sort_by_address
+      ~accordion
+  in
+  (* The pane's other reading of the same step: the outline's rows, built
+     only while its tab is the one showing. They read the scene's inputs
+     rather than the scene, so the two tabs claim and fold identically —
+     {!Heap_outline}'s contract. *)
+  let outline =
+    let%arr { Model.step
+            ; heap_view
+            ; heap_folds
+            ; heap_filter
+            ; sort_by_address
+            ; accordion
+            ; _
+            }
+      =
+      model
+    in
+    match heap_view with
+    | Action.Heap_view.Diagram -> []
+    | Outline ->
+      let { Replay.Step.structures; nodes; new_addresses; _ } =
+        Replay.step_exn replay ~step
+      in
+      Heap_outline.rows
         ~structures
         ~nodes
         ~new_addresses
@@ -384,15 +500,25 @@ let component
         ~filter:heap_filter
         ~sort_by_address
         ~accordion
-    in
-    roots, stats, Heap_layout.all roots
   in
-  let heap_view =
-    let%arr roots, (_ : Heap_scene.Stats.t), layouts = scene
+  (* the four tier layouts, kept off the scene's own computation so that
+     moving the columns slider re-places the same scene rather than
+     rebuilding it — the canvas keeps its zoom anchor across the reflow *)
+  let layouts =
+    let%arr roots, (_ : Heap_scene.Stats.t) = scene
+    and { Model.heap_columns; _ } = model in
+    Heap_layout.all roots ~columns:heap_columns
+  in
+  let heap_canvas =
+    let%arr roots, (_ : Heap_scene.Stats.t) = scene
+    and layouts
     and { Model.step
+        ; heap_columns
         ; land_seq
         ; focus_seq
+        ; focus_target
         ; heap_selected
+        ; heap_aimed
         ; heap_filter
         ; typing_filter
         ; lod
@@ -419,6 +545,8 @@ let component
       ; step
       ; land_seq
       ; focus_seq
+      ; focus_target
+      ; columns = heap_columns
       ; pulse_ids
       ; current_root_id =
           Option.map current ~f:(fun (root : Heap_scene.Root.t) ->
@@ -427,6 +555,7 @@ let component
           Option.map current ~f:(fun (root : Heap_scene.Root.t) ->
             root.structure_id)
       ; selected_address = heap_selected
+      ; aimed_address = heap_aimed
       ; filter_active = not (String.is_empty heap_filter)
       ; lod
       ; edge_style
@@ -438,7 +567,7 @@ let component
   (* keep the selected call and the active source line centered as the replay
      moves — the TUI's landing, spelled scrollIntoView *)
   let scroll_key =
-    let%arr { Model.step; selected_frame; _ } = model in
+    let%arr { Model.step; selected_frame; heap_aimed; _ } = model in
     let selected =
       clamp
         (Option.value selected_frame ~default:(frame_count replay ~step - 1))
@@ -453,8 +582,20 @@ let component
         (List.nth (Replay.step_exn replay ~step).frames selected)
         ~default:(Replay.step_exn replay ~step).call
     in
-    ( [%string "stack-row-%{selected_step#Int}"]
-    , [%string "src-line-%{Location.line_number frame.info.location#Int}"] )
+    (* the orange aim is what the panes are showing when there is one, so it
+       is what they scroll to — landing on a marked row you cannot see is the
+       same as not marking it *)
+    let aimed =
+      Option.bind heap_aimed ~f:(fun address -> Map.find births address)
+    in
+    let row, line =
+      match aimed with
+      | Some aimed_step ->
+        let aimed_call = (Replay.step_exn replay ~step:aimed_step).call in
+        aimed_step, Location.line_number aimed_call.info.location
+      | None -> selected_step, Location.line_number frame.info.location
+    in
+    [%string "stack-row-%{row#Int}"], [%string "src-line-%{line#Int}"]
   in
   Bonsai.Edge.on_change
     ~sexp_of_model:[%sexp_of: string * string]
@@ -466,29 +607,46 @@ let component
          (* after this frame's DOM patch, so the rows exist *)
          scroll_panes_effect key))
     graph;
-  let theme_background =
-    let%arr { Model.theme_mode; _ } = model in
-    (Action.Theme_mode.palette theme_mode).bg
+  (* [.] means "take me back to the mark" in both tabs: the canvas hears the
+     key itself and zooms, and the outline — where zooming shows nothing —
+     scrolls the row into the middle instead *)
+  let focus_pulse =
+    let%arr { Model.focus_seq; _ } = model in
+    focus_seq
   in
   Bonsai.Edge.on_change
-    ~sexp_of_model:[%sexp_of: string]
-    ~equal:[%equal: string]
-    theme_background
-    ~callback:(Bonsai.return body_background_effect)
+    ~sexp_of_model:[%sexp_of: int]
+    ~trigger:`After_display
+    ~equal:[%equal: int]
+    focus_pulse
+    ~callback:(Bonsai.return scroll_outline_effect)
+    graph;
+  let page_theme =
+    let%arr { Model.theme_mode; _ } = model in
+    let theme = Action.Theme_mode.palette theme_mode in
+    theme.bg, theme.name
+  in
+  Bonsai.Edge.on_change
+    ~sexp_of_model:[%sexp_of: string * string]
+    ~equal:[%equal: string * string]
+    page_theme
+    ~callback:(Bonsai.return page_theme_effect)
     graph;
   let view =
     let%arr model
-    and ( (_ : Heap_scene.Root.t list)
-        , stats
-        , (_ : Heap_layout.Tier_layout.t array) )
-      =
-      scene
-    and heap_canvas = heap_view
+    and (_ : Heap_scene.Root.t list), stats = scene
+    and heap_canvas
+    and outline
     and inject in
     let { Model.step
         ; playing
+        ; heap_view
+        ; heap_selected
+        ; heap_aimed
         ; accordion
         ; sort_by_address
+        ; heap_columns
+        ; focus_target
         ; heap_filter
         ; typing_filter
         ; stack_folds
@@ -509,13 +667,27 @@ let component
       model
     in
     let theme = Action.Theme_mode.palette theme_mode in
-    let { Replay.Step.call; frames; structures; _ } =
-      Replay.step_exn replay ~step
-    in
+    let { Replay.Step.call; frames; _ } = Replay.step_exn replay ~step in
     let live = live_calls replay ~step in
     let selected = selected_frame replay model in
     let frame = Option.value (List.nth frames selected) ~default:call in
-    let location = frame.info.location in
+    (* The orange mark is one selection across three panes. Clicking a heap
+       box marks the call that ALLOCATED it — so the stack lights that row
+       and the source shows that line, without the replay having moved. Blue
+       stays where the replay is; orange is where you are looking, and the
+       two are allowed to disagree. *)
+    let aimed_step =
+      Option.bind heap_aimed ~f:(fun address -> Map.find births address)
+    in
+    let aimed_call =
+      Option.map aimed_step ~f:(fun step ->
+        calls.(clamp step ~max:(total - 1)))
+    in
+    let location =
+      match aimed_call with
+      | Some (aimed : Call.t) -> aimed.info.location
+      | None -> frame.info.location
+    in
     let file_path = Location.file_path location in
     let callsite_line =
       match List.nth frames (selected - 1) with
@@ -558,6 +730,7 @@ let component
              ~expanded:stack_expanded
              ~registered)
         ~total_calls:(Array.length calls)
+        ~aimed_step
         ~live_count:(List.length live)
         ~has_heat
         ~collapsed:stack_collapsed
@@ -596,6 +769,7 @@ let component
       in
       Source_view.view
         ~theme
+        ~aimed:(Option.is_some aimed_call)
         ~source:rows
         ~file_label:(Filename.basename file_path)
         ~file:file_path
@@ -701,6 +875,47 @@ let component
           </div>
         |}
     in
+    let showing_outline =
+      match heap_view with
+      | Action.Heap_view.Outline -> true
+      | Diagram -> false
+    in
+    (* The two readings of the same scene. The canvas stays mounted under the
+       outline rather than being swapped out for it: the widget owns the
+       pane's keyboard, and an idle canvas costs nothing to leave behind an
+       opaque panel. *)
+    let outline_panel =
+      match showing_outline with
+      | false -> Vdom.Node.none
+      | true ->
+        Outline_view.view
+          ~theme
+          ~rows:outline
+          ~selected:heap_selected
+          ~inject
+    in
+    let tabs =
+      let tab view =
+        let selected = Action.Heap_view.equal view heap_view in
+        let label = Action.Heap_view.display view in
+        {%html|
+          <span %{Styles.heap_tab theme ~selected}
+                on_click=%{fun _ -> inject (Action.Set_heap_view view)}>#{label}</span>
+        |}
+      in
+      {%html|
+        <span %{Styles.heap_tabs}>
+          %{tab Action.Heap_view.Diagram}
+          %{tab Action.Heap_view.Outline}
+        </span>
+      |}
+    in
+    (* the zoom readout, the columns slider and the [⌖] mark are the canvas's
+       own controls; none of them means anything over the outline, which is a
+       list you scroll *)
+    let canvas_only node =
+      match showing_outline with true -> Vdom.Node.none | false -> node
+    in
     let hud =
       let zoom = [%string "zoom %{hud_zoom_percent#Int}%"] in
       let tier = sprintf "detail %.1f / 3" hud_tier in
@@ -713,24 +928,45 @@ let component
         </div>
       |}
     in
-    let structure_chip =
-      (* the walked structure's kind, typed when the wire says *)
-      let kind = Snapshot.Ds_type.display call.info.snapshot.ds_type in
-      let current =
-        List.find structures ~f:(fun (s : Replay.Structure.t) ->
-          s.is_current)
+    (* the corner control, sitting on the minimap: how many structures stand
+       side by side. A real range input, so dragging, clicking the track and
+       the arrow keys all work without any of them being written here — and
+       the canvas's own key handler already steps aside for an [input]. *)
+    let columns_slider =
+      let on_input (_ : _) value =
+        match Int.of_string_opt value with
+        | Some columns -> inject (Action.Set_columns columns)
+        | None -> Effect.Ignore
       in
-      match current with
-      | Some { ty = Some ty; _ } ->
-        [%string "%{kind} %{Type_info.display ty}"]
-      | Some { ty = None; _ } | None -> kind
+      let range =
+        Vdom.Attr.many
+          [ Vdom.Attr.type_ "range"
+          ; Vdom.Attr.create "min" "1"
+          ; Vdom.Attr.create "max" (Int.to_string max_columns)
+          ; Vdom.Attr.create "step" "1"
+          ; Vdom.Attr.value (Int.to_string heap_columns)
+          ; Styles.columns_slider theme
+          ]
+      in
+      let label = [%string "%{heap_columns#Int} across"] in
+      {%html|
+        <div %{Styles.columns_panel theme}>
+          <input %{range} on_input=%{on_input} />
+          <span %{Styles.columns_label theme}>#{label}</span>
+        </div>
+      |}
+    in
+    let focus_chip =
+      let label = Action.Focus_target.display focus_target in
+      {%html|
+        <span %{Styles.hint_chip theme.accent}
+              on_click=%{fun _ -> inject Action.Focus_latest}>#{label}</span>
+      |}
     in
     let session =
       Session_view.view
         ~theme
         ~dump_name
-        ~structure:structure_chip
-        ~playing
         ~heat:
           (match has_heat with false -> None | true -> Some heat_source)
     in
@@ -744,16 +980,20 @@ let component
           </div>
           <div %{Styles.heap_pane theme}>
             <div %{Styles.heap_header theme}>
-              <span %{Styles.pane_title theme}>HEAP</span>
+              <span %{Styles.heap_title_group}>
+                <span %{Styles.pane_title theme}>HEAP</span>
+                %{tabs}
+              </span>
               <span>
-                <span %{Styles.hint_chip theme.accent}
-                      on_click=%{fun _ -> inject Action.Focus_latest}>⌖ latest</span>
+                %{canvas_only focus_chip}
                 <span %{Styles.pane_meta theme}>#{heap_meta}</span>
               </span>
             </div>
             <div %{Styles.heap_body}>
               %{heap_canvas}
-              %{hud}
+              %{canvas_only hud}
+              %{canvas_only columns_slider}
+              %{outline_panel}
               %{filter_overlay}
             </div>
             %{flame_drawer}

@@ -2,6 +2,7 @@ module Action = Action
 module App = App
 module Flame_view = Flame_view
 module Heap_widget = Heap_widget
+module Outline_view = Outline_view
 module Session_view = Session_view
 module Source_view = Source_view
 module Stack_view = Stack_view

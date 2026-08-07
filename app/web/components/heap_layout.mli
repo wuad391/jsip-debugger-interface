@@ -47,7 +47,13 @@ end
 module Head : sig
   type t =
     { root : Heap_scene.Root.t
-    ; y : float (** the header line's top, in world coordinates *)
+    ; x : float (** the structure's left edge, in world coordinates *)
+    ; y : float (** the header line's top *)
+    ; width : float
+    (** the room the structure was given. The header is often the widest part
+        of a structure and is drawn at a fixed world size, so the layout
+        reserves space for it — and the drawing cuts the text to this rather
+        than trusting the estimate that reserved it. *)
     }
 end
 
@@ -65,10 +71,30 @@ end
     mode, which grows single boxes past the global tier. *)
 val size : Heap_scene.Node.t -> tier:int -> float * float
 
-val compute : Heap_scene.Root.t list -> tier:int -> Tier_layout.t
+(** Which structures share a row, as indices into [roots]. A row is a width
+    BUDGET: [columns] says how many average-sized structures should fit
+    across, and each then takes the room it needs, so a tree twice the
+    average spans two slots' worth and its row wraps sooner.
 
-(** All four tiers at once — what everything below interpolates over. *)
-val all : Heap_scene.Root.t list -> Tier_layout.t array
+    Decided once and handed to every tier, because widths change with the
+    tier: a tier left to shelve for itself would put a structure on a
+    different row at each detail level, and since {!box_of} crossfades
+    between two tiers' layouts, mid-zoom the picture would be a blend of two
+    packings — structures sailing across their neighbours on the way. Held
+    fixed, the blend is exact and nothing ever overlaps. *)
+val shelves : Heap_scene.Root.t list -> columns:int -> int list list
+
+(** One tier's layout, over a {!shelves} assignment. Each row is as tall as
+    its tallest structure; indices the roots do not have are ignored. *)
+val compute
+  :  Heap_scene.Root.t list
+  -> tier:int
+  -> shelves:int list list
+  -> Tier_layout.t
+
+(** All four tiers at once, sharing one shelving — what everything below
+    interpolates over. *)
+val all : Heap_scene.Root.t list -> columns:int -> Tier_layout.t array
 
 (** The scale factors where each integer tier begins. *)
 val stops : float array

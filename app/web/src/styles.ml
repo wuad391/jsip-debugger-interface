@@ -33,7 +33,7 @@ let strip (theme : Theme.t) =
 let ticks (theme : Theme.t) =
   style
     [%string
-      "position:relative;display:flex;gap:1px;height:11px;padding:0 \
+      "position:relative;display:flex;gap:1px;height:13px;padding:0 \
        2px;background:%{theme.strip_bg};cursor:pointer"]
 ;;
 
@@ -105,21 +105,37 @@ let pane_meta (theme : Theme.t) =
   style [%string "color:%{theme.faint};font-size:12px"]
 ;;
 
-let pane_body = style "overflow-y:auto;overflow-x:hidden;padding:0 0 14px"
+(* [scrollbar-color] because the panes are the only scrollers on the page and
+   a browser left to itself paints them off the OS theme, not this one — a
+   black bar down the side of the light theme *)
+let pane_body (theme : Theme.t) =
+  style
+    [%string
+      "overflow-y:auto;overflow-x:hidden;padding:0 0 \
+       14px;scrollbar-width:thin;scrollbar-color:%{theme.separator} \
+       transparent"]
+;;
 
 (* ── call stack ── *)
 
-let stack_row (theme : Theme.t) ~selected ~stripe =
+(* Blue is where the replay IS, orange is what you are looking at — the same
+   pair the heap pane draws, so a box marked orange there and the call that
+   allocated it here are visibly one thing. Blue wins when they land on the
+   same row: the position is the stronger claim. *)
+let stack_row (theme : Theme.t) ~selected ~stripe ~aimed =
   let background =
-    match selected, stripe with
-    | true, (true | false) -> theme.selection_bg
-    | false, true -> theme.stripe_bg
-    | false, false -> "transparent"
+    match selected, aimed, stripe with
+    | true, (true | false), (true | false) -> theme.selection_bg
+    | false, true, (true | false) ->
+      Theme.mix theme.accent theme.bg ~amount:0.78
+    | false, false, true -> theme.stripe_bg
+    | false, false, false -> "transparent"
   in
   let border =
-    match selected with
-    | true -> theme.selection_border
-    | false -> "transparent"
+    match selected, aimed with
+    | true, (true | false) -> theme.selection_border
+    | false, true -> theme.accent
+    | false, false -> "transparent"
   in
   style
     [%string
@@ -139,11 +155,17 @@ let stack_registered (theme : Theme.t) = style [%string "color:%{theme.dim}"]
 
 (* ── source ── *)
 
-let source_line (theme : Theme.t) ~active =
+(* [aimed] is the orange reading of the same line: the source pane follows
+   whatever the orange mark points at, and the wash says which of the two
+   selections put it there — blue for where the replay is, orange for what
+   you clicked on in the heap. *)
+let source_line (theme : Theme.t) ~active ~aimed =
   let background, border =
-    match active with
-    | true -> theme.selection_bg, theme.selection_border
-    | false -> "transparent", "transparent"
+    match active, aimed with
+    | true, false -> theme.selection_bg, theme.selection_border
+    | true, true ->
+      Theme.mix theme.accent theme.bg ~amount:0.72, theme.accent
+    | false, (true | false) -> "transparent", "transparent"
   in
   style
     [%string
@@ -199,6 +221,80 @@ let heap_header (theme : Theme.t) =
 
 let heap_body = style "position:relative;min-height:0;overflow:hidden"
 
+(* the pane header's two readings of the same heap, side by side with the
+   title: one is always chosen, so they are tabs rather than a toggle *)
+let heap_title_group = style "display:flex;align-items:baseline;gap:14px"
+let heap_tabs = style "display:flex;align-items:baseline;gap:2px"
+
+let heap_tab (theme : Theme.t) ~selected =
+  let color, border =
+    match selected with
+    | true -> theme.accent, theme.accent
+    | false -> theme.faint, "transparent"
+  in
+  style
+    [%string
+      "padding:0 7px 2px;color:%{color};border-bottom:1px solid \
+       %{border};cursor:pointer;user-select:none;letter-spacing:.08em;font-size:12px"]
+;;
+
+(* ── heap outline ── *)
+
+(* over the canvas rather than instead of it: the widget owns the pane's
+   keyboard, so it stays mounted (and idle, since nothing marks it dirty)
+   under an opaque panel *)
+let outline_panel (theme : Theme.t) =
+  style
+    [%string
+      "position:absolute;inset:0;background:%{theme.bg};overflow:auto;padding:4px \
+       0 0;scrollbar-width:thin;scrollbar-color:%{theme.separator} \
+       transparent"]
+;;
+
+let outline_row (theme : Theme.t) ~selected ~current ~lead =
+  let background =
+    match selected with true -> theme.selection_bg | false -> "transparent"
+  in
+  let border =
+    match selected, current with
+    | true, (true | false) -> theme.selection_border
+    | false, true -> theme.accent
+    | false, false -> "transparent"
+  in
+  (* the breathing room between top-level structures, and never inside one *)
+  let lead = match lead with true -> "8px" | false -> "0" in
+  style
+    [%string
+      "display:flex;align-items:baseline;gap:8px;padding:0 12px 0 \
+       10px;margin-top:%{lead};border-left:3px solid \
+       %{border};background:%{background};cursor:pointer"]
+;;
+
+let outline_line = style "flex:1;min-width:0;white-space:pre-wrap"
+
+let outline_address (theme : Theme.t) =
+  style [%string "flex:none;color:%{theme.dim};font-size:12px"]
+;;
+
+let outline_glyph color =
+  style [%string "color:%{color};cursor:pointer;user-select:none"]
+;;
+
+let outline_empty (theme : Theme.t) =
+  style [%string "padding:10px 16px;color:%{theme.faint}"]
+;;
+
+(* what the colors mean, in the colors themselves — the outline speaks four
+   text registers plus a fade, which is past what a reader carries in from
+   other tools *)
+let outline_legend (theme : Theme.t) =
+  style
+    [%string
+      "position:sticky;bottom:0;display:flex;justify-content:flex-end;gap:14px;padding:5px \
+       14px 6px;margin-top:8px;background:%{theme.bg};border-top:1px solid \
+       %{theme.border};font-size:11.5px"]
+;;
+
 let hud (theme : Theme.t) =
   style
     [%string
@@ -209,6 +305,26 @@ let hud (theme : Theme.t) =
 
 let hud_zoom (theme : Theme.t) = style [%string "color:%{theme.text}"]
 let hud_model (theme : Theme.t) = style [%string "color:%{theme.accent}"]
+
+(* directly over the canvas's minimap, which stands 118px tall on a 14px
+   margin: the two read as one cluster of view controls in the corner *)
+let columns_panel (theme : Theme.t) =
+  style
+    [%string
+      "position:absolute;right:14px;bottom:146px;display:flex;align-items:center;gap:9px;padding:5px \
+       11px;background:%{theme.hud_bg};border:1px solid \
+       %{theme.panel_border};color:%{theme.dim};font-size:11.5px;white-space:nowrap;backdrop-filter:blur(3px)"]
+;;
+
+let columns_slider (theme : Theme.t) =
+  style
+    [%string
+      "width:104px;height:12px;margin:0;accent-color:%{theme.accent};background:transparent;cursor:pointer"]
+;;
+
+let columns_label (theme : Theme.t) =
+  style [%string "color:%{theme.text};min-width:58px"]
+;;
 
 let filter_overlay (theme : Theme.t) =
   style
@@ -241,10 +357,16 @@ let flame_drawer (theme : Theme.t) ~open_ =
        1fr;min-height:0"]
 ;;
 
-let flame_body = style "position:relative;overflow-y:auto;min-height:0"
+let flame_body (theme : Theme.t) =
+  style
+    [%string
+      "position:relative;overflow-y:auto;min-height:0;scrollbar-width:thin;scrollbar-color:%{theme.separator} \
+       transparent"]
+;;
+
 let flame_rows ~height = style [%string "position:relative;height:%{height}"]
 
-let flame_bar ~x ~width ~bottom ~fill ~ink ~lit ~deepest =
+let flame_bar ~x ~width ~bottom ~height ~fill ~ink ~lit ~deepest =
   let weight = match deepest with true -> "700" | false -> "400" in
   let mark =
     match lit with
@@ -253,15 +375,15 @@ let flame_bar ~x ~width ~bottom ~fill ~ink ~lit ~deepest =
   in
   style
     [%string
-      "position:absolute;left:%{x}px;width:%{width}px;bottom:%{bottom}px;height:17px;background:%{fill};color:%{ink};%{mark}font-size:11px;font-weight:%{weight};overflow:hidden;white-space:nowrap;text-overflow:clip;padding:1px \
-       3px 0;cursor:pointer;box-sizing:border-box"]
+      "position:absolute;left:%{x}px;width:%{width}px;bottom:%{bottom}px;height:%{height}px;background:%{fill};color:%{ink};%{mark}display:flex;align-items:center;font-size:12px;font-weight:%{weight};overflow:hidden;white-space:nowrap;text-overflow:clip;padding:0 \
+       4px;cursor:pointer;box-sizing:border-box"]
 ;;
 
-let flame_pool (theme : Theme.t) ~x ~width ~bottom =
+let flame_pool (theme : Theme.t) ~x ~width ~bottom ~height =
   style
     [%string
-      "position:absolute;left:%{x}px;width:%{width}px;bottom:%{bottom}px;height:17px;background:transparent;color:%{theme.faint};font-size:11px;padding:1px \
-       3px 0;white-space:nowrap;box-sizing:border-box"]
+      "position:absolute;left:%{x}px;width:%{width}px;bottom:%{bottom}px;height:%{height}px;background:transparent;color:%{theme.faint};display:flex;align-items:center;font-size:12px;padding:0 \
+       4px;white-space:nowrap;box-sizing:border-box"]
 ;;
 
 (* ── session bar ── *)

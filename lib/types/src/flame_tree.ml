@@ -158,10 +158,21 @@ let metrics_table ~(calls : Call.t array) ~profile =
     Map.map counts ~f:(fun (count, (info : Call.Info.t)) ->
       ( count
       , Option.bind profile ~f:(fun profile ->
-          Heat_profile.share
-            profile
-            ~function_info:info.function_info
-            ~location:info.location) ))
+          match
+            Heat_profile.share
+              profile
+              ~function_info:info.function_info
+              ~location:info.location
+          with
+          | Some share -> Some share
+          (* what the call's FILE cost, when the profile cannot name the
+             function itself. Without this a drawer full of instrumented
+             expressions — which is what a dump of bindings inside functions
+             is — comes back entirely unmatched the moment a profile is
+             loaded, and every bar draws in the neutral "no data" color: the
+             flame got LESS informative for having a profile. *)
+          | None -> Heat_profile.file_share profile ~location:info.location)
+      ))
   in
   (* the cost of an average sampled call, over the matched functions only: an
      unmatched one has no share to contribute and must not dilute the

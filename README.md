@@ -274,12 +274,26 @@ its subtree earned; the gaps are exposed self time.)
 ## Run it
 
 ```sh
+dune exec app/bin/main.exe -- \
+  -dump-file examples/order_book/order_book.dump \
+  -perf-file examples/order_book/heat.sexp
+```
+
+That is `examples/order_book` — a limit order book with price-time
+priority, built out of Core the way a real one is, with its dump and its
+perf profile vendored beside it (see `examples/README.md`). Five
+container kinds work on one set of `order` records, and every one of them
+holds the *same* records, so the heap pane draws each order once and
+points at it from the three places it appears. Neither flag needs a
+`-source-root`: the dump's paths are relative and resolve from here.
+
+```sh
 dune exec app/bin/main.exe -- -dump-file testing/expected/map_nested.dump
 ```
 
 `testing/` holds golden dumps of real `-visual-replay` runs, vendored
 verbatim from the compiler repo (see `testing/README.md`) — any of them
-replays. For **structure sharing**, replay `map_spine_sharing` and step
+replays, and each is aimed at one case rather than at being read. For **structure sharing**, replay `map_spine_sharing` and step
 to the end: a five-binding map sits above the version one more `add`
 returned, and the two `↗` rows among that version's bindings are the
 subtrees `add` did not rebuild. Aim at one with `↓` and the row it names,
@@ -319,9 +333,15 @@ js_of_ocaml build of the app; the browser fetches the dump and parses it
 with exactly the readers the TUI uses.
 
 The stack, source, timeline and flame drawer are the TUI's panes in HTML.
-The heap pane replaces the outline with the diagram itself — every live
-structure as its physical tree of boxes, `∅` boxes for empty slots,
-dashed `↗` boxes where a node is already drawn — on a canvas with
+The heap pane carries both readings of the heap, as tabs in its header:
+**DIAGRAM**, the default, and **OUTLINE**. `v` switches between them, and
+they share everything that shapes what is drawn — the folds, the `/`
+filter, `o` order, `z` accordion — so switching changes the drawing and
+never the subject.
+
+**DIAGRAM** is every live structure as its physical tree of boxes, `∅`
+boxes for empty slots, dashed `↗` boxes where a node is already drawn —
+on a canvas with
 **semantic zoom**: the wheel moves through four detail tiers (postage
 stamp → label → fields → machine words, `@` address, header word, tagged
 ints) and geometry crossfades between tier layouts while content
@@ -330,6 +350,22 @@ double-click dives into a box, double-click on empty space refits, drag
 pans, and the minimap in the corner drags too. `m` flips between uniform
 detail and a focal mode where boxes near the pointer grow while the rest
 stay small.
+
+The structures pack into a grid rather than a single column — the
+browser is much wider than one tree. The slider above the minimap sets
+how many stand side by side (1–6, three by default); moving it reflows
+and refits, since the arrangement it was framing has moved.
+
+**OUTLINE** is the terminal's own reading of that same heap, in HTML:
+one indented row per binding or element, guides down the tree, plumbing
+blocks (a bucket array, a wrapper record) spliced out, a structure
+referenced from another listed inside its referrer with its own name and
+verdict, `↗` where a block is already listed, and each structure's row
+sized in nodes and bytes. `▾`/`▸` folds a row's subtree and `⋯ n` counts
+what a fold hides — the same boxes the diagram folds. Clicking a row is
+clicking its box: the replay jumps to where it was allocated and pins it
+blue, and the pinned row spells out its address. The pane's own legend
+sits at the bottom, and stepping keeps the walked structure on screen.
 
 Everything from the terminal carries over: `←`/`→` step (`space` plays,
 the strip up top scrubs), clicking a box jumps to its allocation step

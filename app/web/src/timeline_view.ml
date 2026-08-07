@@ -23,19 +23,32 @@ let fraction_of_click (event : Dom_html.mouseEvent Js.t) =
           | true -> Some ((Js.to_float event##.clientX -. left) /. width)))
 ;;
 
-(* position is the bright/dim boundary itself: played segments at full
-   strength, the future sunk toward the surface — a separate needle on top of
-   that read as a second, disagreeing cursor *)
-let ticks ~theme ~segments ~step ~total ~inject =
+(* Position is the boundary between the two halves of the strip, capped by
+   the segment it stands in — a separate needle floating over that read as a
+   second, disagreeing cursor.
+
+   Behind the position the strip is one flat blue: how far in you are is a
+   LENGTH, and shading it by density made the answer depend on what the run
+   happened to allocate. Ahead of it the density shape survives, sunk toward
+   the strip — that is the part worth previewing. *)
+let future_sink = 0.74
+
+let ticks ~(theme : Theme.t) ~segments ~step ~total ~inject =
   let count = Array.length segments in
   let played = Timeline_model.played ~total ~step ~segments:count in
+  let cursor = Timeline_model.cursor ~total ~step ~segments:count in
   let cells =
     List.init count ~f:(fun index ->
       let value = segments.(index) in
       let color =
-        match index < played with
-        | true -> Theme.heat_color theme value
-        | false -> Theme.heat_color theme (value *. 0.32)
+        match index = cursor, index < played with
+        | true, (true | false) -> theme.accent_bright
+        | false, true -> theme.progress
+        | false, false ->
+          Theme.mix
+            (Theme.heat_color theme value)
+            theme.strip_bg
+            ~amount:future_sink
       in
       {%html|<div %{Styles.tick color}></div>|})
   in
@@ -94,7 +107,7 @@ let hints
          | true -> "[space] pause"
          | false -> "[space] play")
         Action.Toggle_play
-    ; chip ". latest" Action.Focus_latest
+    ; chip ". focus" Action.Focus_latest
     ; chip ~lit:accordion "z accordion" Action.Toggle_accordion
     ; chip ~lit:sort_by_address "o by address" Action.Toggle_address_order
     ; chip ~lit:typing_filter "/ filter" Action.Begin_filter
