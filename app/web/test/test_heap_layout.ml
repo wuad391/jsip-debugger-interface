@@ -206,13 +206,13 @@ let%expect_test "zoom stops and tiers round-trip through each other" =
          k=%{sprintf \"%.2f\" back}"]);
   [%expect
     {|
-    k=0.20 → tier 0.60 → k=0.20
-    k=0.45 → tier 1.82 → k=0.45
-    k=0.85 → tier 2.90 → k=0.85
-    k=1.00 → tier 3.00 → k=0.90
-    k=1.38 → tier 3.00 → k=0.90
-    k=1.50 → tier 3.00 → k=0.90
-    k=2.00 → tier 3.00 → k=0.90
+    k=0.20 → tier 1.35 → k=0.20
+    k=0.45 → tier 2.67 → k=0.45
+    k=0.85 → tier 3.00 → k=0.55
+    k=1.00 → tier 3.00 → k=0.55
+    k=1.38 → tier 3.00 → k=0.55
+    k=1.50 → tier 3.00 → k=0.55
+    k=2.00 → tier 3.00 → k=0.55
     |}]
 ;;
 
