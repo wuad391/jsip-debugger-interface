@@ -126,8 +126,11 @@ let stack_row (theme : Theme.t) ~selected ~stripe ~aimed =
   let background =
     match selected, aimed, stripe with
     | true, (true | false), (true | false) -> theme.selection_bg
+    (* as strong a wash as the blue one. Sunk 78% toward the background it
+       came out at #38281e — the same weight as the zebra stripe, which is
+       what a row wears for being ODD. A selection has to outrank that. *)
     | false, true, (true | false) ->
-      Theme.mix theme.accent theme.bg ~amount:0.78
+      Theme.mix theme.accent theme.bg ~amount:0.45
     | false, false, true -> theme.stripe_bg
     | false, false, false -> "transparent"
   in
@@ -164,7 +167,7 @@ let source_line (theme : Theme.t) ~active ~aimed =
     match active, aimed with
     | true, false -> theme.selection_bg, theme.selection_border
     | true, true ->
-      Theme.mix theme.accent theme.bg ~amount:0.72, theme.accent
+      Theme.mix theme.accent theme.bg ~amount:0.45, theme.accent
     | false, (true | false) -> "transparent", "transparent"
   in
   style

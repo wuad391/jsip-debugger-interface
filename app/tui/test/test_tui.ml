@@ -480,7 +480,7 @@ let%expect_test "heap pane: a Core hash queue chains through its elements" =
     ├─   v  "a" → 1
     ├─   v  "b" → 2
     ├─   v  "c" → 3  new
-    └─   ↗ null
+    └─   ↗ none
 
 
 

@@ -50,8 +50,8 @@ open Jsip_types
 open Jsip_replay
 
 (** The pieces a row's value is made of, so the view decides colors once.
-    Text is already flattened to one line; [Arrow], [Null] and [Gap] are the
-    outline's own punctuation and carry their spacing with them. *)
+    Text is already flattened to one line; [Arrow], [Nothing] and [Gap] are
+    the outline's own punctuation and carry their spacing with them. *)
 module Span : sig
   module Kind : sig
     type t =
@@ -59,7 +59,7 @@ module Span : sig
       | Value
       | Label (** a field label, [length ] or [tl=] *)
       | Arrow
-      | Null (** the wire had nothing to say — spelled out, not dotted *)
+      | Nothing (** the wire had nothing to say — spelled out, not dotted *)
       | Gap (** the two spaces between a record's fields *)
     [@@deriving sexp_of, equal]
   end

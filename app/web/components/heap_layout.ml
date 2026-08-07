@@ -362,7 +362,7 @@ let all roots ~columns =
    drawn at a size that reads at HALF scale: the machine-word tier is fully
    grown by 90%, and a box carrying its fields arrives at half that. Deep
    detail should not cost deep zoom. *)
-let stops = [| 0.12; 0.28; 0.5; 0.9 |]
+let stops = [| 0.07; 0.16; 0.3; 0.55 |]
 
 let tier_for ~k =
   let lk = Float.log k in

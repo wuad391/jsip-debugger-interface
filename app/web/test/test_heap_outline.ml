@@ -164,7 +164,7 @@ let%expect_test "a Core hash queue chains through its elements" =
     ├─   v  "a" → 1
     ├─   v  "b" → 2
     ├─   v  "c" → 3  new   [new]
-    └─   ↗ null   [pointer]
+    └─   ↗ none   [pointer]
     |}]
 ;;
 

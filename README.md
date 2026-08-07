@@ -136,7 +136,7 @@ its subtree earned; the gaps are exposed self time.)
   on the line below. Closures and other undecoded blocks print as
   `⟨0x…⟩`, and a row the wire left with nothing at all to say — an empty
   container's one entry, a revisit stub the registry could not resolve —
-  reads `null`, spelled out so it cannot be mistaken for a value. A row
+  reads `none`, spelled out so it cannot be mistaken for a value. A row
   allocated *at this step* carries a green `new` tag. The pane speaks
   four text registers — names bright, types in the calm blue, values in
   the warm orange, sizes faint — plus the fade, which is more than a

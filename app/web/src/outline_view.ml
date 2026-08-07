@@ -28,7 +28,7 @@ let span_color (theme : Theme.t) (kind : Heap_outline.Span.Kind.t) =
   | Value -> theme.node_value
   | Label -> theme.node_key
   | Arrow -> theme.node_key
-  | Null -> theme.edge_label
+  | Nothing -> theme.edge_label
   | Gap -> theme.text
 ;;
 
@@ -50,13 +50,13 @@ let row_pieces (theme : Theme.t) (row : Heap_outline.Row.t) ~dim =
       ~f:(fun ((kind : Heap_outline.Span.Kind.t), text) ->
         let italic =
           match kind with
-          | Null -> true
+          | Nothing -> true
           | Key | Value | Label | Arrow | Gap -> false
         in
         let bold =
           match kind with
           | Key -> true
-          | Value | Label | Arrow | Null | Gap -> false
+          | Value | Label | Arrow | Nothing | Gap -> false
         in
         piece ~italic ~bold (span_color theme kind) text)
   in
