@@ -11,7 +11,7 @@
         (fn (Function_name M.add))
         (args ((No_label (expression (Unnamed "\"a\"")))
                (No_label (expression (Unnamed m)))))
-        (registry ((1 0x7f08c0e0 m)))
+        (registry_delta ((upserts ((1 0x7f08c0e0 m))) (drops ())))
         (ty ((printed "int M.t") (params ((key string) (data int)))))
         (snapshot ((ds_type Map) (root_node ...))))
     ]}
@@ -38,9 +38,18 @@ type t =
       source text, even a bare identifier, so [Function_name] never appears
       here. An argument the application was abstracted over reads
       ["OMITTED"]. *)
-  ; registry : Registry_entry.t list
-  (** the live weak registry at event time — ids, current addresses, and
-      latest observed variable names *)
+  ; registry : Registry_entry.t list option [@sexp.option]
+  (** the live weak registry at event time, whole — ids, current addresses,
+      and latest observed variable names. Dumps up to compiler PR #23 state
+      it on every event; the delta wire that replaced it leaves it [None].
+      Exactly one of this and [registry_delta] is present on a well-formed
+      event ({!Dump_reader} enforces it; a transitional compiler emitting
+      both is read by this field, the two being equal by construction). *)
+  ; registry_delta : Registry_delta.t option [@sexp.option]
+  (** the same registry as a change against the previous event — upserts and
+      drops, {!Jsip_types.Registry_delta} — which is all the wire carries
+      since re-stating every entry per event was measured at 90% of a real
+      dump's bytes. [None] on dumps predating the delta. *)
   ; ty : Type_info.t option [@sexp.option]
   (** the static type of this event's walked root; [None] on dumps from a
       compiler predating the field *)
@@ -61,5 +70,13 @@ type t =
 val of_string : string -> t Or_error.t
 
 (** The same event under the interface's own field names, at the nesting
-    [depth] the line's [{}] markers put it at. *)
-val to_call_info : t -> depth:int -> Call.Info.t
+    [depth] the line's [{}] markers put it at. [registry] is the event's FULL
+    live registry: the caller resolves it from the wire's own [registry]
+    field or by folding [registry_delta] into the previous event's —
+    {!Dump_reader} owns that fold — so [Call.Info.t] always carries whole
+    registries, never deltas. *)
+val to_call_info
+  :  t
+  -> depth:int
+  -> registry:Registry_entry.t list
+  -> Call.Info.t

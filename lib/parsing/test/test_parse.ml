@@ -20,6 +20,9 @@ let all_fixtures =
   ; "core_queue_wrap"
   ; "core_set_basic"
   ; "core_stack_basic"
+  ; "delta_map_basic"
+  ; "delta_map_registry_gc"
+  ; "delta_map_versions"
   ; "dynarray_basic"
   ; "hashtbl_basic"
   ; "map_alias_open"
@@ -185,6 +188,9 @@ let%expect_test "every golden dump parses end to end" =
     core_queue_wrap: 8 events
     core_set_basic: 3 events
     core_stack_basic: 5 events
+    delta_map_basic: 3 events
+    delta_map_registry_gc: 2 events
+    delta_map_versions: 5 events
     dynarray_basic: 5 events
     hashtbl_basic: 6 events
     map_alias_open: 1 events
@@ -274,5 +280,113 @@ let%expect_test "a dump that does not return to depth 0 is rejected" =
     {|
     (Error
      ((line_number 3) ("dump does not return to depth 0" (depth -1) (line }}))))
+    |}]
+;;
+
+(* ---- the delta wire: (registry_delta ((upserts ...) (drops ...))) ---- *)
+
+(* a minimal event line whose registry portion is [fields]; everything else
+   is constant so the tests read as registry stories *)
+let delta_event ~id ~fields =
+  {|(event (id |}
+  ^ Int.to_string id
+  ^ {|) (loc ((file_path t.ml) (line_number 1) (char_range (0 1)))) |}
+  ^ {|(fn (Function_name M.add)) (args ()) |}
+  ^ fields
+  ^ {| (snapshot ((ds_type Map) (root_node ((id |}
+  ^ Int.to_string id
+  ^ {|) (virtual_address 0x10) (block ()) (children ()))))))|}
+;;
+
+let show_registries dump =
+  match Dump_reader.parse dump with
+  | Error error -> print_s [%sexp (error : Error.t)]
+  | Ok infos ->
+    Queue.iter infos ~f:(fun (info : Call.Info.t) ->
+      print_s [%sexp (info.registry : Registry_entry.t list)])
+;;
+
+let%expect_test "deltas fold to each event's whole registry" =
+  (* upsert = appear, re-address, or rename, keeping first-upsert order; drop
+     = disappear. The folded lists are what the full echoes said. *)
+  let dump =
+    String.concat
+      ~sep:"\n"
+      [ delta_event
+          ~id:1
+          ~fields:{|(registry_delta ((upserts ((1 0x10 m))) (drops ())))|}
+      ; delta_event
+          ~id:2
+          ~fields:{|(registry_delta ((upserts ((2 0x20))) (drops ())))|}
+        (* id 1 moves and renames in place; id 2 drops *)
+      ; delta_event
+          ~id:3
+          ~fields:
+            {|(registry_delta ((upserts ((1 0x30 q) (3 0x40 r))) (drops (2))))|}
+      ]
+  in
+  show_registries dump;
+  [%expect
+    {|
+    ((1 0x10 m))
+    ((1 0x10 m) (2 0x20))
+    ((1 0x30 q) (3 0x40 r))
+    |}]
+;;
+
+let%expect_test "a full registry still reads, and resets the fold" =
+  (* dumps up to compiler PR #23 state the whole registry per event; a
+     transitional compiler emits both forms at once and the full echo wins,
+     with later deltas folding on from it *)
+  let dump =
+    String.concat
+      ~sep:"\n"
+      [ delta_event ~id:1 ~fields:{|(registry ((1 0x10 m)))|}
+      ; delta_event
+          ~id:2
+          ~fields:
+            ({|(registry ((1 0x10 m) (2 0x20))) |}
+             ^ {|(registry_delta ((upserts ((9 0x90))) (drops ())))|})
+      ; delta_event
+          ~id:3
+          ~fields:{|(registry_delta ((upserts ((3 0x30))) (drops (1))))|}
+      ]
+  in
+  show_registries dump;
+  [%expect
+    {|
+    ((1 0x10 m))
+    ((1 0x10 m) (2 0x20))
+    ((2 0x20) (3 0x30))
+    |}]
+;;
+
+let%expect_test "an event with neither registry form is rejected" =
+  show_registries
+    (delta_event ~id:1 ~fields:{|(ty ((printed t) (params ())))|});
+  [%expect
+    {|
+    ((line_number 1)
+     ("event carries neither registry nor registry_delta" (event_id 1)))
+    |}]
+;;
+
+let%expect_test "the delta fixtures fold like their full-echo twins" =
+  (* real output of the delta-emitting compiler branch (see
+     testing/README.md): registry_gc drops the collected map (drops (1)),
+     versions drops three of its five (drops (1 2 4)) *)
+  List.iter [ "delta_map_registry_gc"; "delta_map_versions" ] ~f:(fun name ->
+    let infos = Dump_reader.read (fixture name) |> Or_error.ok_exn in
+    let last = Queue.last_exn infos in
+    print_s
+      [%message
+        name
+          ~events:(Queue.length infos : int)
+          ~final_registry:(last.registry : Registry_entry.t list)]);
+  [%expect
+    {|
+    (delta_map_registry_gc (events 2) (final_registry ((2 0x7d690adfffd8))))
+    (delta_map_versions (events 5)
+     (final_registry ((7 0x71786561aa68) (11 0x7178555fff48))))
     |}]
 ;;
